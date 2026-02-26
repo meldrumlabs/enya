@@ -431,6 +431,16 @@ impl Workspace {
         self.add_logs_pane_with_backend(start_ns, end_ns, LogsBackend::Loki(loki_url.into()))
     }
 
+    /// Add a logs pane connected to the OTLP in-memory store.
+    pub(super) fn add_otlp_logs_pane(
+        &mut self,
+        start_ns: i64,
+        end_ns: i64,
+        store: std::sync::Arc<enya_client::otlp::TelemetryStore>,
+    ) -> Option<TileId> {
+        self.add_logs_pane_with_backend(start_ns, end_ns, LogsBackend::Otlp(store))
+    }
+
     /// Add a logs pane with a specific backend.
     fn add_logs_pane_with_backend(
         &mut self,
@@ -441,6 +451,8 @@ impl Workspace {
         let backend_name = match &backend {
             LogsBackend::Demo => "demo".to_string(),
             LogsBackend::Loki(url) => format!("loki@{url}"),
+            LogsBackend::Otlp(_) => "otlp".to_string(),
+            LogsBackend::OtlpHttp(url) => format!("otlp@{url}"),
         };
 
         let pane: Box<dyn Component> = Box::new(LogsPane::with_backend(start_ns, end_ns, backend));
@@ -642,6 +654,8 @@ impl Workspace {
                     // Create logs pane with appropriate backend
                     let tile_id = if let Some(url) = loki_url {
                         self.add_loki_pane(start_ns, end_ns, url)
+                    } else if let Some(store) = self.telemetry_store.clone() {
+                        self.add_otlp_logs_pane(start_ns, end_ns, store)
                     } else {
                         self.add_logs_pane(start_ns, end_ns)
                     };

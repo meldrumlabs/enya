@@ -1,6 +1,7 @@
 //! Types for representing distributed traces from Grafana Tempo.
 
 use rustc_hash::{FxHashMap, FxHashSet};
+use serde::{Deserialize, Serialize};
 
 /// Unique identifier for a trace (typically 32-character hex string).
 pub type TraceId = String;
@@ -9,7 +10,7 @@ pub type TraceId = String;
 pub type SpanId = String;
 
 /// A complete distributed trace containing multiple spans.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Trace {
     /// The unique trace identifier.
     pub trace_id: TraceId,
@@ -115,7 +116,7 @@ fn compute_span_depths(spans: &[Span]) -> FxHashMap<String, usize> {
 }
 
 /// A single span within a trace.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Span {
     /// Unique span identifier.
     pub span_id: SpanId,
@@ -160,7 +161,7 @@ pub fn format_duration_us(us: u64) -> String {
 }
 
 /// Status of a span.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum SpanStatus {
     /// The operation completed successfully.
     #[default]
@@ -172,7 +173,7 @@ pub enum SpanStatus {
 }
 
 /// A log event within a span.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SpanLog {
     /// Timestamp as Unix timestamp in microseconds.
     pub timestamp_us: u64,
@@ -181,7 +182,7 @@ pub struct SpanLog {
 }
 
 /// Summary of a trace for search results.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TraceSummary {
     /// The trace identifier.
     pub trace_id: TraceId,
@@ -200,7 +201,7 @@ pub struct TraceSummary {
 }
 
 /// Parameters for searching traces.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct TraceSearchParams {
     /// Filter by service name.
     pub service_name: Option<String>,

@@ -291,6 +291,56 @@ impl Workspace {
             }
         }
 
+        // 3. Poll tracing panes that need refresh (trace loading)
+        if self.tracing_client.is_some() {
+            use crate::components::TracingPane;
+
+            // Check for tracing panes that need a trace loaded
+            let mut trace_to_fetch: Option<String> = None;
+            for tile_id in self.get_pane_tile_ids() {
+                if let Some(egui_tiles::Tile::Pane(component)) =
+                    self.viewport_tree.tiles.get_mut(tile_id)
+                {
+                    if let Some(tracing_pane) = component.as_any_mut().downcast_mut::<TracingPane>()
+                    {
+                        if let Some(trace_id) = tracing_pane.trace_id_to_load() {
+                            trace_to_fetch = Some(trace_id.to_string());
+                            tracing_pane.set_loading(true);
+                            tracing_pane.clear_refresh();
+                            break;
+                        }
+                    }
+                }
+            }
+
+            // Issue the fetch if needed
+            if let (Some(trace_id), Some(client)) = (trace_to_fetch, &self.tracing_client) {
+                self.trace_manager
+                    .fetch_trace(client.as_ref(), &trace_id, ctx);
+            }
+
+            // Deliver completed trace results
+            if let Some(result) = self.trace_manager.poll_trace() {
+                for tile_id in self.get_pane_tile_ids() {
+                    if let Some(egui_tiles::Tile::Pane(component)) =
+                        self.viewport_tree.tiles.get_mut(tile_id)
+                    {
+                        if let Some(tracing_pane) =
+                            component.as_any_mut().downcast_mut::<TracingPane>()
+                        {
+                            if tracing_pane.is_loading() {
+                                match &result {
+                                    Ok(trace) => tracing_pane.set_trace(trace.clone()),
+                                    Err(e) => tracing_pane.set_error(e.to_string()),
+                                }
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         notification_action
     }
 

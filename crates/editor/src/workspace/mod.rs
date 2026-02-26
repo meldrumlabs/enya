@@ -369,6 +369,17 @@ pub struct Workspace {
     custom_gauge_data: FxHashMap<String, GaugePaneData>,
     /// Last refresh time for plugin panes (by pane type name)
     plugin_pane_last_refresh: FxHashMap<String, crate::util::Instant>,
+
+    // ==================== OTLP Telemetry ====================
+    /// Shared in-memory telemetry store for OTLP datasource.
+    /// Set when the daemon has `[otlp] enabled = true`. Used by OTLP logs/tracing panes.
+    telemetry_store: Option<std::sync::Arc<enya_client::otlp::TelemetryStore>>,
+
+    // ==================== Tracing Backend ====================
+    /// Client for fetching distributed traces (Tempo, OTLP HTTP, or in-process OTLP).
+    tracing_client: Option<std::sync::Arc<dyn enya_client::tracing::TracingClient + Send + Sync>>,
+    /// Manager for in-flight trace fetch/search requests.
+    trace_manager: enya_client::tracing::TraceManager,
 }
 
 impl Workspace {
@@ -488,6 +499,11 @@ impl Workspace {
             custom_gauge_configs: FxHashMap::default(),
             custom_gauge_data: FxHashMap::default(),
             plugin_pane_last_refresh: FxHashMap::default(),
+            // OTLP telemetry store
+            telemetry_store: None,
+            // Tracing backend
+            tracing_client: None,
+            trace_manager: enya_client::tracing::TraceManager::new(),
         };
 
         // Eagerly warm up the agent subprocess at app startup so the first
@@ -516,6 +532,22 @@ impl Workspace {
     /// Clear active theme colors (when no custom plugin theme is active)
     pub fn clear_active_colors(&mut self) {
         self.active_colors = None;
+    }
+
+    /// Set the shared OTLP telemetry store.
+    ///
+    /// When set, workspaces configured with `backend = "otlp"` will read
+    /// traces and logs from this in-memory store.
+    pub fn set_telemetry_store(
+        &mut self,
+        store: std::sync::Arc<enya_client::otlp::TelemetryStore>,
+    ) {
+        self.telemetry_store = Some(store);
+    }
+
+    /// Get the shared OTLP telemetry store (if available).
+    pub fn telemetry_store(&self) -> Option<&std::sync::Arc<enya_client::otlp::TelemetryStore>> {
+        self.telemetry_store.as_ref()
     }
 
     /// Get the effective theme for rendering.

@@ -207,7 +207,7 @@ pub struct WorkspaceConfig {
     #[serde(default, skip_serializing_if = "LogsConfig::is_empty")]
     pub logs: LogsConfig,
 
-    /// Tracing (Tempo) connection settings
+    /// Tracing (Tempo/OTLP) connection settings
     #[serde(default, skip_serializing_if = "TracingConfig::is_empty")]
     pub tracing: TracingConfig,
 
@@ -302,37 +302,11 @@ impl MetricsConfig {
 /// Backward compatibility alias
 pub type ConnectionConfig = MetricsConfig;
 
-/// Tracing (Tempo) connection configuration
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct TracingConfig {
-    /// Tempo API endpoint URL (e.g., "https://tempo.example.com")
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub endpoint: String,
-
-    /// API key (optional - often omitted for security, loaded from env instead)
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub api_key: String,
-}
-
-impl TracingConfig {
-    /// Check if this config has any settings
-    pub fn is_empty(&self) -> bool {
-        self.endpoint.is_empty() && self.api_key.is_empty()
-    }
-
-    /// Create a new tracing config with an endpoint
-    pub fn with_endpoint(endpoint: impl Into<String>) -> Self {
-        Self {
-            endpoint: endpoint.into(),
-            api_key: String::new(),
-        }
-    }
-}
-
-/// Logs (Loki) connection configuration
+/// Logs (Loki/OTLP) connection configuration
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct LogsConfig {
-    /// Loki API endpoint URL (e.g., "https://loki.example.com")
+    /// Logs backend endpoint URL (e.g., "https://loki.example.com").
+    /// For OTLP backend, this can be omitted (uses the local in-memory store).
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub endpoint: String,
 
@@ -343,12 +317,25 @@ pub struct LogsConfig {
     /// Default LogQL query (optional)
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub default_query: String,
+
+    /// Backend type: "loki" (default) or "otlp".
+    /// When "otlp", logs are read from the agent's in-memory OTLP store.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub backend: String,
 }
 
 impl LogsConfig {
     /// Check if this config has any settings
     pub fn is_empty(&self) -> bool {
-        self.endpoint.is_empty() && self.api_key.is_empty() && self.default_query.is_empty()
+        self.endpoint.is_empty()
+            && self.api_key.is_empty()
+            && self.default_query.is_empty()
+            && self.backend.is_empty()
+    }
+
+    /// Check if this is configured to use the OTLP backend.
+    pub fn is_otlp(&self) -> bool {
+        self.backend == "otlp"
     }
 
     /// Create a new logs config with an endpoint
@@ -357,6 +344,7 @@ impl LogsConfig {
             endpoint: endpoint.into(),
             api_key: String::new(),
             default_query: String::new(),
+            backend: String::new(),
         }
     }
 
@@ -364,6 +352,32 @@ impl LogsConfig {
     pub fn with_default_query(mut self, query: impl Into<String>) -> Self {
         self.default_query = query.into();
         self
+    }
+}
+
+/// Tracing (Tempo/OTLP) connection configuration
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct TracingConfig {
+    /// Tracing backend endpoint URL (e.g., "http://tempo:3200").
+    /// For OTLP backend, this can be omitted (uses the local in-memory store).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub endpoint: String,
+
+    /// Backend type: "tempo" (default) or "otlp".
+    /// When "otlp", traces are read from the agent's in-memory OTLP store.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub backend: String,
+}
+
+impl TracingConfig {
+    /// Check if this config has any settings.
+    pub fn is_empty(&self) -> bool {
+        self.endpoint.is_empty() && self.backend.is_empty()
+    }
+
+    /// Check if this is configured to use the OTLP backend.
+    pub fn is_otlp(&self) -> bool {
+        self.backend == "otlp"
     }
 }
 
@@ -1010,8 +1024,9 @@ impl WorkspaceConfig {
             "logs.endpoint" => self.logs.endpoint.as_str(),
             "logs.api_key" => self.logs.api_key.as_str(),
             "logs.default_query" => self.logs.default_query.as_str(),
+            "logs.backend" => self.logs.backend.as_str(),
             "tracing.endpoint" => self.tracing.endpoint.as_str(),
-            "tracing.api_key" => self.tracing.api_key.as_str(),
+            "tracing.backend" => self.tracing.backend.as_str(),
             "git.url" => self.git.url.as_str(),
             "git.branch" => self.git.branch.as_str(),
             "git.language" => self.git.language.as_str(),

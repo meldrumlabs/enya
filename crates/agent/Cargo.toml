@@ -19,6 +19,7 @@ serve = [
     "dep:rusqlite",
     "dep:parking_lot",
     "dep:tower-http",
+    "dep:enya-client",
 ]
 
 [dependencies]
@@ -31,6 +32,7 @@ tracing = { workspace = true }
 thiserror = "2"
 
 # Serve dependencies (optional, enabled by "serve" feature)
+enya-client = { workspace = true, optional = true }
 axum = { workspace = true, features = ["macros", "json", "query"], optional = true }
 tokio = { workspace = true, features = ["full"], optional = true }
 rust-embed = { workspace = true, features = ["compression"], optional = true }

@@ -8,7 +8,7 @@ use std::sync::Arc;
 use axum::extract::{Path, Query, Request, State};
 use axum::http::{StatusCode, Uri, header};
 use axum::response::{IntoResponse, Redirect, Response};
-use axum::routing::{any, get};
+use axum::routing::{any, get, post};
 use axum::{Json, Router};
 use base64::Engine;
 use enya_config::{Config, WorkspaceConfig, enya_dir, resolve_workspace_path};
@@ -41,6 +41,8 @@ pub(crate) struct ServeState {
     http_client: reqwest::Client,
     /// SQLite database for persistent agent state
     db: Arc<Db>,
+    /// In-memory OTLP telemetry store (None if OTLP receiver is disabled).
+    telemetry_store: Option<Arc<enya_client::otlp::TelemetryStore>>,
 }
 
 // -- Server startup --
@@ -97,6 +99,23 @@ pub fn run(workspace: Option<&str>, port: u16, bind: &str, open: bool) -> Result
     let db = Db::open(&db_path)
         .map_err(|e| crate::Error::Config(format!("failed to open database: {e}")))?;
 
+    // 5b. Create OTLP telemetry store if enabled
+    let telemetry_store = if config.otlp.enabled {
+        info!(
+            max_traces = config.otlp.max_traces,
+            max_log_entries = config.otlp.max_log_entries,
+            "OTLP receiver enabled"
+        );
+        Some(enya_client::otlp::TelemetryStore::new(
+            enya_client::otlp::StoreConfig {
+                max_traces: config.otlp.max_traces,
+                max_log_entries: config.otlp.max_log_entries,
+            },
+        ))
+    } else {
+        None
+    };
+
     // 6. Build state
     let state = ServeState {
         upstream_url,
@@ -104,6 +123,7 @@ pub fn run(workspace: Option<&str>, port: u16, bind: &str, open: bool) -> Result
         workspace_param,
         http_client: reqwest::Client::new(),
         db: Arc::new(db),
+        telemetry_store,
     };
 
     // 7. Log startup info
@@ -165,6 +185,15 @@ fn router(state: ServeState) -> Router {
         .route("/api/v1/watches/{id}", get(get_watch).delete(delete_watch))
         .route("/api/v1/watches/{id}/events", get(watch_events))
         .route("/api/v1/workspaces", get(list_workspaces_handler))
+        // OTLP receiver endpoints (ingest)
+        .route("/v1/traces", post(otlp_traces_handler))
+        .route("/v1/logs", post(otlp_logs_handler))
+        // OTLP query endpoints (read from store)
+        .route("/api/otlp/traces/search", get(otlp_search_traces_handler))
+        .route("/api/otlp/traces/{trace_id}", get(otlp_get_trace_handler))
+        .route("/api/otlp/logs/query", get(otlp_query_logs_handler))
+        .route("/api/otlp/labels", get(otlp_labels_handler))
+        .route("/api/otlp/health", get(otlp_health_handler))
         .fallback(static_handler)
         .layer(TraceLayer::new_for_http())
         .with_state(state)
@@ -416,6 +445,209 @@ async fn list_workspaces_handler() -> impl IntoResponse {
         })
         .collect();
     Json(serde_json::json!(items))
+}
+
+// -- OTLP receiver handlers --
+
+/// POST /v1/traces — accept OTLP trace data.
+async fn otlp_traces_handler(State(state): State<ServeState>, body: axum::body::Bytes) -> Response {
+    let Some(ref store) = state.telemetry_store else {
+        return error_response(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "OTLP receiver not enabled (set otlp.enabled = true in ~/.enya/config.toml)",
+        );
+    };
+
+    match enya_client::otlp::ingest::ingest_traces(store, &body) {
+        Ok(count) => {
+            tracing::debug!(spans = count, "ingested OTLP traces");
+            Json(serde_json::json!({ "accepted_spans": count })).into_response()
+        }
+        Err(e) => error_response(StatusCode::BAD_REQUEST, &e.to_string()),
+    }
+}
+
+/// POST /v1/logs — accept OTLP log data.
+async fn otlp_logs_handler(State(state): State<ServeState>, body: axum::body::Bytes) -> Response {
+    let Some(ref store) = state.telemetry_store else {
+        return error_response(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "OTLP receiver not enabled (set otlp.enabled = true in ~/.enya/config.toml)",
+        );
+    };
+
+    match enya_client::otlp::ingest::ingest_logs(store, &body) {
+        Ok(count) => {
+            tracing::debug!(entries = count, "ingested OTLP logs");
+            Json(serde_json::json!({ "accepted_log_entries": count })).into_response()
+        }
+        Err(e) => error_response(StatusCode::BAD_REQUEST, &e.to_string()),
+    }
+}
+
+// -- OTLP query endpoints (read from TelemetryStore) --
+
+/// Query parameters for trace search.
+#[derive(Deserialize)]
+struct OtlpTraceSearchQuery {
+    #[serde(default)]
+    service_name: Option<String>,
+    #[serde(default)]
+    operation_name: Option<String>,
+    #[serde(default)]
+    min_duration_ms: Option<u64>,
+    #[serde(default)]
+    max_duration_ms: Option<u64>,
+    #[serde(default = "default_trace_limit")]
+    limit: usize,
+    #[serde(default)]
+    start_time_secs: Option<u64>,
+    #[serde(default)]
+    end_time_secs: Option<u64>,
+}
+
+fn default_trace_limit() -> usize {
+    20
+}
+
+/// Query parameters for log queries.
+#[derive(Deserialize)]
+struct OtlpLogsQueryParams {
+    #[serde(default)]
+    start_ns: Option<i64>,
+    #[serde(default)]
+    end_ns: Option<i64>,
+    #[serde(default)]
+    contains: Option<String>,
+    #[serde(default = "default_logs_limit")]
+    limit: usize,
+    /// Labels as a JSON-encoded object (e.g., `{"service":"api"}`)
+    #[serde(default)]
+    labels: Option<String>,
+}
+
+fn default_logs_limit() -> usize {
+    1000
+}
+
+/// GET /api/otlp/traces/search — search traces in the OTLP store.
+async fn otlp_search_traces_handler(
+    State(state): State<ServeState>,
+    Query(params): Query<OtlpTraceSearchQuery>,
+) -> Response {
+    let Some(ref store) = state.telemetry_store else {
+        return error_response(StatusCode::SERVICE_UNAVAILABLE, "OTLP store not enabled");
+    };
+
+    // Convert ms → us for the store's search API
+    let min_duration_us = params.min_duration_ms.map(|ms| ms * 1000);
+    let max_duration_us = params.max_duration_ms.map(|ms| ms * 1000);
+    // Convert seconds → us for time range
+    let start_time_us = params.start_time_secs.map(|s| s * 1_000_000);
+    let end_time_us = params.end_time_secs.map(|s| s * 1_000_000);
+
+    let summaries = store.search_traces(
+        params.service_name.as_deref(),
+        params.operation_name.as_deref(),
+        min_duration_us,
+        max_duration_us,
+        start_time_us,
+        end_time_us,
+        params.limit,
+    );
+
+    Json(summaries).into_response()
+}
+
+/// GET /api/otlp/traces/{trace_id} — get a trace by ID.
+async fn otlp_get_trace_handler(
+    State(state): State<ServeState>,
+    Path(trace_id): Path<String>,
+) -> Response {
+    let Some(ref store) = state.telemetry_store else {
+        return error_response(StatusCode::SERVICE_UNAVAILABLE, "OTLP store not enabled");
+    };
+
+    match store.get_trace(&trace_id) {
+        Some(trace) => Json(trace).into_response(),
+        None => error_response(
+            StatusCode::NOT_FOUND,
+            &format!("Trace {trace_id} not found"),
+        ),
+    }
+}
+
+/// GET /api/otlp/logs/query — query logs from the OTLP store.
+async fn otlp_query_logs_handler(
+    State(state): State<ServeState>,
+    Query(params): Query<OtlpLogsQueryParams>,
+) -> Response {
+    let Some(ref store) = state.telemetry_store else {
+        return error_response(StatusCode::SERVICE_UNAVAILABLE, "OTLP store not enabled");
+    };
+
+    let now_ns = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos() as i64;
+    let start_ns = params.start_ns.unwrap_or(now_ns - 3_600_000_000_000); // default: 1h ago
+    let end_ns = params.end_ns.unwrap_or(now_ns);
+
+    // Parse labels from JSON string
+    let labels: rustc_hash::FxHashMap<String, String> = params
+        .labels
+        .as_deref()
+        .and_then(|s| serde_json::from_str(s).ok())
+        .unwrap_or_default();
+
+    let entries = store.query_logs(
+        start_ns,
+        end_ns,
+        &labels,
+        params.contains.as_deref(),
+        params.limit,
+    );
+    let streams_count = {
+        let mut services = std::collections::HashSet::new();
+        for entry in &entries {
+            if let Some(svc) = entry.labels.get("service") {
+                services.insert(svc.clone());
+            }
+        }
+        services.len().max(1)
+    };
+
+    Json(enya_client::logs::LogsResponse {
+        entries,
+        streams_count,
+    })
+    .into_response()
+}
+
+/// GET /api/otlp/labels — list known log labels.
+async fn otlp_labels_handler(State(state): State<ServeState>) -> Response {
+    let Some(ref store) = state.telemetry_store else {
+        return error_response(StatusCode::SERVICE_UNAVAILABLE, "OTLP store not enabled");
+    };
+
+    Json(store.known_log_labels()).into_response()
+}
+
+/// GET /api/otlp/health — health check for the OTLP store.
+async fn otlp_health_handler(State(state): State<ServeState>) -> Response {
+    let Some(ref store) = state.telemetry_store else {
+        return error_response(StatusCode::SERVICE_UNAVAILABLE, "OTLP store not enabled");
+    };
+
+    Json(enya_client::BackendInfo {
+        backend_type: "otlp".to_string(),
+        version: format!(
+            "in-memory ({} traces, {} logs)",
+            store.trace_count(),
+            store.log_count()
+        ),
+    })
+    .into_response()
 }
 
 /// Build a JSON error response.

@@ -99,6 +99,27 @@ impl Workspace {
         // Apply refresh interval
         self.set_refresh_interval(RefreshInterval::parse(&config.time.refresh));
 
+        // Create tracing client based on workspace config
+        self.tracing_client = if config.tracing.is_otlp() {
+            if !config.tracing.endpoint.is_empty() {
+                Some(std::sync::Arc::new(
+                    enya_client::otlp::OtlpHttpTracingClient::new(config.tracing.endpoint.clone()),
+                ))
+            } else if let Some(store) = &self.telemetry_store {
+                Some(std::sync::Arc::new(
+                    enya_client::otlp::OtlpTracingClient::new(std::sync::Arc::clone(store)),
+                ))
+            } else {
+                None
+            }
+        } else if !config.tracing.endpoint.is_empty() {
+            Some(std::sync::Arc::new(
+                enya_client::tracing::tempo::TempoClient::new(config.tracing.endpoint.clone()),
+            ))
+        } else {
+            None
+        };
+
         // Clear existing panes and reset the tree
         self.clear_all_panes();
 
@@ -120,8 +141,26 @@ impl Workspace {
                 let now_secs = crate::util::now_unix_secs();
                 let end_ns = now_secs * 1_000_000_000;
                 let start_ns = end_ns - 3600 * 1_000_000_000; // 1 hour ago
+
+                // Select backend based on workspace config
+                let backend = if config.logs.is_otlp() {
+                    if !config.logs.endpoint.is_empty() {
+                        // Remote OTLP: query agent over HTTP
+                        LogsBackend::OtlpHttp(config.logs.endpoint.clone())
+                    } else if let Some(store) = &self.telemetry_store {
+                        // In-process OTLP: direct store access
+                        LogsBackend::Otlp(std::sync::Arc::clone(store))
+                    } else {
+                        LogsBackend::Demo
+                    }
+                } else if !config.logs.endpoint.is_empty() {
+                    LogsBackend::Loki(config.logs.endpoint.clone())
+                } else {
+                    LogsBackend::Demo
+                };
+
                 let pane: Box<dyn Component> =
-                    Box::new(LogsPane::with_backend(start_ns, end_ns, LogsBackend::Demo));
+                    Box::new(LogsPane::with_backend(start_ns, end_ns, backend));
                 let tile_id = self.viewport_tree.tiles.insert_pane(pane);
                 pane_tile_ids.push(tile_id);
                 continue;
