@@ -796,10 +796,7 @@ mod tests {
 
     #[test]
     fn test_normalize_url_preserves_https() {
-        assert_eq!(
-            normalize_url("https://example.com"),
-            "https://example.com"
-        );
+        assert_eq!(normalize_url("https://example.com"), "https://example.com");
     }
 
     #[test]

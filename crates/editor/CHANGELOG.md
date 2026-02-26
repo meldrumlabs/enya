@@ -4,13 +4,19 @@ All notable changes to the Enya editor will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Tracing pane no longer auto-focuses input**: The trace ID input field no longer grabs focus when the tracing pane is first activated, matching the behavior of other panes.
+
 ### Added
 
 - **OTLP as a datasource protocol**: Added support for OpenTelemetry Protocol (OTLP) as a datasource backend, letting Enya receive telemetry data directly from OTel SDKs without requiring Grafana stack infrastructure. The agent daemon accepts OTLP JSON payloads at `/v1/traces` and `/v1/logs`, stores them in memory, and serves them via HTTP query endpoints (`/api/otlp/traces/search`, `/api/otlp/traces/{id}`, `/api/otlp/logs/query`, `/api/otlp/labels`, `/api/otlp/health`). The editor can query these endpoints by setting `backend = "otlp"` with an `endpoint` URL in `[logs]` and `[tracing]` workspace config sections. Tracing panes now load traces from configured backends (Tempo or OTLP) when a trace ID is entered.
+- **Tempo endpoint in Settings**: Added a Tempo trace endpoint configuration field to both the Settings overlay and full-page Settings, alongside the existing Prometheus and Loki fields. Also added `TracingConfig` to workspace TOML configuration.
 - **Series filter dropdown for time series charts**: When a chart has 6+ series, a filter icon appears in the legend bar. Clicking it (or pressing `gs`) opens a searchable dropdown popup where users can toggle individual series on/off. Features include fuzzy search filtering, All/None quick toggles, keyboard navigation (arrows + Tab to toggle), and stable color assignment. Hidden series are excluded from both the chart and legend, and filter state persists across data refreshes.
 
 ### Changed
 
+- **Streamlined WASM tutorial**: Removed the on-call and deep-dive tutorial workspaces to simplify the demo. Replaced the Latency time series in the quick-start workspace with a Latency Heatmap.
 - **Hide workspace name in agent mode**: The workspace name segment in the status line is now hidden when agent mode is active, freeing up space for the inline agent input bar.
 - **Neovim tilde markers flush left**: Removed 16px left margin on `~` markers in the empty workspace view so they sit at the very left edge.
 - **Leader popup only for Space**: Removed the leader key popup overlay for `g` commands; the which-key popup now only appears for Space leader actions.

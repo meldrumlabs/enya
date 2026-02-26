@@ -23,6 +23,7 @@ pub enum SettingsResult {
         git_repo_url: String,
         default_prometheus_endpoint: String,
         default_loki_endpoint: String,
+        default_tempo_endpoint: String,
     },
     /// Overlay was cancelled (no changes).
     Cancelled,
@@ -85,6 +86,7 @@ enum EditingField {
     GitRepoUrl,
     PrometheusEndpoint,
     LokiEndpoint,
+    TempoEndpoint,
 }
 
 /// Settings overlay with Defaults, AI, and Styling tabs.
@@ -105,6 +107,7 @@ pub struct SettingsOverlay {
     ai_dropdown_open: bool,
     default_prometheus_endpoint: String,
     default_loki_endpoint: String,
+    default_tempo_endpoint: String,
     // Styling tab state
     styling_theme: AppTheme,
     original_theme: AppTheme,
@@ -146,6 +149,7 @@ impl SettingsOverlay {
             ai_dropdown_open: false,
             default_prometheus_endpoint: String::new(),
             default_loki_endpoint: String::new(),
+            default_tempo_endpoint: String::new(),
             styling_theme: AppTheme::default(),
             original_theme: AppTheme::default(),
             styling_custom_theme: None,
@@ -177,6 +181,7 @@ impl SettingsOverlay {
         git_repo_url: String,
         default_prometheus_endpoint: String,
         default_loki_endpoint: String,
+        default_tempo_endpoint: String,
         current_theme: AppTheme,
         current_custom_theme: Option<String>,
         current_font: EditorFont,
@@ -192,6 +197,7 @@ impl SettingsOverlay {
         self.ai_dropdown_open = false;
         self.default_prometheus_endpoint = default_prometheus_endpoint;
         self.default_loki_endpoint = default_loki_endpoint;
+        self.default_tempo_endpoint = default_tempo_endpoint;
         // Styling tab
         self.styling_theme = current_theme;
         self.original_theme = current_theme;
@@ -240,7 +246,7 @@ impl SettingsOverlay {
     /// Number of navigable fields in the current tab.
     fn field_count(&self) -> usize {
         match self.tab {
-            SettingsTab::Defaults => 3, // Prom URL, Loki URL, Git URL
+            SettingsTab::Defaults => 4, // Prom URL, Loki URL, Tempo URL, Git URL
             SettingsTab::Ai => 2,       // Provider, Model
             SettingsTab::Styling => 0,  // Panel-based navigation (not field-based)
         }
@@ -319,6 +325,7 @@ impl SettingsOverlay {
             git_repo_url: self.git_repo_url.clone(),
             default_prometheus_endpoint: self.default_prometheus_endpoint.clone(),
             default_loki_endpoint: self.default_loki_endpoint.clone(),
+            default_tempo_endpoint: self.default_tempo_endpoint.clone(),
         }
     }
 
@@ -1492,6 +1499,44 @@ impl SettingsOverlay {
 
                 ui.add_space(10.0);
 
+                // Tempo section
+                Self::show_section_header(ui, "Tempo", text_tertiary);
+
+                let tempo_resp = egui::Frame::new()
+                    .fill(card_bg)
+                    .stroke(egui::Stroke::new(1.0, card_border))
+                    .corner_radius(8.0)
+                    .inner_margin(12.0)
+                    .show(ui, |ui| {
+                        let tempo_endpoint_hint = "https://tempo.example.com";
+                        if self.editing_field == Some(EditingField::TempoEndpoint) {
+                            self.show_text_edit_row(
+                                ui,
+                                "Endpoint",
+                                EditingField::TempoEndpoint,
+                                tempo_endpoint_hint,
+                                accent,
+                            );
+                        } else {
+                            self.show_field_row(
+                                ui,
+                                2,
+                                "Endpoint",
+                                &self.default_tempo_endpoint.clone(),
+                                tempo_endpoint_hint,
+                                accent,
+                                text_primary,
+                                text_tertiary,
+                            );
+                        }
+                    });
+
+                if scroll_target && focused == 2 {
+                    ui.scroll_to_rect(tempo_resp.response.rect, Some(egui::Align::Center));
+                }
+
+                ui.add_space(10.0);
+
                 // Codebase section
                 Self::show_section_header(ui, "Codebase", text_tertiary);
 
@@ -1513,7 +1558,7 @@ impl SettingsOverlay {
                         } else {
                             self.show_field_row(
                                 ui,
-                                2,
+                                3,
                                 "Git URL",
                                 &self.git_repo_url.clone(),
                                 git_hint,
@@ -1524,7 +1569,7 @@ impl SettingsOverlay {
                         }
                     });
 
-                if scroll_target && focused == 2 {
+                if scroll_target && focused == 3 {
                     ui.scroll_to_rect(code_resp.response.rect, Some(egui::Align::Center));
                 }
             }); // end ScrollArea
@@ -1670,6 +1715,7 @@ impl SettingsOverlay {
             Some(EditingField::GitRepoUrl) => &mut self.git_repo_url,
             Some(EditingField::PrometheusEndpoint) => &mut self.default_prometheus_endpoint,
             Some(EditingField::LokiEndpoint) => &mut self.default_loki_endpoint,
+            Some(EditingField::TempoEndpoint) => &mut self.default_tempo_endpoint,
             None => return,
         };
 
@@ -1916,7 +1962,8 @@ impl SettingsOverlay {
                         let field = match self.field_index {
                             0 => Some(EditingField::PrometheusEndpoint),
                             1 => Some(EditingField::LokiEndpoint),
-                            2 => Some(EditingField::GitRepoUrl),
+                            2 => Some(EditingField::TempoEndpoint),
+                            3 => Some(EditingField::GitRepoUrl),
                             _ => None,
                         };
                         self.editing_field = field;
@@ -1948,6 +1995,7 @@ mod tests {
             String::new(),
             String::new(),
             String::new(),
+            String::new(),
             AppTheme::default(),
             None,
             EditorFont::default(),
@@ -1962,7 +2010,7 @@ mod tests {
     fn test_field_count() {
         let mut overlay = SettingsOverlay::new();
         overlay.tab = SettingsTab::Defaults;
-        assert_eq!(overlay.field_count(), 3); // Prom URL, Loki URL, Git URL
+        assert_eq!(overlay.field_count(), 4); // Prom URL, Loki URL, Tempo URL, Git URL
         overlay.tab = SettingsTab::Ai;
         assert_eq!(overlay.field_count(), 2); // Provider, Model
         overlay.tab = SettingsTab::Styling;

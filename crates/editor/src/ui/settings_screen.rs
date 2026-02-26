@@ -112,6 +112,9 @@ pub struct AppSettings {
     /// Default Loki endpoint for new workspaces
     #[serde(default)]
     pub default_loki_endpoint: String,
+    /// Default Tempo endpoint for new workspaces
+    #[serde(default)]
+    pub default_tempo_endpoint: String,
     /// [DEPRECATED] Legacy single Flight SQL endpoint — kept for migration only.
     #[serde(default, skip_serializing)]
     pub default_flight_sql_endpoint: String,
@@ -367,8 +370,6 @@ impl AppSettings {
     /// Canonical list of built-in tutorial workspaces.
     const TUTORIAL_WORKSPACES: &[(&str, &str)] = &[
         ("quick-start", "The 4 golden signals at a glance"),
-        ("on-call", "Incident triage at a glance"),
-        ("deep-dive", "Every visualization type in one view"),
         ("infra", "CPU, memory, and system health"),
         ("logs-and-traces", "Explore logs and distributed traces"),
     ];

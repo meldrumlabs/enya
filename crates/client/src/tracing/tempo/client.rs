@@ -229,7 +229,6 @@ impl TracingClient for TempoClient {
     }
 }
 
-
 /// Generate demo trace data for testing without a backend.
 pub fn demo_trace() -> Trace {
     use super::types::{Span, SpanStatus};

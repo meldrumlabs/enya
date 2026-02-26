@@ -142,9 +142,7 @@ fn convert_otlp_event(event: &OtlpEvent) -> SpanLog {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use types::{
-        OtlpAttribute, OtlpResource, OtlpScopeSpans, OtlpSpan, OtlpStatus, OtlpValue,
-    };
+    use types::{OtlpAttribute, OtlpResource, OtlpScopeSpans, OtlpSpan, OtlpStatus, OtlpValue};
 
     fn make_batch(service: &str, spans: Vec<OtlpSpan>) -> OtlpBatch {
         OtlpBatch {
@@ -159,9 +157,7 @@ mod tests {
                     }),
                 }]),
             }),
-            scope_spans: Some(vec![OtlpScopeSpans {
-                spans: Some(spans),
-            }]),
+            scope_spans: Some(vec![OtlpScopeSpans { spans: Some(spans) }]),
             instrumentation_library_spans: None,
         }
     }
@@ -191,7 +187,9 @@ mod tests {
     fn test_parse_single_span_trace() {
         let batches = vec![make_batch(
             "my-api",
-            vec![make_otlp_span("t1", "s1", None, "GET /", 1_000_000, 2_000_000)],
+            vec![make_otlp_span(
+                "t1", "s1", None, "GET /", 1_000_000, 2_000_000,
+            )],
         )];
 
         let trace = parse_otlp_trace(batches).unwrap();
@@ -208,11 +206,20 @@ mod tests {
         let batches = vec![
             make_batch(
                 "gateway",
-                vec![make_otlp_span("t1", "s1", None, "ingress", 1_000_000, 5_000_000)],
+                vec![make_otlp_span(
+                    "t1", "s1", None, "ingress", 1_000_000, 5_000_000,
+                )],
             ),
             make_batch(
                 "backend",
-                vec![make_otlp_span("t1", "s2", Some("s1"), "handle", 2_000_000, 4_000_000)],
+                vec![make_otlp_span(
+                    "t1",
+                    "s2",
+                    Some("s1"),
+                    "handle",
+                    2_000_000,
+                    4_000_000,
+                )],
             ),
         ];
 
@@ -233,7 +240,9 @@ mod tests {
     fn test_parse_batch_with_no_spans_returns_error() {
         let batches = vec![OtlpBatch {
             resource: None,
-            scope_spans: Some(vec![OtlpScopeSpans { spans: Some(vec![]) }]),
+            scope_spans: Some(vec![OtlpScopeSpans {
+                spans: Some(vec![]),
+            }]),
             instrumentation_library_spans: None,
         }];
         let result = parse_otlp_trace(batches);

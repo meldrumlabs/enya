@@ -1,8 +1,8 @@
 //! Prometheus HTTP client implementation.
 
 use crate::error::ClientError;
-use crate::now_unix_secs;
 use crate::normalize_url;
+use crate::now_unix_secs;
 use crate::promise::promise_channel;
 use crate::request::QueryRequest;
 use crate::url_encode;
@@ -324,7 +324,6 @@ impl MetricsClient for PrometheusClient {
         promise
     }
 }
-
 
 #[cfg(test)]
 mod tests {

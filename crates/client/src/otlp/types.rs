@@ -381,7 +381,10 @@ mod tests {
         let data: OtlpTracesData = serde_json::from_str(json).unwrap();
         assert_eq!(data.resource_spans.len(), 1);
         let batch = &data.resource_spans[0];
-        assert_eq!(batch.resource.as_ref().unwrap().service_name().unwrap(), "test-svc");
+        assert_eq!(
+            batch.resource.as_ref().unwrap().service_name().unwrap(),
+            "test-svc"
+        );
         let spans = batch.scope_spans.as_ref().unwrap();
         assert_eq!(spans[0].spans.as_ref().unwrap().len(), 1);
     }

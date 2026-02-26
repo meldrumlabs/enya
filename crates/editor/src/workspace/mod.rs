@@ -88,12 +88,12 @@ use layout_animation::LayoutAnimator;
 
 // Re-export config types for convenience
 pub use config::{
-    ATLAS_WORKSPACE_TOML, ConnectionConfig, GOLDEN_SIGNALS_TOML, GitConfig, INCIDENT_RESPONSE_TOML,
-    INFRASTRUCTURE_TOML, LayoutConfig, LayoutContainer, LayoutNode, LayoutType, LogsConfig,
-    MULTI_SERVICE_TOML, MetricsConfig, PaneConfig, PaneConfigExt, PluginsConfig, RefreshInterval,
-    SERVICE_OVERVIEW_TOML, TimeConfig, TimeConfigExt, ViewConfig, ViewConfigExt, WORKSPACE_VERSION,
-    WorkspaceConfig, WorkspaceError, WorkspaceMeta, pane_from_query_state,
-    pane_from_query_state_with_viz, time_config_from_preset, time_config_from_preset_with_refresh,
+    ATLAS_WORKSPACE_TOML, ConnectionConfig, GOLDEN_SIGNALS_TOML, GitConfig, INFRASTRUCTURE_TOML,
+    LayoutConfig, LayoutContainer, LayoutNode, LayoutType, LogsConfig, MULTI_SERVICE_TOML,
+    MetricsConfig, PaneConfig, PaneConfigExt, PluginsConfig, RefreshInterval, TimeConfig,
+    TimeConfigExt, TracingConfig, ViewConfig, ViewConfigExt, WORKSPACE_VERSION, WorkspaceConfig,
+    WorkspaceError, WorkspaceMeta, pane_from_query_state, pane_from_query_state_with_viz,
+    time_config_from_preset, time_config_from_preset_with_refresh,
 };
 
 /// Actions that the Workspace needs the App to handle
@@ -172,6 +172,7 @@ pub enum WorkspaceAction {
         git_repo_url: String,
         default_prometheus_endpoint: String,
         default_loki_endpoint: String,
+        default_tempo_endpoint: String,
         flight_sql_connections: Vec<crate::ui::settings_screen::FlightSqlConnection>,
     },
     /// Open the full-page settings
