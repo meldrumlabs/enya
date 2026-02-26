@@ -10,6 +10,7 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Changed
 
+- **Hide workspace name in agent mode**: The workspace name segment in the status line is now hidden when agent mode is active, freeing up space for the inline agent input bar.
 - **Neovim tilde markers flush left**: Removed 16px left margin on `~` markers in the empty workspace view so they sit at the very left edge.
 - **Leader popup only for Space**: Removed the leader key popup overlay for `g` commands; the which-key popup now only appears for Space leader actions.
 - **Sidebar empty state text**: Changed "No workspaces yet" to "No projects yet" in the project sidebar empty state.
