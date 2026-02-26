@@ -53,6 +53,8 @@ fn populate_time_series_demo(chart: &mut TimeSeriesChart, query: &str) {
     if query_lower.contains("by_endpoint")
         || query_lower.contains("by endpoint")
         || query_lower.contains("by_method")
+        || query_lower.contains("by_node")
+        || query_lower.contains("per_node")
     {
         populate_many_series_demo(chart, query);
         return;
@@ -327,28 +329,53 @@ fn populate_many_series_demo(chart: &mut TimeSeriesChart, query: &str) {
     let num_points = 120;
     let start = now - duration;
 
-    // API endpoints for the demo
-    let endpoints = [
-        "/api/users",
-        "/api/orders",
-        "/api/products",
-        "/api/auth/login",
-        "/api/auth/logout",
-        "/api/cart",
-        "/api/checkout",
-        "/api/search",
-        "/api/inventory",
-        "/api/payments",
-        "/api/webhooks",
-        "/api/notifications",
-    ];
+    // Choose tag key and values based on the query context
+    let query_lower = query.to_lowercase();
+    let is_node_query =
+        query_lower.contains("node") || query_lower.contains("host") || query_lower.contains("cpu");
+
+    let (tag_key, tag_values): (&str, &[&str]) = if is_node_query {
+        (
+            "node",
+            &[
+                "node-us-east-1a",
+                "node-us-east-1b",
+                "node-us-west-2a",
+                "node-us-west-2b",
+                "node-eu-west-1a",
+                "node-eu-west-1b",
+                "node-eu-central-1a",
+                "node-ap-south-1a",
+                "node-ap-northeast-1a",
+                "node-ap-northeast-1b",
+            ],
+        )
+    } else {
+        (
+            "endpoint",
+            &[
+                "/api/users",
+                "/api/orders",
+                "/api/products",
+                "/api/auth/login",
+                "/api/auth/logout",
+                "/api/cart",
+                "/api/checkout",
+                "/api/search",
+                "/api/inventory",
+                "/api/payments",
+                "/api/webhooks",
+                "/api/notifications",
+            ],
+        )
+    };
 
     // Note: We intentionally don't set colors here. The TimeSeriesChart will
     // use theme.chart_color(index) at render time, allowing colors to change
     // dynamically when the theme changes.
 
-    for endpoint in endpoints.iter() {
-        let hash = endpoint
+    for tag_value in tag_values {
+        let hash = tag_value
             .bytes()
             .fold(0u64, |acc, b| acc.wrapping_add(b as u64));
         let base = 20.0 + (hash % 80) as f64;
@@ -368,7 +395,7 @@ fn populate_many_series_demo(chart: &mut TimeSeriesChart, query: &str) {
 
         chart.add_series(
             Series::new(query)
-                .with_tag("endpoint", *endpoint)
+                .with_tag(tag_key, *tag_value)
                 .with_points(points),
         );
     }

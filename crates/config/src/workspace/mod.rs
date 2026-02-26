@@ -207,6 +207,10 @@ pub struct WorkspaceConfig {
     #[serde(default, skip_serializing_if = "LogsConfig::is_empty")]
     pub logs: LogsConfig,
 
+    /// Tracing (Tempo) connection settings
+    #[serde(default, skip_serializing_if = "TracingConfig::is_empty")]
+    pub tracing: TracingConfig,
+
     /// Git integration settings (repository for source code awareness)
     #[serde(default, skip_serializing_if = "GitConfig::is_empty")]
     pub git: GitConfig,
@@ -297,6 +301,33 @@ impl MetricsConfig {
 
 /// Backward compatibility alias
 pub type ConnectionConfig = MetricsConfig;
+
+/// Tracing (Tempo) connection configuration
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct TracingConfig {
+    /// Tempo API endpoint URL (e.g., "https://tempo.example.com")
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub endpoint: String,
+
+    /// API key (optional - often omitted for security, loaded from env instead)
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub api_key: String,
+}
+
+impl TracingConfig {
+    /// Check if this config has any settings
+    pub fn is_empty(&self) -> bool {
+        self.endpoint.is_empty() && self.api_key.is_empty()
+    }
+
+    /// Create a new tracing config with an endpoint
+    pub fn with_endpoint(endpoint: impl Into<String>) -> Self {
+        Self {
+            endpoint: endpoint.into(),
+            api_key: String::new(),
+        }
+    }
+}
 
 /// Logs (Loki) connection configuration
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -898,6 +929,7 @@ impl WorkspaceConfig {
             },
             metrics: MetricsConfig::default(),
             logs: LogsConfig::default(),
+            tracing: TracingConfig::default(),
             git: GitConfig::default(),
             view: ViewConfig::default(),
             time: TimeConfig::default(),
@@ -978,6 +1010,8 @@ impl WorkspaceConfig {
             "logs.endpoint" => self.logs.endpoint.as_str(),
             "logs.api_key" => self.logs.api_key.as_str(),
             "logs.default_query" => self.logs.default_query.as_str(),
+            "tracing.endpoint" => self.tracing.endpoint.as_str(),
+            "tracing.api_key" => self.tracing.api_key.as_str(),
             "git.url" => self.git.url.as_str(),
             "git.branch" => self.git.branch.as_str(),
             "git.language" => self.git.language.as_str(),

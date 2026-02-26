@@ -640,19 +640,21 @@ impl StatusLine {
             self.render_segment(ui, "FULLSCREEN", None, bg, fg, height, padding, false);
         }
 
-        // Workspace name (if loaded)
-        if let Some(ref ws_name) = self.workspace_name {
-            self.render_separator(ui, height);
-            self.render_segment(
-                ui,
-                ws_name,
-                Some("\u{25C6}"), // ◆ diamond
-                self.theme.bg_surface(),
-                self.theme.text_secondary(),
-                height,
-                padding,
-                false,
-            );
+        // Workspace name (if loaded, hidden in agent mode to save space for input)
+        if self.mode != StatusMode::Agent {
+            if let Some(ref ws_name) = self.workspace_name {
+                self.render_separator(ui, height);
+                self.render_segment(
+                    ui,
+                    ws_name,
+                    Some("\u{25C6}"), // ◆ diamond
+                    self.theme.bg_surface(),
+                    self.theme.text_secondary(),
+                    height,
+                    padding,
+                    false,
+                );
+            }
         }
 
         // Git branch / project info (if available)

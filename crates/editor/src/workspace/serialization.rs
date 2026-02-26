@@ -12,9 +12,9 @@ use enya_config::SnapshotPaneData;
 
 use super::{
     ConnectionConfig, GitConfig, LayoutConfig, LayoutContainer, LayoutNode, LayoutType, LogsConfig,
-    MetricsConfig, PaneConfigExt, PluginsConfig, RefreshInterval, TimeConfigExt, ViewConfig,
-    WORKSPACE_VERSION, Workspace, WorkspaceConfig, WorkspaceMeta, pane_from_query_state,
-    time_config_from_preset_with_refresh,
+    MetricsConfig, PaneConfigExt, PluginsConfig, RefreshInterval, TimeConfigExt, TracingConfig,
+    ViewConfig, WORKSPACE_VERSION, Workspace, WorkspaceConfig, WorkspaceMeta,
+    pane_from_query_state, time_config_from_preset_with_refresh,
 };
 use crate::components::{Component, LogsBackend, LogsPane, QueryPane, TracingPane};
 
@@ -61,6 +61,7 @@ impl Workspace {
             },
             metrics: MetricsConfig::default(),
             logs: LogsConfig::default(),
+            tracing: TracingConfig::default(),
             git: GitConfig::default(),
             view: ViewConfig {
                 // Theme is NOT included - it's a user preference, not workspace setting
@@ -331,6 +332,7 @@ impl Workspace {
             },
             metrics: MetricsConfig::default(),
             logs: LogsConfig::default(),
+            tracing: TracingConfig::default(),
             git: GitConfig::default(),
             view: ViewConfig {
                 zen_mode: self.zen_mode,

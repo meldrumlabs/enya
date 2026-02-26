@@ -2,7 +2,7 @@ use std::borrow::Cow;
 use std::ops::RangeInclusive;
 
 use nohash_hasher::IntMap;
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use egui::{Color32, Key, Rangef, RichText, Stroke};
 use egui_plot::{
@@ -14,6 +14,8 @@ use crate::components::util::id_generator::next_id_usize;
 use crate::ui::semantic_icons;
 use crate::ui::theme::AppTheme;
 use crate::ui::tinted_logo::get_tinted_logo_with_opacity;
+
+use crate::components::util::finder_utils::OverlayStyle;
 
 /// A marker representing a git commit at a specific point in time.
 ///
@@ -57,6 +59,9 @@ const MIN_CHART_HEIGHT: f32 = 180.0;
 
 /// Default chart height ratio (height:width)
 const DEFAULT_ASPECT_RATIO: f32 = 0.35;
+
+/// Minimum number of series before the filter button appears
+const SERIES_FILTER_THRESHOLD: usize = 6;
 
 /// Format a Unix timestamp (in seconds) to a human-readable string.
 /// Adapts format based on the time range being displayed.
@@ -296,6 +301,8 @@ enum ChartAction {
     NextAnnotation,
     /// Navigate to previous annotation ([a)
     PrevAnnotation,
+    /// Open/close series filter popup (gs)
+    ToggleFilter,
 }
 
 /// Actions returned from chart interaction for the workspace to handle.
@@ -359,6 +366,16 @@ pub struct TimeSeriesChart {
     compact: bool,
     /// Pending interaction to be consumed by the parent (set on double-click, cleared on take)
     pending_interaction: Option<ChartInteraction>,
+    /// Set of hidden series labels (keyed by series.label() for stability across data refreshes)
+    hidden_series: FxHashSet<String>,
+    /// Whether the series filter popup is open
+    filter_open: bool,
+    /// Search query for filtering series in the popup
+    filter_query: String,
+    /// Keyboard cursor position in the filter popup list
+    filter_cursor: usize,
+    /// Whether the filter search TextEdit needs focus on next frame
+    filter_needs_focus: bool,
 }
 
 impl Default for TimeSeriesChart {
@@ -389,6 +406,11 @@ impl TimeSeriesChart {
             annotation_mode: false,
             compact: false,
             pending_interaction: None,
+            hidden_series: FxHashSet::default(),
+            filter_open: false,
+            filter_query: String::new(),
+            filter_cursor: 0,
+            filter_needs_focus: false,
         }
     }
 
@@ -731,6 +753,23 @@ impl TimeSeriesChart {
         }
     }
 
+    /// Returns an iterator of (original_index, &Series) for non-hidden series.
+    /// The original index preserves stable color assignment via series_color().
+    fn visible_series(&self) -> impl Iterator<Item = (usize, &Series)> {
+        self.series
+            .iter()
+            .enumerate()
+            .filter(|(_, s)| !self.hidden_series.contains(&*s.label()))
+    }
+
+    /// Count of currently visible (non-hidden) series
+    fn visible_series_count(&self) -> usize {
+        self.series
+            .iter()
+            .filter(|s| !self.hidden_series.contains(&*s.label()))
+            .count()
+    }
+
     /// Handle keyboard input and return the appropriate chart action
     fn handle_keyboard(&mut self, ctx: &egui::Context) -> ChartAction {
         // Only handle keys when no text field is focused
@@ -767,6 +806,11 @@ impl TimeSeriesChart {
             // Check for 'n' after pending 'g' for gn (toggle annotations/notes)
             if self.pending_g && input.key_pressed(Key::N) {
                 return ChartAction::ToggleAnnotations;
+            }
+
+            // Check for 's' after pending 'g' for gs (toggle series filter)
+            if self.pending_g && input.key_pressed(Key::S) {
+                return ChartAction::ToggleFilter;
             }
 
             // Check for bracket keys ([ and ])
@@ -865,6 +909,12 @@ impl TimeSeriesChart {
             return ChartAction::ToggleAnnotations;
         }
 
+        // Handle gs (toggle series filter)
+        if action == ChartAction::ToggleFilter {
+            self.pending_g = false;
+            return ChartAction::ToggleFilter;
+        }
+
         // Handle gg (double g) state machine
         if action == ChartAction::GoToStart {
             if self.pending_g {
@@ -888,6 +938,276 @@ impl TimeSeriesChart {
     /// Uses the theme's chart palette for consistent colors
     fn series_color(&self, index: usize) -> Color32 {
         self.theme.chart_color(index)
+    }
+
+    /// Render the series filter popup as a floating dropdown anchored to the legend.
+    fn show_filter_popup(
+        &mut self,
+        ctx: &egui::Context,
+        anchor_rect: egui::Rect,
+        legend_text_size: f32,
+    ) {
+        if !self.filter_open {
+            return;
+        }
+
+        let text_col = self.theme.text_primary();
+        let accent = self.theme.accent_primary();
+        let muted = text_col.gamma_multiply(0.5);
+
+        let popup_width = 320.0;
+        let row_height = 28.0;
+        let max_visible_rows = 12;
+
+        // Handle keyboard: Escape to close, arrows to navigate, Tab to toggle
+        let mut close = false;
+        let mut toggle_at_cursor = false;
+        ctx.input_mut(|i| {
+            if i.consume_key(egui::Modifiers::NONE, Key::Escape) {
+                close = true;
+            }
+            if i.consume_key(egui::Modifiers::NONE, Key::ArrowDown) {
+                self.filter_cursor = self.filter_cursor.saturating_add(1);
+            }
+            if i.consume_key(egui::Modifiers::NONE, Key::ArrowUp) {
+                self.filter_cursor = self.filter_cursor.saturating_sub(1);
+            }
+            if i.consume_key(egui::Modifiers::NONE, Key::Tab) {
+                toggle_at_cursor = true;
+            }
+        });
+
+        if close {
+            ctx.memory_mut(|mem| mem.surrender_focus(egui::Id::NULL));
+            self.filter_open = false;
+            return;
+        }
+
+        // Build filtered list based on search query
+        let filtered_indices: Vec<usize> = if self.filter_query.is_empty() {
+            (0..self.series.len()).collect()
+        } else {
+            let query_lower = self.filter_query.to_lowercase();
+            (0..self.series.len())
+                .filter(|&i| self.series[i].label().to_lowercase().contains(&query_lower))
+                .collect()
+        };
+
+        // Clamp cursor
+        if !filtered_indices.is_empty() {
+            self.filter_cursor = self.filter_cursor.min(filtered_indices.len() - 1);
+        } else {
+            self.filter_cursor = 0;
+        }
+
+        // Toggle series at cursor via Tab
+        if toggle_at_cursor && !filtered_indices.is_empty() {
+            let series_idx = filtered_indices[self.filter_cursor];
+            let label = self.series[series_idx].label().to_string();
+            if self.hidden_series.contains(&label) {
+                self.hidden_series.remove(&label);
+            } else {
+                self.hidden_series.insert(label);
+            }
+        }
+
+        // Position below the legend, right-aligned
+        let popup_pos = egui::pos2(
+            (anchor_rect.right() - popup_width).max(anchor_rect.left()),
+            anchor_rect.bottom() + 4.0,
+        );
+
+        let style = OverlayStyle::frosted_glass(self.theme);
+        let unit = self.unit.clone();
+
+        let area_response = egui::Area::new(egui::Id::new(format!("series_filter_{}", self.id)))
+            .fixed_pos(popup_pos)
+            .order(egui::Order::Foreground)
+            .show(ctx, |ui| {
+                style
+                    .frame()
+                    .inner_margin(egui::Margin::symmetric(0, 8))
+                    .show(ui, |ui| {
+                        ui.set_width(popup_width);
+
+                        // Search input row
+                        ui.horizontal(|ui| {
+                            ui.add_space(12.0);
+                            ui.label(
+                                RichText::new(semantic_icons::action::FILTER)
+                                    .color(accent)
+                                    .size(legend_text_size),
+                            );
+                            ui.add_space(4.0);
+                            let response = ui.add(
+                                egui::TextEdit::singleline(&mut self.filter_query)
+                                    .hint_text(
+                                        RichText::new("Filter series...")
+                                            .color(text_col.gamma_multiply(0.3)),
+                                    )
+                                    .desired_width(popup_width - 60.0)
+                                    .font(egui::FontId::proportional(13.0))
+                                    .text_color(text_col)
+                                    .frame(false),
+                            );
+                            if self.filter_needs_focus {
+                                response.request_focus();
+                                self.filter_needs_focus = false;
+                            }
+                        });
+
+                        // Separator
+                        ui.add_space(4.0);
+                        ui.painter().hline(
+                            ui.available_rect_before_wrap().x_range(),
+                            ui.cursor().top(),
+                            Stroke::new(1.0, self.theme.border_subtle()),
+                        );
+                        ui.add_space(4.0);
+
+                        // Quick toggles: All | None | count
+                        ui.horizontal(|ui| {
+                            ui.add_space(12.0);
+                            if ui
+                                .add(
+                                    egui::Label::new(RichText::new("All").color(accent).size(11.0))
+                                        .sense(egui::Sense::click()),
+                                )
+                                .clicked()
+                            {
+                                self.hidden_series.clear();
+                            }
+                            ui.label(RichText::new("·").color(muted).size(11.0));
+                            if ui
+                                .add(
+                                    egui::Label::new(
+                                        RichText::new("None").color(accent).size(11.0),
+                                    )
+                                    .sense(egui::Sense::click()),
+                                )
+                                .clicked()
+                            {
+                                for s in &self.series {
+                                    self.hidden_series.insert(s.label().to_string());
+                                }
+                            }
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    ui.add_space(12.0);
+                                    ui.label(
+                                        RichText::new(format!(
+                                            "{}/{}",
+                                            self.visible_series_count(),
+                                            self.series.len()
+                                        ))
+                                        .color(muted)
+                                        .size(11.0),
+                                    );
+                                },
+                            );
+                        });
+
+                        ui.add_space(4.0);
+
+                        // Scrollable series list
+                        let list_height =
+                            (filtered_indices.len().min(max_visible_rows) as f32) * row_height;
+                        egui::ScrollArea::vertical()
+                            .max_height(list_height.max(row_height))
+                            .auto_shrink([false, true])
+                            .show(ui, |ui| {
+                                for (list_idx, &series_idx) in filtered_indices.iter().enumerate() {
+                                    let series = &self.series[series_idx];
+                                    let label_str = series.label().to_string();
+                                    let is_visible = !self.hidden_series.contains(&label_str);
+                                    let is_cursor = list_idx == self.filter_cursor;
+                                    let color = series
+                                        .color
+                                        .unwrap_or_else(|| self.series_color(series_idx));
+                                    let latest_value =
+                                        series.points.last().map(|p| p.value).unwrap_or(0.0);
+
+                                    let (row_rect, response) = ui.allocate_exact_size(
+                                        egui::vec2(popup_width, row_height),
+                                        egui::Sense::click(),
+                                    );
+
+                                    // Background for cursor/hover
+                                    let bg = if is_cursor {
+                                        accent.gamma_multiply(0.1)
+                                    } else if response.hovered() {
+                                        text_col.gamma_multiply(0.05)
+                                    } else {
+                                        Color32::TRANSPARENT
+                                    };
+                                    if bg != Color32::TRANSPARENT {
+                                        ui.painter().rect_filled(row_rect, 4.0, bg);
+                                    }
+
+                                    // Colored dot (filled if visible, ring if hidden)
+                                    let dot_center = row_rect.left_center() + egui::vec2(20.0, 0.0);
+                                    if is_visible {
+                                        ui.painter().circle_filled(dot_center, 5.0, color);
+                                    } else {
+                                        ui.painter().circle_stroke(
+                                            dot_center,
+                                            5.0,
+                                            Stroke::new(1.5, color.gamma_multiply(0.4)),
+                                        );
+                                    }
+
+                                    // Series label
+                                    let label_color = if is_visible {
+                                        text_col.gamma_multiply(0.9)
+                                    } else {
+                                        text_col.gamma_multiply(0.35)
+                                    };
+                                    ui.painter().text(
+                                        row_rect.left_center() + egui::vec2(34.0, 0.0),
+                                        egui::Align2::LEFT_CENTER,
+                                        series.short_label(),
+                                        egui::FontId::proportional(12.0),
+                                        label_color,
+                                    );
+
+                                    // Latest value (right-aligned)
+                                    let formatted = format_value_with_unit(latest_value, &unit);
+                                    ui.painter().text(
+                                        row_rect.right_center() + egui::vec2(-12.0, 0.0),
+                                        egui::Align2::RIGHT_CENTER,
+                                        formatted,
+                                        egui::FontId::proportional(11.0),
+                                        muted,
+                                    );
+
+                                    // Click to toggle
+                                    if response.clicked() {
+                                        if is_visible {
+                                            self.hidden_series.insert(label_str);
+                                        } else {
+                                            self.hidden_series.remove(&label_str);
+                                        }
+                                    }
+
+                                    // Scroll cursor into view
+                                    if is_cursor {
+                                        response.scroll_to_me(Some(egui::Align::Center));
+                                    }
+                                }
+                            });
+                    });
+            });
+
+        // Close on click outside the popup
+        if ctx.input(|i| i.pointer.any_pressed()) {
+            if let Some(pos) = ctx.input(|i| i.pointer.interact_pos()) {
+                if !area_response.response.rect.contains(pos) {
+                    ctx.memory_mut(|mem| mem.surrender_focus(egui::Id::NULL));
+                    self.filter_open = false;
+                }
+            }
+        }
     }
 
     /// Render the chart
@@ -949,6 +1269,15 @@ impl TimeSeriesChart {
         }
         if chart_action == ChartAction::ToggleAnnotations {
             self.toggle_annotations();
+        }
+        if chart_action == ChartAction::ToggleFilter && self.series.len() >= SERIES_FILTER_THRESHOLD
+        {
+            self.filter_open = !self.filter_open;
+            if self.filter_open {
+                self.filter_query.clear();
+                self.filter_cursor = 0;
+                self.filter_needs_focus = true;
+            }
         }
 
         // Pre-compute commit navigation targets (need to do this outside the plot closure
@@ -1024,25 +1353,67 @@ impl TimeSeriesChart {
         ui.style_mut().visuals.widgets.noninteractive.bg_stroke = Stroke::new(1.0, grid_color);
 
         // Legend above the chart (show if any series exist)
+        let mut legend_rect = egui::Rect::NOTHING;
         if self.show_legend && !self.series.is_empty() {
-            const MAX_VISIBLE_SERIES: usize = 5;
-            let total_series = self.series.len();
-            let show_overflow = total_series > MAX_VISIBLE_SERIES;
-            let visible_count = if show_overflow {
-                MAX_VISIBLE_SERIES
-            } else {
-                total_series
-            };
+            // Pre-collect legend data to avoid borrow conflicts in the closure
+            let legend_data: Vec<(Color32, String, String)> = self
+                .visible_series()
+                .map(|(i, series)| {
+                    let color = series.color.unwrap_or_else(|| self.series_color(i));
+                    let latest_value = series.points.last().map(|p| p.value).unwrap_or(0.0);
+                    let formatted_value = format_value_with_unit(latest_value, &self.unit);
+                    let label = format!("{}: {}", series.short_label(), formatted_value);
+                    (color, series.short_label().to_string(), label)
+                })
+                .collect();
+            let total_visible = legend_data.len();
 
-            ui.horizontal_wrapped(|ui| {
+            // When there are many series, cap the inline legend to 2 items to avoid
+            // overflowing into chart controls on smaller screens. The filter dropdown
+            // is the primary way to browse all series.
+            let max_legend = if self.series.len() >= SERIES_FILTER_THRESHOLD {
+                2
+            } else {
+                5
+            };
+            let legend_count = total_visible.min(max_legend);
+            let show_overflow = total_visible > legend_count;
+
+            // Pre-collect overflow tooltip data
+            let overflow_data: Vec<_> = legend_data
+                .iter()
+                .skip(legend_count)
+                .map(|(color, short_label, _)| (*color, short_label.clone()))
+                .collect();
+
+            // Pre-compute filter button state
+            let total_series = self.series.len();
+            let show_filter = total_series >= SERIES_FILTER_THRESHOLD;
+            let hidden_count = if show_filter {
+                total_series - self.visible_series_count()
+            } else {
+                0
+            };
+            let filter_color = if hidden_count > 0 {
+                self.theme.accent_primary()
+            } else {
+                text_color.gamma_multiply(0.5)
+            };
+            let accent_muted = self.theme.accent_primary().gamma_multiply(0.7);
+            let bg_surface = self.theme.bg_surface();
+
+            let legend_response = ui.horizontal_wrapped(|ui| {
+                // Reserve right margin so legend items don't clash with
+                // the pane toolbar icons (edit, viz dropdown, info) in the top-right.
+                let toolbar_reserve = 80.0;
+                ui.set_max_width(
+                    (ui.available_width() - toolbar_reserve).max(ui.available_width() * 0.5),
+                );
                 ui.add_space(4.0); // Left margin for focus border clearance
                 ui.spacing_mut().item_spacing.x = legend_item_spacing;
 
-                // Show first N series
-                for (i, series) in self.series.iter().take(visible_count).enumerate() {
-                    let color = series.color.unwrap_or_else(|| self.series_color(i));
-                    let latest_value = series.points.last().map(|p| p.value).unwrap_or(0.0);
-
+                // Show first N visible series
+                for (color, _short_label, display_label) in legend_data.iter().take(legend_count) {
                     ui.horizontal(|ui| {
                         ui.spacing_mut().item_spacing.x = legend_inner_spacing;
 
@@ -1052,37 +1423,20 @@ impl TimeSeriesChart {
                             egui::Sense::hover(),
                         );
                         ui.painter()
-                            .circle_filled(rect.center(), legend_dot_radius, color);
+                            .circle_filled(rect.center(), legend_dot_radius, *color);
 
-                        // Series name with value: "series: 1.2K unit"
-                        let formatted_value = format_value_with_unit(latest_value, &self.unit);
+                        // Series name with value
                         ui.label(
-                            RichText::new(format!("{}: {}", series.short_label(), formatted_value))
+                            RichText::new(display_label)
                                 .color(text_color.gamma_multiply(0.9))
                                 .size(legend_text_size),
                         );
                     });
                 }
 
-                // Show "+ N more" if there are overflow series (with hover tooltip)
+                // Show "+ N more" if there are overflow visible series (with hover tooltip)
                 if show_overflow {
-                    let overflow_count = total_series - visible_count;
-
-                    // Collect overflow series data for tooltip
-                    let overflow_data: Vec<_> = self
-                        .series
-                        .iter()
-                        .enumerate()
-                        .skip(visible_count)
-                        .map(|(i, series)| {
-                            let latest_value = series.points.last().map(|p| p.value).unwrap_or(0.0);
-                            let formatted_value = format_value_with_unit(latest_value, &self.unit);
-                            let color = series.color.unwrap_or_else(|| self.series_color(i));
-                            let label = series.short_label().to_string();
-                            (color, label, formatted_value)
-                        })
-                        .collect();
-
+                    let overflow_count = total_visible - legend_count;
                     let more_text = format!("+ {overflow_count} more");
 
                     // Use a Label with sense for reliable hover detection
@@ -1098,8 +1452,7 @@ impl TimeSeriesChart {
                     // Highlight on hover by repainting with brighter color
                     if response.hovered() {
                         let rect = response.rect;
-                        // Paint over with highlighted text
-                        ui.painter().rect_filled(rect, 0.0, self.theme.bg_surface());
+                        ui.painter().rect_filled(rect, 0.0, bg_surface);
                         ui.painter().text(
                             rect.center(),
                             egui::Align2::CENTER_CENTER,
@@ -1114,7 +1467,7 @@ impl TimeSeriesChart {
                     let tooltip_dot_radius = legend_dot_radius * 0.85;
 
                     response.on_hover_ui(|ui| {
-                        for (color, label, value) in &overflow_data {
+                        for (color, label) in &overflow_data {
                             ui.horizontal(|ui| {
                                 ui.spacing_mut().item_spacing.x = legend_inner_spacing;
                                 // Colored dot
@@ -1127,15 +1480,48 @@ impl TimeSeriesChart {
                                     tooltip_dot_radius,
                                     *color,
                                 );
-                                // Label and value
-                                ui.label(format!("{label}: {value}"));
+                                // Label
+                                ui.label(label);
                             });
                         }
                     });
                 }
+
+                // Filter button (only shown when there are enough series to warrant it)
+                if show_filter {
+                    let btn = ui.add(
+                        egui::Label::new(
+                            RichText::new(semantic_icons::action::FILTER)
+                                .color(filter_color)
+                                .size(legend_text_size),
+                        )
+                        .sense(egui::Sense::click()),
+                    );
+
+                    if btn.clicked() {
+                        self.filter_open = !self.filter_open;
+                        if self.filter_open {
+                            self.filter_query.clear();
+                            self.filter_cursor = 0;
+                            self.filter_needs_focus = true;
+                        }
+                    }
+
+                    if hidden_count > 0 {
+                        ui.label(
+                            RichText::new(format!("{hidden_count} hidden"))
+                                .color(accent_muted)
+                                .size(legend_text_size * 0.85),
+                        );
+                    }
+                }
             });
+            legend_rect = legend_response.response.rect;
             ui.add_space(8.0);
         }
+
+        // Show filter popup if open (rendered as a floating area above the chart)
+        self.show_filter_popup(ui.ctx(), legend_rect, legend_text_size);
 
         // The plot - let egui_plot manage bounds internally via its ID-based memory
         // Note: We use our own custom legend above the chart, so no egui_plot legend
@@ -1331,7 +1717,8 @@ impl TimeSeriesChart {
                 ChartAction::None
                 | ChartAction::ToggleStacked
                 | ChartAction::ToggleCommits
-                | ChartAction::ToggleAnnotations => {}
+                | ChartAction::ToggleAnnotations
+                | ChartAction::ToggleFilter => {}
             }
 
             // Draw commit markers as vertical dashed lines
@@ -1473,17 +1860,18 @@ impl TimeSeriesChart {
                 }
             }
 
-            // Draw all series
-            if self.stacked && self.series.len() > 1 {
+            // Draw all visible series (respecting hidden_series filter)
+            let visible: Vec<(usize, &Series)> = self.visible_series().collect();
+
+            if self.stacked && visible.len() > 1 {
                 // Stacked area chart using polygons for proper fill-between effect
                 // Each area fills from its cumulative baseline to the previous series
 
-                // Build a lookup for each series: timestamp -> value
+                // Build a lookup for each visible series: timestamp -> value
                 // Use IntMap for O(1) lookup with no hashing overhead for i64 keys
-                let series_values: Vec<IntMap<i64, f64>> = self
-                    .series
+                let series_values: Vec<IntMap<i64, f64>> = visible
                     .iter()
-                    .map(|s| {
+                    .map(|(_, s)| {
                         s.points
                             .iter()
                             .map(|p| ((p.timestamp * 1000.0) as i64, p.value))
@@ -1491,18 +1879,18 @@ impl TimeSeriesChart {
                     })
                     .collect();
 
-                // Compute cumulative values for each series at each timestamp
-                // cumulative[i] contains (timestamp, cumulative_value) pairs
-                let mut cumulative: Vec<Vec<(f64, f64)>> = Vec::with_capacity(self.series.len());
+                // Compute cumulative values for each visible series at each timestamp
+                // cumulative[ci] contains (timestamp, cumulative_value) pairs
+                let mut cumulative: Vec<Vec<(f64, f64)>> = Vec::with_capacity(visible.len());
 
-                for (i, series) in self.series.iter().enumerate() {
+                for (ci, (_, series)) in visible.iter().enumerate() {
                     let mut points_with_cumulative: Vec<(f64, f64)> =
                         Vec::with_capacity(series.points.len());
 
                     for point in &series.points {
                         let ts_key = (point.timestamp * 1000.0) as i64;
-                        // Sum all previous series values at this timestamp
-                        let baseline: f64 = (0..i)
+                        // Sum all previous visible series values at this timestamp
+                        let baseline: f64 = (0..ci)
                             .map(|j| series_values[j].get(&ts_key).copied().unwrap_or(0.0))
                             .sum();
                         points_with_cumulative.push((point.timestamp, baseline + point.value));
@@ -1512,15 +1900,15 @@ impl TimeSeriesChart {
                 }
 
                 // Draw areas as polygons (bottom to top so later series appear on top)
-                for (i, series) in self.series.iter().enumerate() {
-                    let color = series.color.unwrap_or_else(|| self.series_color(i));
+                for (ci, (orig_idx, series)) in visible.iter().enumerate() {
+                    let color = series.color.unwrap_or_else(|| self.series_color(*orig_idx));
 
                     // Build polygon points: top edge (current cumulative) + bottom edge (previous cumulative, reversed)
-                    let top_points = &cumulative[i];
+                    let top_points = &cumulative[ci];
 
                     if !top_points.is_empty() {
                         // Estimate capacity: top points + bottom points (either 2 for y=0 or prev series len)
-                        let bottom_len = if i == 0 { 2 } else { cumulative[i - 1].len() };
+                        let bottom_len = if ci == 0 { 2 } else { cumulative[ci - 1].len() };
                         let mut polygon_points: Vec<[f64; 2]> =
                             Vec::with_capacity(top_points.len() + bottom_len);
 
@@ -1530,8 +1918,8 @@ impl TimeSeriesChart {
                         }
 
                         // Bottom edge: previous cumulative line reversed (right to left)
-                        // For first series, bottom is y=0
-                        if i == 0 {
+                        // For first visible series, bottom is y=0
+                        if ci == 0 {
                             // Close polygon along y=0
                             if let (Some(&(t_last, _)), Some(&(t_first, _))) =
                                 (top_points.last(), top_points.first())
@@ -1541,7 +1929,7 @@ impl TimeSeriesChart {
                             }
                         } else {
                             // Close along previous series line (reversed)
-                            for &(t, v) in cumulative[i - 1].iter().rev() {
+                            for &(t, v) in cumulative[ci - 1].iter().rev() {
                                 polygon_points.push([t, v]);
                             }
                         }
@@ -1562,19 +1950,19 @@ impl TimeSeriesChart {
                 }
 
                 // Draw lines on top for clarity
-                for (i, series) in self.series.iter().enumerate() {
-                    let color = series.color.unwrap_or_else(|| self.series_color(i));
+                for (ci, (orig_idx, series)) in visible.iter().enumerate() {
+                    let color = series.color.unwrap_or_else(|| self.series_color(*orig_idx));
                     let points: PlotPoints<'_> =
-                        cumulative[i].iter().map(|&(t, v)| [t, v]).collect();
+                        cumulative[ci].iter().map(|&(t, v)| [t, v]).collect();
                     let line = Line::new(series.label(), points)
                         .color(color)
                         .stroke(Stroke::new(line_stroke_width, color));
                     plot_ui.line(line);
                 }
             } else {
-                // Regular (non-stacked) view: each series fills to y=0
-                for (i, series) in self.series.iter().enumerate() {
-                    let color = series.color.unwrap_or_else(|| self.series_color(i));
+                // Regular (non-stacked) view: each visible series fills to y=0
+                for (i, series) in &visible {
+                    let color = series.color.unwrap_or_else(|| self.series_color(*i));
 
                     let points: PlotPoints<'_> = series
                         .points
