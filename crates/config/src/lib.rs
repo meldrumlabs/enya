@@ -19,11 +19,13 @@ pub mod workspace;
 
 // Re-export all public types at crate root for convenience
 pub use workspace::snapshot::{
-    Snapshot, SnapshotConversation, SnapshotDiffFile, SnapshotDiffLine, SnapshotDiffLineKind,
+    Snapshot, SnapshotCellKind, SnapshotColumnDiffStatus, SnapshotConversation, SnapshotDiffData,
+    SnapshotDiffFile, SnapshotDiffLine, SnapshotDiffLineKind, SnapshotDiffStats, SnapshotDiffType,
     SnapshotInlineChart, SnapshotInlineContent, SnapshotInlineDiff, SnapshotInlineSearchResults,
     SnapshotInlineSource, SnapshotInlineTable, SnapshotMessage, SnapshotMessageRole,
     SnapshotOperatorMetrics, SnapshotPlanNode, SnapshotQueryCell, SnapshotQueryStats,
-    SnapshotSearchResultItem, SnapshotSqlPane, SnapshotTableColumn,
+    SnapshotSchemaDiff, SnapshotSchemaDiffColumn, SnapshotSearchResultItem, SnapshotSqlPane,
+    SnapshotTableColumn,
 };
 pub use workspace::{
     ATLAS_WORKSPACE_TOML, ConnectionConfig, GOLDEN_SIGNALS_TOML, GitConfig, INFRASTRUCTURE_TOML,

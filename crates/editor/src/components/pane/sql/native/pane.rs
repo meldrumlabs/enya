@@ -42,7 +42,7 @@ use super::suggestions::{
     COLUMN_KEYWORDS, Suggestion, SuggestionIcon, SuggestionState, TABLE_KEYWORDS,
 };
 use super::types::{
-    CellViewState, DiffQueryResult, DiffType, QueryCell, QueryStatus, ResultOverlay,
+    Cell, CellKind, CellViewState, DiffQueryResult, DiffType, QueryStatus, ResultOverlay,
     SchemaDiffResult, SqlMode, SqlPaneAction,
 };
 use crate::components::util::id_generator::next_id_usize;
@@ -53,7 +53,6 @@ use crate::components::{OverlayColors, OverlayStyle};
 use crate::ui::semantic_icons::{action, category, empty, file, nav, status, time};
 use crate::ui::theme::AppTheme;
 use crate::ui::typography;
-use crate::util::Instant;
 
 /// A SQL pane with REPL-style interface.
 pub struct SqlPane {
@@ -74,7 +73,7 @@ pub struct SqlPane {
     /// Connected endpoint URL (if any).
     endpoint: Option<String>,
     /// Query history (executed queries with results).
-    history: Vec<QueryCell>,
+    history: Vec<Cell>,
     /// Per-cell UI state for notebook view (keyed by QueryId).
     cell_states: FxHashMap<QueryId, CellViewState>,
     /// Index of the currently selected (highlighted) cell for vim navigation.
@@ -149,6 +148,11 @@ pub struct SqlPane {
     /// Connection popup visibility (0.0 = hidden, 1.0 = visible).
     /// Note: Repurposed from original sidebar_width for minimal layout.
     sidebar_width: f32,
+    /// True on the frame the popup just opened — suppresses the "click outside
+    /// to close" check so the pill's opening click doesn't immediately close it.
+    popup_just_opened: bool,
+    /// Screen-space rect of the connection pill, used to anchor the popup.
+    pill_rect: egui::Rect,
     // ========================
     // Command system
     // ========================
@@ -226,6 +230,8 @@ impl SqlPane {
             connections: Vec::new(),
             tree_state: ConnectionTreeState::default(),
             sidebar_width: 0.0, // Used as popup visibility flag (0.0 = closed, 1.0 = open)
+            popup_just_opened: false,
+            pill_rect: egui::Rect::NOTHING,
             mode: SqlMode::default(),
             suggestions: SuggestionState::default(),
             prev_input: String::new(),
@@ -269,22 +275,32 @@ impl SqlPane {
 
     /// Connect to a saved connection by ID.
     fn connect_saved(&mut self, id: ConnectionId) {
-        let Some(conn) = self.connections.iter_mut().find(|c| c.id == id) else {
-            return;
+        // Check state and extract endpoint before mutating active flags.
+        let endpoint = {
+            let Some(conn) = self.connections.iter().find(|c| c.id == id) else {
+                return;
+            };
+            if matches!(
+                conn.state,
+                ConnectionState::Connecting | ConnectionState::Connected
+            ) {
+                return;
+            }
+            conn.endpoint.clone()
         };
 
-        // Already connecting or connected
-        if matches!(
-            conn.state,
-            ConnectionState::Connecting | ConnectionState::Connected
-        ) {
-            return;
+        // Mark this connection as active immediately so the UI (pill, run
+        // button) reflects the connecting state right away.
+        for conn in &mut self.connections {
+            if conn.id == id {
+                conn.state = ConnectionState::Connecting;
+                conn.active = true;
+            } else {
+                conn.active = false;
+            }
         }
 
-        let endpoint = conn.endpoint.clone();
-        conn.state = ConnectionState::Connecting;
-
-        // Also update legacy state if this becomes active
+        // Also update legacy state
         self.connection_state = ConnectionState::Connecting;
         self.endpoint = Some(endpoint.clone());
         self.pending_connect_id = Some(id);
@@ -564,22 +580,13 @@ impl SqlPane {
                 // Load a demo plan for testing the visualization
                 self.load_demo_plan();
                 // Add a placeholder result so we can open the overlay
-                self.history.push(QueryCell {
-                    sql: "-- Demo Query Plan".to_string(),
-                    id: enya_datafusion::QueryId::new(),
-                    status: QueryStatus::Completed,
-                    started_at: Instant::now(),
-                    schema: None,
-                    batches: Vec::new(),
-                    stats: None,
-                    error: None,
-                    is_info: false,
-                    diff_result: None,
-                });
+                self.history.push(Cell::explain(
+                    "-- Demo Query Plan",
+                    enya_datafusion::QueryId::new(),
+                ));
                 let idx = self.history.len() - 1;
-                let cell_id = self.history[idx].id;
+                let cell_id = self.history[idx].id();
                 self.expand_cell(&cell_id);
-                self.cell_state_mut(&cell_id).active_tab = super::types::CellTab::Plan;
                 self.scroll_to_bottom = true;
             }
             "schema" => {
@@ -598,10 +605,10 @@ impl SqlPane {
                         .history
                         .iter()
                         .enumerate()
-                        .filter(|(_, cell)| !cell.sql.is_empty() && !cell.sql.starts_with('/'))
+                        .filter(|(_, cell)| !cell.sql().is_empty() && !cell.sql().starts_with('/'))
                         .take(10)
                         .map(|(i, cell)| {
-                            let status = match cell.status {
+                            let status = match cell.status() {
                                 QueryStatus::Completed => "✓",
                                 QueryStatus::Failed => "✗",
                                 QueryStatus::Running => "…",
@@ -611,7 +618,7 @@ impl SqlPane {
                                 "[{}] {} {}",
                                 i + 1,
                                 status,
-                                cell.sql.lines().next().unwrap_or("")
+                                cell.sql().lines().next().unwrap_or("")
                             )
                         })
                         .collect();
@@ -726,18 +733,7 @@ impl SqlPane {
         let query_id = QueryId::new();
 
         // Add to history
-        self.history.push(QueryCell {
-            sql: sql.to_string(),
-            id: query_id,
-            status: QueryStatus::Running,
-            started_at: Instant::now(),
-            schema: None,
-            batches: Vec::new(),
-            stats: None,
-            error: None,
-            is_info: false,
-            diff_result: None,
-        });
+        self.history.push(Cell::query(sql, query_id));
 
         match &mut self.backend {
             Some(SqlBackend::Flight { .. }) => {
@@ -772,17 +768,16 @@ impl SqlPane {
                 let request = QueryRequest::new(sql).with_id(query_id);
                 if let Err(e) = session.execute(request) {
                     if let Some(cell) = self.history.last_mut() {
-                        cell.status = QueryStatus::Failed;
-                        cell.error = Some(e.to_string());
+                        cell.set_status(QueryStatus::Failed);
+                        cell.set_error(e.to_string());
                     }
                 }
             }
             None => {
                 // No backend connected - show error
                 if let Some(cell) = self.history.last_mut() {
-                    cell.status = QueryStatus::Failed;
-                    cell.error =
-                        Some("Not connected. Configure connections in Settings.".to_string());
+                    cell.set_status(QueryStatus::Failed);
+                    cell.set_error("Not connected. Configure connections in Settings.".to_string());
                 }
             }
         }
@@ -867,18 +862,7 @@ impl SqlPane {
         };
 
         // Add to history with Running status
-        self.history.push(QueryCell {
-            sql: display_sql,
-            id: query_id,
-            status: QueryStatus::Running,
-            started_at: Instant::now(),
-            schema: None,
-            batches: Vec::new(),
-            stats: None,
-            error: None,
-            is_info: false,
-            diff_result: None,
-        });
+        self.history.push(Cell::diff(display_sql, query_id));
 
         // Spawn async task to run both queries
         let (tx, rx) = tokio::sync::oneshot::channel();
@@ -1015,18 +999,7 @@ impl SqlPane {
         let table_owned = table.to_string();
 
         // Add to history with Running status
-        self.history.push(QueryCell {
-            sql: display_sql,
-            id: query_id,
-            status: QueryStatus::Running,
-            started_at: Instant::now(),
-            schema: None,
-            batches: Vec::new(),
-            stats: None,
-            error: None,
-            is_info: false,
-            diff_result: None,
-        });
+        self.history.push(Cell::diff(display_sql, query_id));
 
         // Spawn async task to fetch schemas from both connections
         let (tx, rx) = tokio::sync::oneshot::channel();
@@ -1070,35 +1043,13 @@ impl SqlPane {
 
     /// Add an error message cell to history.
     fn add_error_cell(&mut self, message: &str) {
-        self.history.push(QueryCell {
-            sql: String::new(),
-            id: QueryId::new(),
-            status: QueryStatus::Failed,
-            started_at: Instant::now(),
-            schema: None,
-            batches: Vec::new(),
-            stats: None,
-            error: Some(message.to_string()),
-            is_info: true, // Error messages are system info, not user queries
-            diff_result: None,
-        });
+        self.history.push(Cell::error(message));
         self.scroll_to_bottom = true;
     }
 
     /// Add an info message cell to history.
     fn add_info_cell(&mut self, message: &str) {
-        self.history.push(QueryCell {
-            sql: message.to_string(),
-            id: QueryId::new(),
-            status: QueryStatus::Completed,
-            started_at: Instant::now(),
-            schema: None,
-            batches: Vec::new(),
-            stats: None,
-            error: None,
-            is_info: true,
-            diff_result: None,
-        });
+        self.history.push(Cell::info(message));
         self.scroll_to_bottom = true;
     }
 
@@ -1108,11 +1059,11 @@ impl SqlPane {
         let running_ids: rustc_hash::FxHashSet<QueryId> = self
             .history
             .iter()
-            .filter(|c| c.status == QueryStatus::Running)
-            .map(|c| c.id)
+            .filter(|c| c.status() == QueryStatus::Running)
+            .map(|c| c.id())
             .collect();
         self.history
-            .retain(|cell| cell.status == QueryStatus::Running);
+            .retain(|cell| cell.status() == QueryStatus::Running);
         self.cell_states.retain(|id, _| running_ids.contains(id));
         self.selected_cell_idx = None;
         self.active_overlay = ResultOverlay::None;
@@ -1136,7 +1087,7 @@ impl SqlPane {
             .history
             .iter()
             .enumerate()
-            .find(|(_, c)| self.cell_states.get(&c.id).is_some_and(|s| s.expanded))
+            .find(|(_, c)| self.cell_states.get(&c.id()).is_some_and(|s| s.expanded))
             .map(|(i, _)| i);
 
         for state in self.cell_states.values_mut() {
@@ -1152,7 +1103,7 @@ impl SqlPane {
         self.history
             .iter()
             .enumerate()
-            .filter(|(_, c)| !c.is_info)
+            .filter(|(_, c)| c.is_navigable())
             .map(|(i, _)| i)
             .collect()
     }
@@ -1186,18 +1137,12 @@ impl SqlPane {
                 }
                 CardAction::Expand => {
                     if let Some(cell) = self.history.get(cell_idx) {
-                        let id = cell.id;
+                        let id = cell.id();
                         self.expand_cell(&id);
                     }
                 }
                 CardAction::Collapse => {
                     self.collapse_expanded();
-                }
-                CardAction::SetTab(tab) => {
-                    if let Some(cell) = self.history.get(cell_idx) {
-                        let id = cell.id;
-                        self.cell_state_mut(&id).active_tab = tab;
-                    }
                 }
                 CardAction::CopyToClipboard(text) => {
                     self.copy_to_clipboard(&text);
@@ -1209,7 +1154,7 @@ impl SqlPane {
                 }
                 CardAction::Delete => {
                     if let Some(cell) = self.history.get(cell_idx) {
-                        let id = cell.id;
+                        let id = cell.id();
                         self.cell_states.remove(&id);
                         self.history.remove(cell_idx);
                         // Adjust selection after deletion
@@ -1322,19 +1267,21 @@ impl SqlPane {
                 Ok(Ok((schema, batches))) => {
                     // Query successful
                     if let Some(query_id) = self.pending_query_id.take() {
-                        if let Some(cell) = self.history.iter_mut().find(|c| c.id == query_id) {
-                            let row_count: usize = batches.iter().map(|b| b.num_rows()).sum();
-                            cell.status = QueryStatus::Completed;
-                            cell.schema = Some(schema);
-                            cell.batches = batches;
-                            cell.stats = Some(ExecutionStats {
-                                rows_returned: row_count,
-                                ..Default::default()
-                            });
+                        if let Some(cell) = self.history.iter_mut().find(|c| c.id() == query_id) {
+                            if let Some(q) = cell.as_query_mut() {
+                                let row_count: usize = batches.iter().map(|b| b.num_rows()).sum();
+                                q.status = QueryStatus::Completed;
+                                q.schema = Some(schema);
+                                q.batches = batches;
+                                q.stats = Some(ExecutionStats {
+                                    rows_returned: row_count,
+                                    ..Default::default()
+                                });
+                            }
                         }
                         // Auto-expand cell for results
-                        if let Some(idx) = self.history.iter().position(|c| c.id == query_id) {
-                            if !self.history[idx].batches.is_empty() {
+                        if let Some(idx) = self.history.iter().position(|c| c.id() == query_id) {
+                            if !self.history[idx].batches().is_empty() {
                                 self.expand_cell(&query_id);
                                 self.scroll_to_bottom = true;
                             }
@@ -1344,9 +1291,9 @@ impl SqlPane {
                 Ok(Err(e)) => {
                     // Query failed
                     if let Some(query_id) = self.pending_query_id.take() {
-                        if let Some(cell) = self.history.iter_mut().find(|c| c.id == query_id) {
-                            cell.status = QueryStatus::Failed;
-                            cell.error = Some(e);
+                        if let Some(cell) = self.history.iter_mut().find(|c| c.id() == query_id) {
+                            cell.set_status(QueryStatus::Failed);
+                            cell.set_error(e);
                         }
                     }
                 }
@@ -1357,9 +1304,9 @@ impl SqlPane {
                 Err(tokio::sync::oneshot::error::TryRecvError::Closed) => {
                     // Query task dropped
                     if let Some(query_id) = self.pending_query_id.take() {
-                        if let Some(cell) = self.history.iter_mut().find(|c| c.id == query_id) {
-                            cell.status = QueryStatus::Failed;
-                            cell.error = Some("Query task dropped".to_string());
+                        if let Some(cell) = self.history.iter_mut().find(|c| c.id() == query_id) {
+                            cell.set_status(QueryStatus::Failed);
+                            cell.set_error("Query task dropped".to_string());
                         }
                     }
                 }
@@ -1376,22 +1323,14 @@ impl SqlPane {
                     self.show_plan_viewer = true;
 
                     // Add a result cell and open the Plan overlay
-                    self.history.push(QueryCell {
-                        sql: format!("EXPLAIN {}", plan_text.lines().next().unwrap_or("...")),
-                        id: enya_datafusion::QueryId::new(),
-                        status: QueryStatus::Completed,
-                        started_at: Instant::now(),
-                        schema: None,
-                        batches: Vec::new(),
-                        stats: None,
-                        error: None,
-                        is_info: false,
-                        diff_result: None,
-                    });
+                    let explain_id = enya_datafusion::QueryId::new();
+                    self.history.push(Cell::explain(
+                        format!("EXPLAIN {}", plan_text.lines().next().unwrap_or("...")),
+                        explain_id,
+                    ));
                     let idx = self.history.len() - 1;
-                    let cell_id = self.history[idx].id;
+                    let cell_id = self.history[idx].id();
                     self.expand_cell(&cell_id);
-                    self.cell_state_mut(&cell_id).active_tab = super::types::CellTab::Plan;
                     self.scroll_to_bottom = true;
                 }
                 Ok(Err(e)) => {
@@ -1516,26 +1455,28 @@ impl SqlPane {
                         diff_result.left_error.is_some() || diff_result.right_error.is_some();
 
                     // Update the cell
-                    if let Some(cell) = self.history.iter_mut().find(|c| c.id == query_id) {
-                        if has_error {
-                            cell.status = QueryStatus::Failed;
-                            // Combine errors for display
-                            let mut errors = Vec::new();
-                            if let Some(e) = &diff_result.left_error {
-                                errors.push(format!("{left_name}: {e}"));
+                    if let Some(cell) = self.history.iter_mut().find(|c| c.id() == query_id) {
+                        if let Some(d) = cell.as_diff_mut() {
+                            if has_error {
+                                d.status = QueryStatus::Failed;
+                                // Combine errors for display
+                                let mut errors = Vec::new();
+                                if let Some(e) = &diff_result.left_error {
+                                    errors.push(format!("{left_name}: {e}"));
+                                }
+                                if let Some(e) = &diff_result.right_error {
+                                    errors.push(format!("{right_name}: {e}"));
+                                }
+                                d.error = Some(errors.join("\n"));
+                            } else {
+                                d.status = QueryStatus::Completed;
                             }
-                            if let Some(e) = &diff_result.right_error {
-                                errors.push(format!("{right_name}: {e}"));
-                            }
-                            cell.error = Some(errors.join("\n"));
-                        } else {
-                            cell.status = QueryStatus::Completed;
+                            d.diff_result = Some(diff_result);
                         }
-                        cell.diff_result = Some(diff_result);
                     }
 
                     // Open the diff overlay
-                    let idx = self.history.iter().position(|c| c.id == query_id);
+                    let idx = self.history.iter().position(|c| c.id() == query_id);
                     if let Some(idx) = idx {
                         // For plan diff, use a different overlay approach if desired
                         // For now, use the Diff overlay for both
@@ -1548,9 +1489,9 @@ impl SqlPane {
                 }
                 Err(tokio::sync::oneshot::error::TryRecvError::Closed) => {
                     // Task dropped
-                    if let Some(cell) = self.history.iter_mut().find(|c| c.id == query_id) {
-                        cell.status = QueryStatus::Failed;
-                        cell.error = Some("Diff query task dropped".to_string());
+                    if let Some(cell) = self.history.iter_mut().find(|c| c.id() == query_id) {
+                        cell.set_status(QueryStatus::Failed);
+                        cell.set_error("Diff query task dropped".to_string());
                     }
                 }
             }
@@ -1600,25 +1541,27 @@ impl SqlPane {
                         diff_result.left_error.is_some() || diff_result.right_error.is_some();
 
                     // Update the cell
-                    if let Some(cell) = self.history.iter_mut().find(|c| c.id == query_id) {
-                        if has_error {
-                            cell.status = QueryStatus::Failed;
-                            let mut errors = Vec::new();
-                            if let Some(e) = &diff_result.left_error {
-                                errors.push(format!("{left_name}: {e}"));
+                    if let Some(cell) = self.history.iter_mut().find(|c| c.id() == query_id) {
+                        if let Some(d) = cell.as_diff_mut() {
+                            if has_error {
+                                d.status = QueryStatus::Failed;
+                                let mut errors = Vec::new();
+                                if let Some(e) = &diff_result.left_error {
+                                    errors.push(format!("{left_name}: {e}"));
+                                }
+                                if let Some(e) = &diff_result.right_error {
+                                    errors.push(format!("{right_name}: {e}"));
+                                }
+                                d.error = Some(errors.join("\n"));
+                            } else {
+                                d.status = QueryStatus::Completed;
                             }
-                            if let Some(e) = &diff_result.right_error {
-                                errors.push(format!("{right_name}: {e}"));
-                            }
-                            cell.error = Some(errors.join("\n"));
-                        } else {
-                            cell.status = QueryStatus::Completed;
+                            d.diff_result = Some(diff_result);
                         }
-                        cell.diff_result = Some(diff_result);
                     }
 
                     // Open the diff overlay
-                    let idx = self.history.iter().position(|c| c.id == query_id);
+                    let idx = self.history.iter().position(|c| c.id() == query_id);
                     if let Some(idx) = idx {
                         self.open_overlay(ResultOverlay::Diff { other_idx: idx }, idx);
                     }
@@ -1630,9 +1573,9 @@ impl SqlPane {
                 }
                 Err(tokio::sync::oneshot::error::TryRecvError::Closed) => {
                     // Task dropped
-                    if let Some(cell) = self.history.iter_mut().find(|c| c.id == query_id) {
-                        cell.status = QueryStatus::Failed;
-                        cell.error = Some("Schema diff task dropped".to_string());
+                    if let Some(cell) = self.history.iter_mut().find(|c| c.id() == query_id) {
+                        cell.set_status(QueryStatus::Failed);
+                        cell.set_error("Schema diff task dropped".to_string());
                     }
                 }
             }
@@ -1643,35 +1586,37 @@ impl SqlPane {
         if let Some(SqlBackend::Local { event_rx, .. }) = &mut self.backend {
             while let Ok(event) = event_rx.try_recv() {
                 let query_id = event.query_id();
-                if let Some(cell) = self.history.iter_mut().find(|c| c.id == query_id) {
-                    match event {
-                        QueryEvent::Started { schema, .. } => {
-                            cell.schema = Some(schema);
+                if let Some(cell) = self.history.iter_mut().find(|c| c.id() == query_id) {
+                    if let Some(q) = cell.as_query_mut() {
+                        match event {
+                            QueryEvent::Started { schema, .. } => {
+                                q.schema = Some(schema);
+                            }
+                            QueryEvent::Batch { batch, .. } => {
+                                q.batches.push(batch);
+                            }
+                            QueryEvent::Completed { stats, .. } => {
+                                q.status = QueryStatus::Completed;
+                                q.stats = Some(stats);
+                                completed_query_id = Some(query_id);
+                            }
+                            QueryEvent::Failed { error, .. } => {
+                                q.status = QueryStatus::Failed;
+                                q.error = Some(error);
+                            }
+                            QueryEvent::Cancelled { .. } => {
+                                q.status = QueryStatus::Cancelled;
+                            }
+                            QueryEvent::Progress { .. } => {}
                         }
-                        QueryEvent::Batch { batch, .. } => {
-                            cell.batches.push(batch);
-                        }
-                        QueryEvent::Completed { stats, .. } => {
-                            cell.status = QueryStatus::Completed;
-                            cell.stats = Some(stats);
-                            completed_query_id = Some(query_id);
-                        }
-                        QueryEvent::Failed { error, .. } => {
-                            cell.status = QueryStatus::Failed;
-                            cell.error = Some(error);
-                        }
-                        QueryEvent::Cancelled { .. } => {
-                            cell.status = QueryStatus::Cancelled;
-                        }
-                        QueryEvent::Progress { .. } => {}
                     }
                 }
             }
         }
         // Auto-expand cell for completed local queries
         if let Some(query_id) = completed_query_id {
-            if let Some(idx) = self.history.iter().position(|c| c.id == query_id) {
-                if !self.history[idx].batches.is_empty() {
+            if let Some(idx) = self.history.iter().position(|c| c.id() == query_id) {
+                if !self.history[idx].batches().is_empty() {
                     self.expand_cell(&query_id);
                     self.scroll_to_bottom = true;
                 }
@@ -1688,21 +1633,12 @@ impl SqlPane {
     /// Load a demo diff result for testing the diff overlay.
     fn load_diff_demo(&mut self) {
         let diff_result = create_diff_demo();
-
-        // Create a query cell with the diff result
         let query_id = QueryId::new();
-        self.history.push(QueryCell {
-            sql: "/diff demo (staging vs production)".to_string(),
-            id: query_id,
-            status: QueryStatus::Completed,
-            started_at: Instant::now(),
-            schema: None,
-            batches: Vec::new(),
-            stats: None,
-            error: None,
-            is_info: false,
-            diff_result: Some(diff_result),
-        });
+        self.history.push(Cell::diff_completed(
+            "/diff demo (staging vs production)",
+            query_id,
+            diff_result,
+        ));
 
         // Open the diff overlay
         let idx = self.history.len() - 1;
@@ -1713,21 +1649,12 @@ impl SqlPane {
     /// Load a demo schema diff result for testing the schema diff overlay.
     fn load_schema_diff_demo(&mut self) {
         let diff_result = create_schema_diff_demo();
-
-        // Create a query cell with the diff result
         let query_id = QueryId::new();
-        self.history.push(QueryCell {
-            sql: "/diff schema demo (staging vs production users)".to_string(),
-            id: query_id,
-            status: QueryStatus::Completed,
-            started_at: Instant::now(),
-            schema: None,
-            batches: Vec::new(),
-            stats: None,
-            error: None,
-            is_info: false,
-            diff_result: Some(diff_result),
-        });
+        self.history.push(Cell::diff_completed(
+            "/diff schema demo (staging vs production users)",
+            query_id,
+            diff_result,
+        ));
 
         // Open the diff overlay
         let idx = self.history.len() - 1;
@@ -1757,20 +1684,12 @@ impl SqlPane {
             schema_diff: None,
         };
 
-        // Create a query cell with the diff result
         let query_id = QueryId::new();
-        self.history.push(QueryCell {
-            sql: "/diff profile demo (staging vs production)".to_string(),
-            id: query_id,
-            status: QueryStatus::Completed,
-            started_at: Instant::now(),
-            schema: None,
-            batches: Vec::new(),
-            stats: None,
-            error: None,
-            is_info: false,
-            diff_result: Some(diff_result),
-        });
+        self.history.push(Cell::diff_completed(
+            "/diff profile demo (staging vs production)",
+            query_id,
+            diff_result,
+        ));
 
         // Open the diff overlay
         let idx = self.history.len() - 1;
@@ -1881,12 +1800,16 @@ impl SqlPane {
                         let selected_idx = self.selected_cell_idx;
                         let scroll_to_selected = self.scroll_to_selected;
 
+                        // Use a floating scrollbar so the scroll area content
+                        // width matches the input bar width below it.
+                        ui.style_mut().spacing.scroll.floating = true;
+
                         egui::ScrollArea::vertical()
                             .id_salt("notebook_cells")
                             .max_height(scroll_height)
                             .stick_to_bottom(self.scroll_to_bottom)
                             .show(ui, |ui| {
-                                let has_cells = history.iter().any(|c| !c.is_info);
+                                let has_cells = history.iter().any(|c| c.is_navigable());
 
                                 if !has_cells {
                                     // Empty state placeholder
@@ -1930,13 +1853,13 @@ impl SqlPane {
                                     let mut cell_number: usize = 0;
                                     for (idx, cell) in history.iter().enumerate() {
                                         // Skip info/system messages
-                                        if cell.is_info {
+                                        if cell.is_info() {
                                             continue;
                                         }
                                         cell_number += 1;
 
                                         let is_selected = selected_idx == Some(idx);
-                                        let vs = cell_states.entry(cell.id).or_default();
+                                        let vs = cell_states.entry(cell.id()).or_default();
                                         let actions = super::query_card::render_query_card(
                                             ui,
                                             cell,
@@ -2098,7 +2021,8 @@ impl SqlPane {
                                 // y: yank SQL to clipboard
                                 if y_pressed {
                                     if let Some(cell) = self.history.get(current) {
-                                        self.copy_to_clipboard(&cell.sql.clone());
+                                        let sql = cell.sql().to_string();
+                                        self.copy_to_clipboard(&sql);
                                     }
                                 }
 
@@ -2115,7 +2039,7 @@ impl SqlPane {
                                     i.consume_key(egui::Modifiers::NONE, egui::Key::Enter)
                                 }) {
                                     if let Some(cell) = self.history.get(current) {
-                                        let id = cell.id;
+                                        let id = cell.id();
                                         self.expand_cell(&id);
                                     }
                                 }
@@ -2161,7 +2085,15 @@ impl SqlPane {
                 .iter()
                 .map(ConnectionSnapshot::from)
                 .collect();
-            let actions = super::connections::render_connection_popup(ui, self.theme, &snapshots);
+            let just_opened = self.popup_just_opened;
+            self.popup_just_opened = false;
+            let actions = super::connections::render_connection_popup(
+                ui,
+                self.theme,
+                &snapshots,
+                self.pill_rect,
+                just_opened,
+            );
             for action in actions {
                 self.handle_connection_action(action);
             }
@@ -2283,12 +2215,12 @@ impl SqlPane {
         // Extract data from cell first to avoid borrow conflicts
         let (total_rows, num_cols, execution_time_ms, has_schema, column_widths) = {
             let cell = &self.history[result_idx];
-            let total: usize = cell.batches.iter().map(|b| b.num_rows()).sum();
-            let cols = cell.schema.as_ref().map(|s| s.fields().len()).unwrap_or(0);
-            let time_ms = cell.stats.as_ref().map(|s| s.total_time.as_millis());
+            let total: usize = cell.batches().iter().map(|b| b.num_rows()).sum();
+            let cols = cell.schema().map(|s| s.fields().len()).unwrap_or(0);
+            let time_ms = cell.stats().map(|s| s.total_time.as_millis());
 
             // Calculate column widths based on header names and data types
-            let widths: Vec<f32> = if let Some(schema) = &cell.schema {
+            let widths: Vec<f32> = if let Some(schema) = cell.schema() {
                 schema
                     .fields()
                     .iter()
@@ -2304,7 +2236,7 @@ impl SqlPane {
                 vec![]
             };
 
-            (total, cols, time_ms, cell.schema.is_some(), widths)
+            (total, cols, time_ms, cell.schema().is_some(), widths)
         };
 
         let total_pages = total_rows.div_ceil(rows_per_page);
@@ -2373,8 +2305,8 @@ impl SqlPane {
 
         // Copy all results as TSV
         if should_copy {
-            if let Some(schema) = &self.history[result_idx].schema {
-                let tsv = Self::format_results_as_tsv(schema, &self.history[result_idx].batches);
+            if let Some(schema) = self.history[result_idx].schema() {
+                let tsv = Self::format_results_as_tsv(schema, self.history[result_idx].batches());
                 self.copy_to_clipboard(&tsv);
             }
         }
@@ -2449,7 +2381,7 @@ impl SqlPane {
 
         // Now we can safely access cell data for rendering the table
         let cell = &self.history[result_idx];
-        let schema = cell.schema.as_ref().unwrap(); // Safe because has_schema is true
+        let schema = cell.schema().unwrap(); // Safe because has_schema is true
 
         // Calculate row number width for alignment
         let max_row_num = (self.overlay_table_page + 1) * rows_per_page;
@@ -2465,7 +2397,7 @@ impl SqlPane {
         let sort_asc = self.overlay_sort_ascending;
         let sorted_row_indices: Vec<(usize, usize)> = {
             let mut indices: Vec<(usize, usize)> = Vec::new();
-            for (batch_idx, batch) in cell.batches.iter().enumerate() {
+            for (batch_idx, batch) in cell.batches().iter().enumerate() {
                 for row_idx in 0..batch.num_rows() {
                     indices.push((batch_idx, row_idx));
                 }
@@ -2473,8 +2405,10 @@ impl SqlPane {
             if let Some(sc) = sort_col {
                 if sc < num_cols {
                     indices.sort_by(|a, b| {
-                        let val_a = format_array_value(cell.batches[a.0].column(sc).as_ref(), a.1);
-                        let val_b = format_array_value(cell.batches[b.0].column(sc).as_ref(), b.1);
+                        let val_a =
+                            format_array_value(cell.batches()[a.0].column(sc).as_ref(), a.1);
+                        let val_b =
+                            format_array_value(cell.batches()[b.0].column(sc).as_ref(), b.1);
                         let ord = Self::compare_cell_values(&val_a, &val_b);
                         if sort_asc { ord } else { ord.reverse() }
                     });
@@ -2618,7 +2552,7 @@ impl SqlPane {
                             sorted_row_indices[page_start..page_end].iter().enumerate()
                         {
                             let absolute_row = start_row + display_idx + 1;
-                            let batch = &cell.batches[batch_idx];
+                            let batch = &cell.batches()[batch_idx];
 
                             // Alternate row background
                             let row_bg = if display_idx % 2 == 0 {
@@ -2815,7 +2749,7 @@ impl SqlPane {
         let sql_query = self
             .history
             .get(result_idx)
-            .map(|c| c.sql.clone())
+            .map(|c| c.sql().to_string())
             .unwrap_or_default();
 
         // Get plan stats
@@ -3019,7 +2953,7 @@ impl SqlPane {
         let diff_data = self
             .history
             .get(result_idx)
-            .and_then(|c| c.diff_result.as_ref())
+            .and_then(|c| c.diff_result())
             .map(|d| {
                 // Calculate profile timing if plans are available
                 let left_time_ms = d.left_plan.as_ref().map(|p| calc_plan_time(p) / 1000);
@@ -3268,10 +3202,8 @@ impl SqlPane {
                     }
                 } else {
                     // Re-borrow diff_result for content rendering (no mutable self access here)
-                    if let Some(diff_result) = self
-                        .history
-                        .get(result_idx)
-                        .and_then(|c| c.diff_result.as_ref())
+                    if let Some(diff_result) =
+                        self.history.get(result_idx).and_then(|c| c.diff_result())
                     {
                         match diff_type {
                             DiffType::Schema => {
@@ -4370,6 +4302,10 @@ impl SqlPane {
             .corner_radius(8.0)
             .inner_margin(egui::Margin::symmetric(12, 10))
             .show(ui, |ui| {
+                // Force the frame to fill the available width so it aligns
+                // with the query cards in the scroll area above.
+                ui.set_width(ui.available_width());
+
                 ui.horizontal(|ui| {
                     // Prompt indicator
                     let prompt = match &self.mode {
@@ -4389,21 +4325,23 @@ impl SqlPane {
 
                     // Connection indicator (small pill) — always show if connections exist
                     if !self.connections.is_empty() {
-                        let (pill_label, dot_color, label_color) =
-                            if let Some(conn) = self.active_connection() {
-                                let dot = if matches!(conn.state, ConnectionState::Connected) {
-                                    self.theme.semantic_success()
-                                } else {
-                                    text_secondary.gamma_multiply(0.5)
-                                };
-                                (conn.name.clone(), dot, text_secondary)
-                            } else {
-                                (
-                                    "Not connected".to_string(),
-                                    accent.gamma_multiply(0.5),
-                                    accent.gamma_multiply(0.7),
-                                )
+                        let (pill_label, dot_color, label_color) = if let Some(conn) =
+                            self.active_connection()
+                        {
+                            let dot = match &conn.state {
+                                ConnectionState::Connected => self.theme.semantic_success(),
+                                ConnectionState::Connecting => accent,
+                                ConnectionState::Failed(_) => self.theme.semantic_error(),
+                                ConnectionState::Disconnected => text_secondary.gamma_multiply(0.5),
                             };
+                            (conn.name.clone(), dot, text_secondary)
+                        } else {
+                            (
+                                "Not connected".to_string(),
+                                accent.gamma_multiply(0.5),
+                                accent.gamma_multiply(0.7),
+                            )
+                        };
 
                         let pill_resp = ui.add(
                             egui::Button::new(
@@ -4415,8 +4353,11 @@ impl SqlPane {
                             .stroke(egui::Stroke::new(1.0, dot_color.gamma_multiply(0.4)))
                             .corner_radius(10.0),
                         );
+                        self.pill_rect = pill_resp.rect;
                         if pill_resp.clicked() {
-                            self.sidebar_width = if self.sidebar_width == 0.0 { 1.0 } else { 0.0 };
+                            let was_closed = self.sidebar_width == 0.0;
+                            self.sidebar_width = if was_closed { 1.0 } else { 0.0 };
+                            self.popup_just_opened = was_closed;
                         }
                         pill_resp.on_hover_cursor(egui::CursorIcon::PointingHand);
 
@@ -4912,8 +4853,8 @@ impl SqlPane {
         let running_elapsed_secs = self
             .history
             .iter()
-            .find(|cell| !cell.is_info && cell.status == QueryStatus::Running)
-            .map(|cell| cell.started_at.elapsed().as_secs_f32());
+            .find(|cell| cell.is_navigable() && cell.status() == QueryStatus::Running)
+            .map(|cell| cell.created_at().elapsed().as_secs_f32());
 
         // Show loading badge if query is running
         if let Some(elapsed_secs) = running_elapsed_secs {
@@ -4950,7 +4891,7 @@ impl SqlPane {
             .iter()
             .enumerate()
             .rev()
-            .find(|(_, cell)| !cell.is_info && cell.status != QueryStatus::Running)
+            .find(|(_, cell)| cell.is_navigable() && cell.status() != QueryStatus::Running)
             .map(|(idx, _)| idx);
 
         // Handle keyboard shortcuts for overlay (only when not in overlay and input not focused)
@@ -4959,7 +4900,7 @@ impl SqlPane {
         if self.active_overlay == ResultOverlay::None && !input_focused {
             if let Some(idx) = latest_result_idx {
                 let cell = &self.history[idx];
-                let has_data = !cell.batches.is_empty();
+                let has_data = !cell.batches().is_empty();
 
                 ui.input(|i| {
                     // 't' or Enter to open table view
@@ -4988,15 +4929,15 @@ impl SqlPane {
             self.render_compact_preview(ui, idx, text_primary, text_secondary, accent);
         } else if running_elapsed_secs.is_none() {
             // Show info messages only
-            for cell in self.history.iter().filter(|c| c.is_info) {
-                if let Some(error) = &cell.error {
+            for cell in self.history.iter().filter(|c| c.is_info()) {
+                if let Some(error) = cell.get_error() {
                     ui.label(
                         RichText::new(error)
                             .color(self.theme.semantic_error())
                             .size(12.0),
                     );
                 } else {
-                    ui.label(RichText::new(&cell.sql).color(text_secondary).size(12.0));
+                    ui.label(RichText::new(cell.sql()).color(text_secondary).size(12.0));
                 }
                 ui.add_space(8.0);
             }
@@ -5035,7 +4976,7 @@ impl SqlPane {
                         se: 0,
                     })
                     .show(ui, |ui| {
-                        ui.horizontal(|ui| match &cell.status {
+                        ui.horizontal(|ui| match cell.status() {
                             QueryStatus::Running => {
                                 ui.spinner();
                                 ui.add_space(8.0);
@@ -5050,14 +4991,14 @@ impl SqlPane {
                                 ui.add_space(6.0);
 
                                 let row_count: usize =
-                                    cell.batches.iter().map(|b| b.num_rows()).sum();
+                                    cell.batches().iter().map(|b| b.num_rows()).sum();
                                 ui.label(
                                     RichText::new(format!("{row_count} rows"))
                                         .color(text_primary)
                                         .size(11.0),
                                 );
 
-                                if let Some(stats) = &cell.stats {
+                                if let Some(stats) = cell.stats() {
                                     ui.label(
                                         RichText::new("·")
                                             .color(text_secondary.gamma_multiply(0.5))
@@ -5098,7 +5039,7 @@ impl SqlPane {
                     });
 
                 // Error message if failed
-                if let Some(error) = &cell.error {
+                if let Some(error) = cell.get_error() {
                     egui::Frame::new()
                         .fill(self.theme.semantic_error().gamma_multiply(0.1))
                         .inner_margin(egui::Margin::symmetric(12, 8))
@@ -5107,7 +5048,7 @@ impl SqlPane {
                             let display_error = if error.len() > 100 {
                                 format!("{}...", &error[..100])
                             } else {
-                                error.clone()
+                                error.to_string()
                             };
                             ui.label(
                                 RichText::new(display_error)
@@ -5119,8 +5060,8 @@ impl SqlPane {
                 }
 
                 // Compact table preview (if has data)
-                if !cell.batches.is_empty() {
-                    if let Some(schema) = &cell.schema {
+                if !cell.batches().is_empty() {
+                    if let Some(schema) = cell.schema() {
                         let total_cols = schema.fields().len();
 
                         // Calculate how many columns fit in available width
@@ -5200,7 +5141,7 @@ impl SqlPane {
 
                                 // Preview rows
                                 let mut rows_shown = 0;
-                                'outer: for batch in &cell.batches {
+                                'outer: for batch in cell.batches() {
                                     for row_idx in 0..batch.num_rows() {
                                         if rows_shown >= max_preview_rows {
                                             break 'outer;
@@ -5244,7 +5185,7 @@ impl SqlPane {
 
                                 // "More rows" indicator
                                 let total_rows: usize =
-                                    cell.batches.iter().map(|b| b.num_rows()).sum();
+                                    cell.batches().iter().map(|b| b.num_rows()).sum();
                                 if total_rows > max_preview_rows {
                                     ui.label(
                                         RichText::new(format!(
@@ -5272,7 +5213,7 @@ impl SqlPane {
                     })
                     .show(ui, |ui| {
                         ui.horizontal(|ui| {
-                            let has_data = !cell.batches.is_empty();
+                            let has_data = !cell.batches().is_empty();
 
                             // Expand hints - more compact
                             if has_data {
@@ -5307,7 +5248,7 @@ impl SqlPane {
                                 egui::Layout::right_to_left(egui::Align::Center),
                                 |ui| {
                                     let query_count =
-                                        self.history.iter().filter(|c| !c.is_info).count();
+                                        self.history.iter().filter(|c| c.is_navigable()).count();
                                     if query_count > 1 {
                                         ui.label(
                                             RichText::new(format!("↑↓ {query_count}"))
@@ -5328,16 +5269,16 @@ impl SqlPane {
     fn render_result_cell(
         &self,
         ui: &mut egui::Ui,
-        cell: &QueryCell,
+        cell: &Cell,
         idx: usize,
         text_primary: Color32,
         text_secondary: Color32,
         _accent: Color32,
     ) {
         // Info cells are rendered as simple messages without index/row count
-        if cell.is_info {
+        if cell.is_info() {
             // For info messages, just show the message
-            if let Some(error) = &cell.error {
+            if let Some(error) = cell.get_error() {
                 // Error info cell
                 ui.label(
                     RichText::new(error)
@@ -5346,7 +5287,7 @@ impl SqlPane {
                 );
             } else {
                 // Regular info cell
-                ui.label(RichText::new(&cell.sql).color(text_secondary).size(12.0));
+                ui.label(RichText::new(cell.sql()).color(text_secondary).size(12.0));
             }
             return;
         }
@@ -5364,14 +5305,14 @@ impl SqlPane {
             ui.add_space(8.0);
 
             // Status-specific content
-            match &cell.status {
+            match cell.status() {
                 QueryStatus::Running => {
                     ui.spinner();
                     ui.label(RichText::new("Running...").color(text_secondary).size(11.0));
                 }
                 QueryStatus::Completed => {
                     // Row count
-                    let row_count: usize = cell.batches.iter().map(|b| b.num_rows()).sum();
+                    let row_count: usize = cell.batches().iter().map(|b| b.num_rows()).sum();
                     ui.label(
                         RichText::new(format!("{row_count} rows"))
                             .color(text_secondary)
@@ -5379,7 +5320,7 @@ impl SqlPane {
                     );
 
                     // Timing
-                    if let Some(stats) = &cell.stats {
+                    if let Some(stats) = cell.stats() {
                         ui.label(
                             RichText::new("·")
                                 .color(text_secondary.gamma_multiply(0.5))
@@ -5413,7 +5354,7 @@ impl SqlPane {
         ui.add_space(8.0);
 
         // Error message
-        if let Some(error) = &cell.error {
+        if let Some(error) = cell.get_error() {
             egui::Frame::new()
                 .fill(self.theme.semantic_error().gamma_multiply(0.1))
                 .corner_radius(4.0)
@@ -5430,11 +5371,11 @@ impl SqlPane {
         }
 
         // Results table
-        if !cell.batches.is_empty() {
+        if !cell.batches().is_empty() {
             self.render_results_table(ui, cell, text_primary, text_secondary);
-        } else if !cell.sql.is_empty() {
+        } else if !cell.sql().is_empty() {
             // Info message (from /help, etc.)
-            ui.label(RichText::new(&cell.sql).color(text_primary).size(12.0));
+            ui.label(RichText::new(cell.sql()).color(text_primary).size(12.0));
         }
     }
 
@@ -5731,7 +5672,7 @@ impl SqlPane {
     fn render_query_cell(
         &self,
         ui: &mut egui::Ui,
-        cell: &QueryCell,
+        cell: &Cell,
         idx: usize,
         _history_len: usize,
         text_primary: Color32,
@@ -5739,7 +5680,7 @@ impl SqlPane {
         accent: Color32,
     ) {
         // Determine cell styling based on status
-        let (border_color, left_accent) = match &cell.status {
+        let (border_color, left_accent) = match cell.status() {
             QueryStatus::Running => (self.theme.accent_primary(), self.theme.accent_primary()),
             QueryStatus::Completed => (self.theme.border_default(), self.theme.semantic_success()),
             QueryStatus::Failed => (
@@ -5785,19 +5726,22 @@ impl SqlPane {
                     ui.add_space(8.0);
 
                     // Query text (if present)
-                    if !cell.sql.is_empty() && cell.batches.is_empty() && cell.error.is_none() {
+                    if !cell.sql().is_empty()
+                        && cell.batches().is_empty()
+                        && cell.get_error().is_none()
+                    {
                         // Info message - show directly (not SQL, so no highlighting)
-                        ui.label(RichText::new(&cell.sql).color(text_primary).size(12.0));
-                    } else if !cell.sql.is_empty() {
+                        ui.label(RichText::new(cell.sql()).color(text_primary).size(12.0));
+                    } else if !cell.sql().is_empty() {
                         // SQL query - styled with prompt and syntax highlighting
                         ui.label(RichText::new(action::PLAY).color(accent).size(11.0));
                         ui.add_space(4.0);
 
                         // Truncate long SQL for display
-                        let display_sql = if cell.sql.len() > 80 {
-                            format!("{}...", &cell.sql[..77])
+                        let display_sql = if cell.sql().len() > 80 {
+                            format!("{}...", &cell.sql()[..77])
                         } else {
-                            cell.sql.clone()
+                            cell.sql().to_string()
                         };
 
                         // Use syntax highlighting for the SQL
@@ -5807,14 +5751,14 @@ impl SqlPane {
 
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         // Status indicator
-                        match &cell.status {
+                        match cell.status() {
                             QueryStatus::Running => {
                                 ui.spinner();
                                 ui.add_space(4.0);
                                 ui.label(RichText::new("Running").color(accent).size(11.0));
                             }
                             QueryStatus::Completed => {
-                                if let Some(stats) = &cell.stats {
+                                if let Some(stats) = cell.stats() {
                                     let mut parts = Vec::new();
                                     if stats.rows_returned > 0 {
                                         parts.push(format!("{} rows", stats.rows_returned));
@@ -5857,7 +5801,7 @@ impl SqlPane {
                 });
 
                 // Error message (if failed)
-                if let Some(error) = &cell.error {
+                if let Some(error) = cell.get_error() {
                     ui.add_space(8.0);
                     egui::Frame::new()
                         .fill(self.theme.semantic_error().gamma_multiply(0.1))
@@ -5873,7 +5817,7 @@ impl SqlPane {
                 }
 
                 // Render results table (if completed with data)
-                if cell.status == QueryStatus::Completed && !cell.batches.is_empty() {
+                if cell.status() == QueryStatus::Completed && !cell.batches().is_empty() {
                     ui.add_space(12.0);
                     self.render_results_table(ui, cell, text_primary, text_secondary);
                 }
@@ -5883,13 +5827,13 @@ impl SqlPane {
     fn render_results_table(
         &self,
         ui: &mut egui::Ui,
-        cell: &QueryCell,
+        cell: &Cell,
         text_primary: Color32,
         text_secondary: Color32,
     ) {
-        let Some(schema) = &cell.schema else { return };
+        let Some(schema) = cell.schema() else { return };
 
-        let total_rows: usize = cell.batches.iter().map(|b| b.num_rows()).sum();
+        let total_rows: usize = cell.batches().iter().map(|b| b.num_rows()).sum();
         let max_display_rows = 100;
         let accent = self.theme.accent_primary();
 
@@ -5912,7 +5856,7 @@ impl SqlPane {
                     })
                     .show(ui, |ui| {
                         egui::ScrollArea::horizontal()
-                            .id_salt(format!("header_{:?}", cell.id))
+                            .id_salt(format!("header_{:?}", cell.id()))
                             .show(ui, |ui| {
                                 ui.horizontal(|ui| {
                                     for (idx, field) in schema.fields().iter().enumerate() {
@@ -5940,14 +5884,14 @@ impl SqlPane {
 
                 // Table body
                 egui::ScrollArea::both()
-                    .id_salt(format!("body_{:?}", cell.id))
+                    .id_salt(format!("body_{:?}", cell.id()))
                     .max_height(250.0)
                     .show(ui, |ui| {
                         egui::Frame::new()
                             .inner_margin(egui::Margin::symmetric(8, 4))
                             .show(ui, |ui| {
                                 let mut rows_shown = 0;
-                                'outer: for batch in &cell.batches {
+                                'outer: for batch in cell.batches() {
                                     for row_idx in 0..batch.num_rows() {
                                         if rows_shown >= max_display_rows {
                                             break 'outer;
@@ -6312,8 +6256,8 @@ impl SqlPane {
         use crate::components::pane::inline_content::{InlineTable, InlineTableColumn};
 
         let cell = self.history.get(idx)?;
-        let schema = cell.schema.as_ref()?;
-        if cell.batches.is_empty() {
+        let schema = cell.schema()?;
+        if cell.batches().is_empty() {
             return None;
         }
 
@@ -6326,10 +6270,10 @@ impl SqlPane {
             })
             .collect();
 
-        let total_rows: usize = cell.batches.iter().map(|b| b.num_rows()).sum();
+        let total_rows: usize = cell.batches().iter().map(|b| b.num_rows()).sum();
         let max_rows = 20;
         let mut rows = Vec::new();
-        'outer: for batch in &cell.batches {
+        'outer: for batch in cell.batches() {
             for row_idx in 0..batch.num_rows() {
                 if rows.len() >= max_rows {
                     break 'outer;
@@ -6342,11 +6286,11 @@ impl SqlPane {
         }
 
         Some(InlineTable {
-            title: cell.sql.clone(),
+            title: cell.sql().to_string(),
             columns,
             rows,
             total_rows,
-            execution_time_ms: cell.stats.as_ref().map(|s| s.total_time.as_millis() as u64),
+            execution_time_ms: cell.stats().map(|s| s.total_time.as_millis() as u64),
         })
     }
 
@@ -6360,7 +6304,7 @@ impl SqlPane {
             let idx = self
                 .history
                 .iter()
-                .rposition(|c| c.sql.trim() == q.trim())?;
+                .rposition(|c| c.sql().trim() == q.trim())?;
             self.result_to_inline_table(idx)
         } else {
             let idx = self.history.len().checked_sub(1)?;
@@ -6453,85 +6397,19 @@ impl SqlPane {
 
     /// Extract snapshot data from the SQL pane's query history.
     ///
-    /// Converts each completed/failed QueryCell to a SnapshotQueryCell by
-    /// formatting RecordBatch data as strings. Skips info messages and
-    /// in-progress queries. Returns None if no cells to snapshot.
+    /// Converts each Cell to a SnapshotQueryCell, preserving cell kind
+    /// (Query, Info, Diff, Explain). Skips in-progress queries.
+    /// Returns None if no cells to snapshot.
     pub fn extract_snapshot_data(&self) -> Option<enya_config::SnapshotSqlPane> {
+        use super::types::ColumnDiffStatus;
         use enya_config::{
-            SnapshotOperatorMetrics, SnapshotPlanNode, SnapshotQueryCell, SnapshotQueryStats,
-            SnapshotSqlPane, SnapshotTableColumn,
+            SnapshotCellKind, SnapshotColumnDiffStatus, SnapshotDiffData, SnapshotDiffStats,
+            SnapshotDiffType, SnapshotOperatorMetrics, SnapshotPlanNode, SnapshotQueryCell,
+            SnapshotQueryStats, SnapshotSchemaDiff, SnapshotSchemaDiffColumn, SnapshotSqlPane,
+            SnapshotTableColumn,
         };
 
         let max_rows_per_cell = 500;
-
-        let cells: Vec<SnapshotQueryCell> = self
-            .history
-            .iter()
-            .filter(|cell| {
-                !cell.is_info
-                    && (cell.status == QueryStatus::Completed || cell.status == QueryStatus::Failed)
-            })
-            .map(|cell| {
-                let (columns, rows, total_rows) = if let Some(schema) = &cell.schema {
-                    let columns: Vec<SnapshotTableColumn> = schema
-                        .fields()
-                        .iter()
-                        .map(|f| SnapshotTableColumn {
-                            name: f.name().clone(),
-                            data_type: format!("{}", f.data_type()),
-                        })
-                        .collect();
-
-                    let total_rows: usize = cell.batches.iter().map(|b| b.num_rows()).sum();
-                    let mut rows = Vec::new();
-                    'outer: for batch in &cell.batches {
-                        for row_idx in 0..batch.num_rows() {
-                            if rows.len() >= max_rows_per_cell {
-                                break 'outer;
-                            }
-                            let row: Vec<String> = (0..batch.num_columns())
-                                .map(|col| format_array_value(batch.column(col).as_ref(), row_idx))
-                                .collect();
-                            rows.push(row);
-                        }
-                    }
-                    (columns, rows, total_rows as u64)
-                } else {
-                    (Vec::new(), Vec::new(), 0)
-                };
-
-                let stats = cell.stats.as_ref().map(|s| SnapshotQueryStats {
-                    total_time_ms: s.total_time.as_millis() as u64,
-                    planning_time_ms: s.planning_time.as_millis() as u64,
-                    execution_time_ms: s.execution_time.as_millis() as u64,
-                    rows_returned: s.rows_returned as u64,
-                    bytes_scanned: s.bytes_scanned as u64,
-                    partitions_scanned: s.partitions_scanned as u32,
-                });
-
-                SnapshotQueryCell {
-                    sql: cell.sql.clone(),
-                    columns,
-                    rows,
-                    total_rows,
-                    stats,
-                    error: cell.error.clone(),
-                    plan: None,
-                }
-            })
-            .collect();
-
-        if cells.is_empty() {
-            return None;
-        }
-
-        // Attach plan to the last cell if the plan viewer has one loaded
-        let mut cells = cells;
-        if let Some(root) = self.plan_viewer.root_plan() {
-            if let Some(last) = cells.last_mut() {
-                last.plan = Some(plan_node_to_snapshot(root));
-            }
-        }
 
         fn plan_node_to_snapshot(node: &PlanNode) -> SnapshotPlanNode {
             SnapshotPlanNode {
@@ -6553,98 +6431,245 @@ impl SqlPane {
             }
         }
 
+        fn extract_batches(
+            schema: Option<&SchemaRef>,
+            batches: &[RecordBatch],
+            max_rows: usize,
+        ) -> (Vec<SnapshotTableColumn>, Vec<Vec<String>>, u64) {
+            if let Some(schema) = schema {
+                let columns: Vec<SnapshotTableColumn> = schema
+                    .fields()
+                    .iter()
+                    .map(|f| SnapshotTableColumn {
+                        name: f.name().clone(),
+                        data_type: format!("{}", f.data_type()),
+                    })
+                    .collect();
+
+                let total_rows: usize = batches.iter().map(|b| b.num_rows()).sum();
+                let mut rows = Vec::new();
+                'outer: for batch in batches {
+                    for row_idx in 0..batch.num_rows() {
+                        if rows.len() >= max_rows {
+                            break 'outer;
+                        }
+                        let row: Vec<String> = (0..batch.num_columns())
+                            .map(|col| format_array_value(batch.column(col).as_ref(), row_idx))
+                            .collect();
+                        rows.push(row);
+                    }
+                }
+                (columns, rows, total_rows as u64)
+            } else {
+                (Vec::new(), Vec::new(), 0)
+            }
+        }
+
+        let cells: Vec<SnapshotQueryCell> = self
+            .history
+            .iter()
+            .filter(|cell| {
+                // Skip running cells (incomplete data)
+                let status = cell.status();
+                status == QueryStatus::Completed || status == QueryStatus::Failed
+            })
+            .map(|cell| match &cell.kind {
+                CellKind::Query(q) => {
+                    let (columns, rows, total_rows) =
+                        extract_batches(q.schema.as_ref(), &q.batches, max_rows_per_cell);
+                    let stats = q.stats.as_ref().map(|s| SnapshotQueryStats {
+                        total_time_ms: s.total_time.as_millis() as u64,
+                        planning_time_ms: s.planning_time.as_millis() as u64,
+                        execution_time_ms: s.execution_time.as_millis() as u64,
+                        rows_returned: s.rows_returned as u64,
+                        bytes_scanned: s.bytes_scanned as u64,
+                        partitions_scanned: s.partitions_scanned as u32,
+                    });
+                    SnapshotQueryCell {
+                        kind: SnapshotCellKind::Query,
+                        sql: cell.sql().to_string(),
+                        columns,
+                        rows,
+                        total_rows,
+                        stats,
+                        error: q.error.clone(),
+                        plan: None,
+                        diff: None,
+                    }
+                }
+                CellKind::Info(i) => SnapshotQueryCell {
+                    kind: SnapshotCellKind::Info,
+                    sql: cell.sql().to_string(),
+                    columns: Vec::new(),
+                    rows: Vec::new(),
+                    total_rows: 0,
+                    stats: None,
+                    error: i.error.clone(),
+                    plan: None,
+                    diff: None,
+                },
+                CellKind::Diff(d) => {
+                    let diff_data = d.diff_result.as_ref().map(|dr| {
+                        let (left_columns, left_rows, left_total_rows) = extract_batches(
+                            dr.left_schema.as_ref(),
+                            &dr.left_batches,
+                            max_rows_per_cell,
+                        );
+                        let (right_columns, right_rows, right_total_rows) = extract_batches(
+                            dr.right_schema.as_ref(),
+                            &dr.right_batches,
+                            max_rows_per_cell,
+                        );
+                        SnapshotDiffData {
+                            left_name: dr.left_name.clone(),
+                            right_name: dr.right_name.clone(),
+                            left_columns,
+                            left_rows,
+                            left_total_rows,
+                            left_error: dr.left_error.clone(),
+                            right_columns,
+                            right_rows,
+                            right_total_rows,
+                            right_error: dr.right_error.clone(),
+                            schemas_match: dr.schemas_match,
+                            diff_stats: dr.diff_stats.as_ref().map(|s| SnapshotDiffStats {
+                                left_only: s.left_only as u64,
+                                right_only: s.right_only as u64,
+                                different: s.different as u64,
+                                matching: s.matching as u64,
+                            }),
+                            left_plan: dr.left_plan.as_ref().map(plan_node_to_snapshot),
+                            right_plan: dr.right_plan.as_ref().map(plan_node_to_snapshot),
+                            diff_type: match dr.diff_type {
+                                DiffType::Data => SnapshotDiffType::Data,
+                                DiffType::Plan => SnapshotDiffType::Plan,
+                                DiffType::Schema => SnapshotDiffType::Schema,
+                                DiffType::Profile => SnapshotDiffType::Profile,
+                            },
+                            schema_diff: dr.schema_diff.as_ref().map(|sd| SnapshotSchemaDiff {
+                                table_name: sd.table_name.clone(),
+                                columns: sd
+                                    .columns
+                                    .iter()
+                                    .map(|c| SnapshotSchemaDiffColumn {
+                                        name: c.name.clone(),
+                                        left_type: c.left_type.clone(),
+                                        left_nullable: c.left_nullable,
+                                        right_type: c.right_type.clone(),
+                                        right_nullable: c.right_nullable,
+                                        status: match c.status {
+                                            ColumnDiffStatus::Matching => {
+                                                SnapshotColumnDiffStatus::Matching
+                                            }
+                                            ColumnDiffStatus::LeftOnly => {
+                                                SnapshotColumnDiffStatus::LeftOnly
+                                            }
+                                            ColumnDiffStatus::RightOnly => {
+                                                SnapshotColumnDiffStatus::RightOnly
+                                            }
+                                            ColumnDiffStatus::Changed => {
+                                                SnapshotColumnDiffStatus::Changed
+                                            }
+                                        },
+                                    })
+                                    .collect(),
+                                matching: sd.matching as u64,
+                                left_only: sd.left_only as u64,
+                                right_only: sd.right_only as u64,
+                                changed: sd.changed as u64,
+                            }),
+                        }
+                    });
+                    SnapshotQueryCell {
+                        kind: SnapshotCellKind::Diff,
+                        sql: cell.sql().to_string(),
+                        columns: Vec::new(),
+                        rows: Vec::new(),
+                        total_rows: 0,
+                        stats: None,
+                        error: d.error.clone(),
+                        plan: None,
+                        diff: diff_data,
+                    }
+                }
+                CellKind::Explain(_e) => SnapshotQueryCell {
+                    kind: SnapshotCellKind::Explain,
+                    sql: cell.sql().to_string(),
+                    columns: Vec::new(),
+                    rows: Vec::new(),
+                    total_rows: 0,
+                    stats: None,
+                    error: cell.get_error().map(|e| e.to_string()),
+                    plan: None,
+                    diff: None,
+                },
+            })
+            .collect();
+
+        if cells.is_empty() {
+            return None;
+        }
+
+        // Attach plan from plan_viewer to the last explain or query cell
+        let mut cells = cells;
+        if let Some(root) = self.plan_viewer.root_plan() {
+            // Prefer attaching to the last explain cell, fall back to last cell
+            let target = cells
+                .iter()
+                .rposition(|c| c.kind == SnapshotCellKind::Explain)
+                .or_else(|| cells.len().checked_sub(1));
+            if let Some(idx) = target {
+                cells[idx].plan = Some(plan_node_to_snapshot(root));
+            }
+        }
+
         Some(SnapshotSqlPane { cells })
     }
 
     /// Load snapshot data into the SQL pane, replacing current history.
     ///
-    /// Creates QueryCells from the snapshot data. String row data is converted
-    /// back into Arrow StringArray RecordBatches so the existing rendering code
-    /// works unchanged.
+    /// Dispatches on cell kind to create the appropriate Cell variant.
+    /// String row data is converted back into Arrow StringArray RecordBatches
+    /// so the existing rendering code works unchanged.
     pub fn load_snapshot_data(&mut self, data: &enya_config::SnapshotSqlPane) {
+        use enya_config::SnapshotCellKind;
         use enya_datafusion::arrow::array::StringArray;
         use enya_datafusion::arrow::datatypes::{DataType, Field, Schema};
         use std::sync::Arc;
 
-        self.history.clear();
-        self.cell_states.clear();
-        self.selected_cell_idx = None;
+        use super::types::{
+            ColumnDiffStatus, DiffStats, DiffType, SchemaDiffColumn, SchemaDiffResult,
+        };
 
-        for cell_data in &data.cells {
-            let id = QueryId::new();
-
-            // Build Arrow schema and RecordBatch from string data
-            let (schema, batches) = if !cell_data.columns.is_empty() && !cell_data.rows.is_empty() {
-                let fields: Vec<Field> = cell_data
-                    .columns
-                    .iter()
-                    .map(|c| Field::new(&c.name, DataType::Utf8, true))
-                    .collect();
-                let schema = Arc::new(Schema::new(fields));
-
-                let num_cols = cell_data.columns.len();
-                let arrays: Vec<Arc<dyn Array>> = (0..num_cols)
-                    .map(|col_idx| {
-                        let values: Vec<Option<&str>> = cell_data
-                            .rows
-                            .iter()
-                            .map(|row| {
-                                row.get(col_idx)
-                                    .map(|s| if s == "NULL" { None } else { Some(s.as_str()) })
-                                    .unwrap_or(None)
-                            })
-                            .collect();
-                        Arc::new(StringArray::from(values)) as Arc<dyn Array>
-                    })
-                    .collect();
-
-                match RecordBatch::try_new(schema.clone(), arrays) {
-                    Ok(batch) => (Some(schema as SchemaRef), vec![batch]),
-                    Err(_) => (None, Vec::new()),
-                }
-            } else {
-                (None, Vec::new())
-            };
-
-            let stats = cell_data
-                .stats
-                .as_ref()
-                .map(|s| enya_datafusion::ExecutionStats {
-                    total_time: std::time::Duration::from_millis(s.total_time_ms),
-                    planning_time: std::time::Duration::from_millis(s.planning_time_ms),
-                    execution_time: std::time::Duration::from_millis(s.execution_time_ms),
-                    rows_returned: s.rows_returned as usize,
-                    bytes_scanned: s.bytes_scanned as usize,
-                    partitions_scanned: s.partitions_scanned as usize,
-                });
-
-            let cell = QueryCell {
-                sql: cell_data.sql.clone(),
-                id,
-                status: if cell_data.error.is_some() {
-                    QueryStatus::Failed
-                } else {
-                    QueryStatus::Completed
-                },
-                started_at: crate::util::Instant::now(),
-                schema,
-                batches,
-                stats,
-                error: cell_data.error.clone(),
-                is_info: false,
-                diff_result: None,
-            };
-
-            self.history.push(cell);
-            self.cell_states.insert(id, CellViewState::default());
-        }
-
-        // Load plan into plan_viewer from the last cell that has one
-        for cell_data in data.cells.iter().rev() {
-            if let Some(plan) = &cell_data.plan {
-                let plan_node = snapshot_plan_to_node(plan);
-                self.plan_viewer.load_plan(&plan_node);
-                break;
+        fn strings_to_batch(
+            columns: &[enya_config::SnapshotTableColumn],
+            rows: &[Vec<String>],
+        ) -> (Option<SchemaRef>, Vec<RecordBatch>) {
+            if columns.is_empty() || rows.is_empty() {
+                return (None, Vec::new());
+            }
+            let fields: Vec<Field> = columns
+                .iter()
+                .map(|c| Field::new(&c.name, DataType::Utf8, true))
+                .collect();
+            let schema = Arc::new(Schema::new(fields));
+            let num_cols = columns.len();
+            let arrays: Vec<Arc<dyn Array>> = (0..num_cols)
+                .map(|col_idx| {
+                    let values: Vec<Option<&str>> = rows
+                        .iter()
+                        .map(|row| {
+                            row.get(col_idx)
+                                .map(|s| if s == "NULL" { None } else { Some(s.as_str()) })
+                                .unwrap_or(None)
+                        })
+                        .collect();
+                    Arc::new(StringArray::from(values)) as Arc<dyn Array>
+                })
+                .collect();
+            match RecordBatch::try_new(schema.clone(), arrays) {
+                Ok(batch) => (Some(schema as SchemaRef), vec![batch]),
+                Err(_) => (None, Vec::new()),
             }
         }
 
@@ -6664,6 +6689,128 @@ impl SqlPane {
                         spill_count: m.spill_count as usize,
                         spill_bytes: m.spill_bytes as usize,
                     }),
+            }
+        }
+
+        self.history.clear();
+        self.cell_states.clear();
+        self.selected_cell_idx = None;
+
+        for cell_data in &data.cells {
+            let id = QueryId::new();
+
+            let cell = match cell_data.kind {
+                SnapshotCellKind::Query => {
+                    let (schema, batches) = strings_to_batch(&cell_data.columns, &cell_data.rows);
+                    let stats = cell_data.stats.as_ref().map(|s| ExecutionStats {
+                        total_time: std::time::Duration::from_millis(s.total_time_ms),
+                        planning_time: std::time::Duration::from_millis(s.planning_time_ms),
+                        execution_time: std::time::Duration::from_millis(s.execution_time_ms),
+                        rows_returned: s.rows_returned as usize,
+                        bytes_scanned: s.bytes_scanned as usize,
+                        partitions_scanned: s.partitions_scanned as usize,
+                    });
+                    Cell::query_completed(
+                        cell_data.sql.clone(),
+                        id,
+                        schema,
+                        batches,
+                        stats,
+                        cell_data.error.clone(),
+                    )
+                }
+                SnapshotCellKind::Info => {
+                    if let Some(error) = &cell_data.error {
+                        Cell::error(error.clone())
+                    } else {
+                        Cell::info(cell_data.sql.clone())
+                    }
+                }
+                SnapshotCellKind::Explain => Cell::explain(cell_data.sql.clone(), id),
+                SnapshotCellKind::Diff => {
+                    if let Some(diff) = &cell_data.diff {
+                        let (left_schema, left_batches) =
+                            strings_to_batch(&diff.left_columns, &diff.left_rows);
+                        let (right_schema, right_batches) =
+                            strings_to_batch(&diff.right_columns, &diff.right_rows);
+
+                        let diff_result = DiffQueryResult {
+                            left_name: diff.left_name.clone(),
+                            right_name: diff.right_name.clone(),
+                            left_schema,
+                            left_batches,
+                            left_error: diff.left_error.clone(),
+                            right_schema,
+                            right_batches,
+                            right_error: diff.right_error.clone(),
+                            schemas_match: diff.schemas_match,
+                            diff_stats: diff.diff_stats.as_ref().map(|s| DiffStats {
+                                left_only: s.left_only as usize,
+                                right_only: s.right_only as usize,
+                                different: s.different as usize,
+                                matching: s.matching as usize,
+                            }),
+                            left_plan: diff.left_plan.as_ref().map(snapshot_plan_to_node),
+                            right_plan: diff.right_plan.as_ref().map(snapshot_plan_to_node),
+                            diff_type: match diff.diff_type {
+                                enya_config::SnapshotDiffType::Data => DiffType::Data,
+                                enya_config::SnapshotDiffType::Plan => DiffType::Plan,
+                                enya_config::SnapshotDiffType::Schema => DiffType::Schema,
+                                enya_config::SnapshotDiffType::Profile => DiffType::Profile,
+                            },
+                            schema_diff: diff.schema_diff.as_ref().map(|sd| SchemaDiffResult {
+                                table_name: sd.table_name.clone(),
+                                columns: sd
+                                    .columns
+                                    .iter()
+                                    .map(|c| SchemaDiffColumn {
+                                        name: c.name.clone(),
+                                        left_type: c.left_type.clone(),
+                                        left_nullable: c.left_nullable,
+                                        right_type: c.right_type.clone(),
+                                        right_nullable: c.right_nullable,
+                                        status: match c.status {
+                                            enya_config::SnapshotColumnDiffStatus::Matching => {
+                                                ColumnDiffStatus::Matching
+                                            }
+                                            enya_config::SnapshotColumnDiffStatus::LeftOnly => {
+                                                ColumnDiffStatus::LeftOnly
+                                            }
+                                            enya_config::SnapshotColumnDiffStatus::RightOnly => {
+                                                ColumnDiffStatus::RightOnly
+                                            }
+                                            enya_config::SnapshotColumnDiffStatus::Changed => {
+                                                ColumnDiffStatus::Changed
+                                            }
+                                        },
+                                    })
+                                    .collect(),
+                                matching: sd.matching as usize,
+                                left_only: sd.left_only as usize,
+                                right_only: sd.right_only as usize,
+                                changed: sd.changed as usize,
+                            }),
+                        };
+                        Cell::diff_completed(cell_data.sql.clone(), id, diff_result)
+                    } else {
+                        // Diff cell with no data (shouldn't happen, but handle gracefully)
+                        Cell::diff(cell_data.sql.clone(), id)
+                    }
+                }
+            };
+
+            // For info cells, use the generated id from the cell itself
+            let cell_id = cell.id();
+            self.history.push(cell);
+            self.cell_states.insert(cell_id, CellViewState::default());
+        }
+
+        // Load plan into plan_viewer from the last cell that has one
+        for cell_data in data.cells.iter().rev() {
+            if let Some(plan) = &cell_data.plan {
+                let plan_node = snapshot_plan_to_node(plan);
+                self.plan_viewer.load_plan(&plan_node);
+                break;
             }
         }
 

@@ -5,9 +5,9 @@
 //! pre-stringified, so no `format_array_value` calls are needed.
 
 use egui::{Color32, RichText};
-use enya_config::SnapshotQueryCell;
+use enya_config::{SnapshotCellKind, SnapshotQueryCell};
 
-use super::{CellTab, CellViewState, format_ms, snapshot_plan};
+use super::{CellViewState, format_ms, snapshot_plan};
 use crate::components::OverlayColors;
 use crate::components::util::{render_stat_badge, render_stat_badge_with_icon};
 use crate::ui::semantic_icons::{nav, status, time};
@@ -19,14 +19,15 @@ pub(super) enum CardAction {
     Select,
     Expand,
     Collapse,
-    SetTab(CellTab),
     NextPage,
     PrevPage,
 }
 
 const ROWS_PER_PAGE: usize = 50;
 
-/// Entry point: renders a snapshot query card (collapsed or expanded).
+/// Entry point: renders a snapshot card (collapsed or expanded).
+///
+/// Dispatches on cell kind for info, diff, and explain cells.
 pub(super) fn render_snapshot_card(
     ui: &mut egui::Ui,
     cell: &SnapshotQueryCell,
@@ -36,10 +37,29 @@ pub(super) fn render_snapshot_card(
     is_selected: bool,
     cell_number: usize,
 ) -> Vec<CardAction> {
-    if view_state.expanded {
-        render_expanded_card(ui, cell, cell_idx, view_state, theme, cell_number)
-    } else {
-        render_collapsed_card(ui, cell, cell_idx, theme, is_selected, cell_number)
+    match cell.kind {
+        SnapshotCellKind::Info => render_info_card(ui, cell, theme),
+        SnapshotCellKind::Explain => {
+            if view_state.expanded {
+                render_explain_expanded(ui, cell, cell_idx, view_state, theme, cell_number)
+            } else {
+                render_explain_collapsed(ui, cell, cell_idx, theme, is_selected, cell_number)
+            }
+        }
+        SnapshotCellKind::Diff => {
+            if view_state.expanded {
+                render_diff_expanded(ui, cell, cell_idx, view_state, theme, cell_number)
+            } else {
+                render_diff_collapsed(ui, cell, cell_idx, theme, is_selected, cell_number)
+            }
+        }
+        SnapshotCellKind::Query => {
+            if view_state.expanded {
+                render_expanded_card(ui, cell, cell_idx, view_state, theme, cell_number)
+            } else {
+                render_collapsed_card(ui, cell, cell_idx, theme, is_selected, cell_number)
+            }
+        }
     }
 }
 
@@ -440,7 +460,7 @@ fn render_expanded_card(
 
             // Tab bar + stats
             if cell.error.is_none() {
-                render_tab_bar(ui, cell, view_state, theme, &mut actions);
+                render_stats_bar(ui, cell, theme);
             }
 
             // Separator
@@ -451,26 +471,19 @@ fn render_expanded_card(
             );
 
             // Content area
-            match view_state.active_tab {
-                CellTab::Table => {
-                    if !cell.rows.is_empty() && !cell.columns.is_empty() {
-                        render_inline_table(ui, cell, cell_idx, view_state, theme);
-                    } else if cell.rows.is_empty() && cell.error.is_none() {
-                        ui.add_space(16.0);
-                        ui.horizontal(|ui| {
-                            ui.add_space(16.0);
-                            ui.label(
-                                RichText::new("Query returned no rows")
-                                    .color(text_secondary)
-                                    .size(11.0),
-                            );
-                        });
-                        ui.add_space(16.0);
-                    }
-                }
-                CellTab::Plan => {
-                    render_inline_plan(ui, cell, theme);
-                }
+            if !cell.rows.is_empty() && !cell.columns.is_empty() {
+                render_inline_table(ui, cell, cell_idx, view_state, theme);
+            } else if cell.rows.is_empty() && cell.error.is_none() {
+                ui.add_space(16.0);
+                ui.horizontal(|ui| {
+                    ui.add_space(16.0);
+                    ui.label(
+                        RichText::new("Query returned no rows")
+                            .color(text_secondary)
+                            .size(11.0),
+                    );
+                });
+                ui.add_space(16.0);
             }
 
             // Footer
@@ -480,78 +493,15 @@ fn render_expanded_card(
     actions
 }
 
-/// Render the [Table] [Plan] tab bar with stat badges.
-fn render_tab_bar(
-    ui: &mut egui::Ui,
-    cell: &SnapshotQueryCell,
-    view_state: &mut CellViewState,
-    theme: AppTheme,
-    actions: &mut Vec<CardAction>,
-) {
+/// Render the stats bar for query cells.
+fn render_stats_bar(ui: &mut egui::Ui, cell: &SnapshotQueryCell, theme: AppTheme) {
     let colors = OverlayColors::new(theme);
-    let accent = theme.accent_primary();
-    let text_secondary = theme.text_secondary();
 
     egui::Frame::new()
         .fill(theme.bg_surface())
         .inner_margin(egui::Margin::symmetric(12, 6))
         .show(ui, |ui| {
             ui.horizontal(|ui| {
-                // Table tab
-                let table_active = view_state.active_tab == CellTab::Table;
-                let table_color = if table_active { accent } else { text_secondary };
-                let table_resp = ui.add(
-                    egui::Label::new(
-                        RichText::new("Table")
-                            .color(table_color)
-                            .size(11.0)
-                            .strong(),
-                    )
-                    .sense(egui::Sense::click()),
-                );
-                if table_resp.clicked() && !table_active {
-                    actions.push(CardAction::SetTab(CellTab::Table));
-                }
-                if table_resp.hovered() {
-                    ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-                }
-                if table_active {
-                    let rect = table_resp.rect;
-                    ui.painter().hline(
-                        rect.x_range(),
-                        rect.bottom() + 1.0,
-                        egui::Stroke::new(2.0, accent),
-                    );
-                }
-
-                ui.add_space(12.0);
-
-                // Plan tab (only if plan data exists)
-                if cell.plan.is_some() {
-                    let plan_active = view_state.active_tab == CellTab::Plan;
-                    let plan_color = if plan_active { accent } else { text_secondary };
-                    let plan_resp = ui.add(
-                        egui::Label::new(
-                            RichText::new("Plan").color(plan_color).size(11.0).strong(),
-                        )
-                        .sense(egui::Sense::click()),
-                    );
-                    if plan_resp.clicked() && !plan_active {
-                        actions.push(CardAction::SetTab(CellTab::Plan));
-                    }
-                    if plan_resp.hovered() {
-                        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-                    }
-                    if plan_active {
-                        let rect = plan_resp.rect;
-                        ui.painter().hline(
-                            rect.x_range(),
-                            rect.bottom() + 1.0,
-                            egui::Stroke::new(2.0, accent),
-                        );
-                    }
-                }
-
                 // Stats on the right
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if let Some(stats) = &cell.stats {
@@ -823,7 +773,7 @@ fn render_card_footer(
             );
 
             // Pagination (table tab only)
-            if view_state.active_tab == CellTab::Table && total_pages > 1 {
+            if total_pages > 1 {
                 ui.add_space(12.0);
 
                 // Next page button
@@ -870,4 +820,652 @@ fn render_card_footer(
         });
     });
     ui.add_space(4.0);
+}
+
+// =============================================================================
+// Info cell rendering (not expandable)
+// =============================================================================
+
+fn render_info_card(
+    ui: &mut egui::Ui,
+    cell: &SnapshotQueryCell,
+    theme: AppTheme,
+) -> Vec<CardAction> {
+    let text_secondary = theme.text_secondary();
+
+    let (icon, color, text) = if let Some(error) = &cell.error {
+        (status::ERROR, theme.semantic_error(), error.as_str())
+    } else {
+        (status::INFO, text_secondary, cell.sql.as_str())
+    };
+
+    egui::Frame::new()
+        .fill(if cell.error.is_some() {
+            theme.semantic_error().gamma_multiply(0.08)
+        } else {
+            theme.bg_surface()
+        })
+        .stroke(egui::Stroke::new(
+            1.0,
+            theme.border_default().gamma_multiply(0.5),
+        ))
+        .corner_radius(6.0)
+        .inner_margin(egui::Margin::symmetric(12, 6))
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.label(RichText::new(icon).color(color).size(11.0));
+                ui.add_space(6.0);
+                ui.label(RichText::new(text).color(color).size(11.0).italics());
+            });
+        });
+
+    Vec::new()
+}
+
+// =============================================================================
+// Explain cell rendering
+// =============================================================================
+
+fn render_explain_collapsed(
+    ui: &mut egui::Ui,
+    cell: &SnapshotQueryCell,
+    cell_idx: usize,
+    theme: AppTheme,
+    is_selected: bool,
+    cell_number: usize,
+) -> Vec<CardAction> {
+    let mut actions = Vec::new();
+    let text_primary = theme.text_primary();
+    let text_secondary = theme.text_secondary();
+    let accent = theme.accent_primary();
+
+    let border_color = if is_selected {
+        accent
+    } else {
+        theme.border_default()
+    };
+    let border_width = if is_selected { 2.0 } else { 1.0 };
+
+    let card_response = egui::Frame::new()
+        .fill(theme.bg_elevated())
+        .stroke(egui::Stroke::new(border_width, border_color))
+        .corner_radius(8.0)
+        .inner_margin(egui::Margin::symmetric(12, 8))
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.label(
+                    RichText::new(format!("[{cell_number}]"))
+                        .color(text_secondary.gamma_multiply(0.4))
+                        .size(10.0)
+                        .monospace(),
+                );
+                ui.add_space(4.0);
+                ui.label(RichText::new(status::INFO).color(accent).size(11.0));
+                ui.add_space(6.0);
+
+                let sql_oneline = cell.sql.replace('\n', " ");
+                let sql_display = if sql_oneline.len() > 60 {
+                    format!("{}…", &sql_oneline[..59])
+                } else {
+                    sql_oneline
+                };
+                ui.label(
+                    RichText::new(sql_display)
+                        .color(text_primary)
+                        .size(11.0)
+                        .monospace(),
+                );
+
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if cell.plan.is_some() {
+                        ui.label(RichText::new("Plan").color(text_secondary).size(10.0));
+                    }
+                });
+            });
+        });
+
+    let card_rect = card_response.response.rect;
+    let click_response = ui.interact(
+        card_rect,
+        egui::Id::new(("snapshot_explain_click", cell_idx)),
+        egui::Sense::click(),
+    );
+    if click_response.double_clicked() {
+        actions.push(CardAction::Expand);
+    } else if click_response.clicked() {
+        actions.push(CardAction::Select);
+    }
+    if click_response.hovered() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+
+    actions
+}
+
+fn render_explain_expanded(
+    ui: &mut egui::Ui,
+    cell: &SnapshotQueryCell,
+    cell_idx: usize,
+    view_state: &mut CellViewState,
+    theme: AppTheme,
+    cell_number: usize,
+) -> Vec<CardAction> {
+    let mut actions = Vec::new();
+    let text_primary = theme.text_primary();
+    let text_secondary = theme.text_secondary();
+    let accent = theme.accent_primary();
+    let colors = OverlayColors::new(theme);
+
+    egui::Frame::new()
+        .fill(theme.bg_elevated())
+        .stroke(egui::Stroke::new(1.5, accent.gamma_multiply(0.5)))
+        .corner_radius(8.0)
+        .inner_margin(0.0)
+        .show(ui, |ui| {
+            // Header
+            egui::Frame::new()
+                .fill(theme.bg_surface())
+                .inner_margin(egui::Margin::symmetric(12, 8))
+                .corner_radius(egui::CornerRadius {
+                    nw: 8,
+                    ne: 8,
+                    sw: 0,
+                    se: 0,
+                })
+                .show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            RichText::new(format!("[{cell_number}]"))
+                                .color(text_secondary.gamma_multiply(0.4))
+                                .size(10.0)
+                                .monospace(),
+                        );
+                        ui.add_space(4.0);
+                        ui.label(RichText::new(status::INFO).color(accent).size(11.0));
+                        ui.add_space(6.0);
+                        ui.label(
+                            RichText::new(&cell.sql)
+                                .color(text_primary)
+                                .size(11.0)
+                                .monospace(),
+                        );
+
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            let chevron_resp = ui.add(
+                                egui::Label::new(
+                                    RichText::new(nav::COLLAPSE)
+                                        .color(text_secondary.gamma_multiply(0.6))
+                                        .size(11.0),
+                                )
+                                .sense(egui::Sense::click()),
+                            );
+                            if chevron_resp.clicked() {
+                                actions.push(CardAction::Collapse);
+                            }
+                            if chevron_resp.hovered() {
+                                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                            }
+                        });
+                    });
+                });
+
+            // Plan content
+            render_inline_plan(ui, cell, theme);
+
+            // Footer
+            ui.painter().hline(
+                ui.available_rect_before_wrap().x_range(),
+                ui.cursor().top(),
+                egui::Stroke::new(1.0, colors.separator),
+            );
+            ui.add_space(4.0);
+            ui.horizontal(|ui| {
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.add_space(12.0);
+                    ui.label(
+                        RichText::new("read-only snapshot")
+                            .color(colors.faint_text.gamma_multiply(0.7))
+                            .font(typography::proportional(typography::XS)),
+                    );
+                });
+            });
+            ui.add_space(4.0);
+        });
+
+    let _ = (cell_idx, view_state); // used for id consistency
+    actions
+}
+
+// =============================================================================
+// Diff cell rendering
+// =============================================================================
+
+fn render_diff_collapsed(
+    ui: &mut egui::Ui,
+    cell: &SnapshotQueryCell,
+    cell_idx: usize,
+    theme: AppTheme,
+    is_selected: bool,
+    cell_number: usize,
+) -> Vec<CardAction> {
+    let mut actions = Vec::new();
+    let text_primary = theme.text_primary();
+    let text_secondary = theme.text_secondary();
+    let accent = theme.accent_primary();
+
+    let border_color = if is_selected {
+        accent
+    } else {
+        theme.border_default()
+    };
+    let border_width = if is_selected { 2.0 } else { 1.0 };
+
+    let card_response = egui::Frame::new()
+        .fill(theme.bg_elevated())
+        .stroke(egui::Stroke::new(border_width, border_color))
+        .corner_radius(8.0)
+        .inner_margin(egui::Margin::symmetric(12, 8))
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.label(
+                    RichText::new(format!("[{cell_number}]"))
+                        .color(text_secondary.gamma_multiply(0.4))
+                        .size(10.0)
+                        .monospace(),
+                );
+                ui.add_space(4.0);
+
+                // Diff icon
+                ui.label(RichText::new("⇄").color(accent).size(12.0));
+                ui.add_space(6.0);
+
+                // Connection names if available
+                if let Some(diff) = &cell.diff {
+                    ui.label(
+                        RichText::new(format!("{} vs {}", diff.left_name, diff.right_name))
+                            .color(text_primary)
+                            .size(11.0),
+                    );
+                    ui.add_space(8.0);
+
+                    // Diff stats
+                    if let Some(stats) = &diff.diff_stats {
+                        if stats.matching > 0 {
+                            ui.label(
+                                RichText::new(format!("{} match", stats.matching))
+                                    .color(theme.semantic_success())
+                                    .size(10.0),
+                            );
+                            ui.add_space(4.0);
+                        }
+                        if stats.different > 0 {
+                            ui.label(
+                                RichText::new(format!("{} diff", stats.different))
+                                    .color(theme.semantic_error())
+                                    .size(10.0),
+                            );
+                        }
+                    }
+                } else {
+                    let sql_oneline = cell.sql.replace('\n', " ");
+                    let sql_display = if sql_oneline.len() > 60 {
+                        format!("{}…", &sql_oneline[..59])
+                    } else {
+                        sql_oneline
+                    };
+                    ui.label(
+                        RichText::new(sql_display)
+                            .color(text_primary)
+                            .size(11.0)
+                            .monospace(),
+                    );
+                }
+
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.label(
+                        RichText::new(nav::FORWARD)
+                            .color(text_secondary.gamma_multiply(0.5))
+                            .size(11.0),
+                    );
+                });
+            });
+        });
+
+    let card_rect = card_response.response.rect;
+    let click_response = ui.interact(
+        card_rect,
+        egui::Id::new(("snapshot_diff_click", cell_idx)),
+        egui::Sense::click(),
+    );
+    if click_response.double_clicked() {
+        actions.push(CardAction::Expand);
+    } else if click_response.clicked() {
+        actions.push(CardAction::Select);
+    }
+    if click_response.hovered() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+
+    actions
+}
+
+fn render_diff_expanded(
+    ui: &mut egui::Ui,
+    cell: &SnapshotQueryCell,
+    cell_idx: usize,
+    view_state: &mut CellViewState,
+    theme: AppTheme,
+    cell_number: usize,
+) -> Vec<CardAction> {
+    let mut actions = Vec::new();
+    let text_primary = theme.text_primary();
+    let text_secondary = theme.text_secondary();
+    let accent = theme.accent_primary();
+    let colors = OverlayColors::new(theme);
+
+    egui::Frame::new()
+        .fill(theme.bg_elevated())
+        .stroke(egui::Stroke::new(1.5, accent.gamma_multiply(0.5)))
+        .corner_radius(8.0)
+        .inner_margin(0.0)
+        .show(ui, |ui| {
+            // Header
+            egui::Frame::new()
+                .fill(theme.bg_surface())
+                .inner_margin(egui::Margin::symmetric(12, 8))
+                .corner_radius(egui::CornerRadius {
+                    nw: 8,
+                    ne: 8,
+                    sw: 0,
+                    se: 0,
+                })
+                .show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            RichText::new(format!("[{cell_number}]"))
+                                .color(text_secondary.gamma_multiply(0.4))
+                                .size(10.0)
+                                .monospace(),
+                        );
+                        ui.add_space(4.0);
+                        ui.label(RichText::new("⇄").color(accent).size(12.0));
+                        ui.add_space(6.0);
+
+                        if let Some(diff) = &cell.diff {
+                            ui.label(
+                                RichText::new(format!("{} vs {}", diff.left_name, diff.right_name))
+                                    .color(text_primary)
+                                    .size(11.0)
+                                    .strong(),
+                            );
+                        }
+
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            let chevron_resp = ui.add(
+                                egui::Label::new(
+                                    RichText::new(nav::COLLAPSE)
+                                        .color(text_secondary.gamma_multiply(0.6))
+                                        .size(11.0),
+                                )
+                                .sense(egui::Sense::click()),
+                            );
+                            if chevron_resp.clicked() {
+                                actions.push(CardAction::Collapse);
+                            }
+                            if chevron_resp.hovered() {
+                                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                            }
+
+                            // Stats badges
+                            if let Some(diff) = &cell.diff {
+                                if let Some(stats) = &diff.diff_stats {
+                                    ui.add_space(8.0);
+                                    render_stat_badge(
+                                        ui,
+                                        &format!("{} matching", stats.matching),
+                                        &colors,
+                                    );
+                                    if stats.different > 0 {
+                                        ui.add_space(4.0);
+                                        render_stat_badge(
+                                            ui,
+                                            &format!("{} different", stats.different),
+                                            &colors,
+                                        );
+                                    }
+                                }
+                            }
+                        });
+                    });
+                });
+
+            // Separator
+            ui.painter().hline(
+                ui.available_rect_before_wrap().x_range(),
+                ui.cursor().top(),
+                egui::Stroke::new(1.0, colors.separator),
+            );
+
+            // SQL query
+            egui::Frame::new()
+                .fill(theme.bg_base())
+                .inner_margin(egui::Margin::symmetric(12, 8))
+                .show(ui, |ui| {
+                    ui.label(
+                        RichText::new(&cell.sql)
+                            .color(text_secondary)
+                            .size(11.0)
+                            .monospace(),
+                    );
+                });
+
+            // Side-by-side diff tables
+            if let Some(diff) = &cell.diff {
+                // Errors
+                if let Some(err) = &diff.left_error {
+                    egui::Frame::new()
+                        .fill(theme.semantic_error().gamma_multiply(0.1))
+                        .inner_margin(egui::Margin::symmetric(12, 6))
+                        .show(ui, |ui| {
+                            ui.label(
+                                RichText::new(format!("{}: {}", diff.left_name, err))
+                                    .color(theme.semantic_error())
+                                    .size(11.0),
+                            );
+                        });
+                }
+                if let Some(err) = &diff.right_error {
+                    egui::Frame::new()
+                        .fill(theme.semantic_error().gamma_multiply(0.1))
+                        .inner_margin(egui::Margin::symmetric(12, 6))
+                        .show(ui, |ui| {
+                            ui.label(
+                                RichText::new(format!("{}: {}", diff.right_name, err))
+                                    .color(theme.semantic_error())
+                                    .size(11.0),
+                            );
+                        });
+                }
+
+                // Side-by-side tables
+                if diff.left_error.is_none() && diff.right_error.is_none() {
+                    render_diff_side_by_side(ui, diff, theme, &colors, cell_idx);
+                }
+            }
+
+            // Footer
+            ui.painter().hline(
+                ui.available_rect_before_wrap().x_range(),
+                ui.cursor().top(),
+                egui::Stroke::new(1.0, colors.separator),
+            );
+            ui.add_space(4.0);
+            ui.horizontal(|ui| {
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.add_space(12.0);
+                    ui.label(
+                        RichText::new("read-only snapshot")
+                            .color(colors.faint_text.gamma_multiply(0.7))
+                            .font(typography::proportional(typography::XS)),
+                    );
+                });
+            });
+            ui.add_space(4.0);
+        });
+
+    let _ = view_state; // used for consistency
+    actions
+}
+
+/// Render side-by-side diff tables from stringified snapshot data.
+fn render_diff_side_by_side(
+    ui: &mut egui::Ui,
+    diff: &enya_config::SnapshotDiffData,
+    theme: AppTheme,
+    colors: &OverlayColors,
+    cell_idx: usize,
+) {
+    let text_primary = theme.text_primary();
+    let text_secondary = theme.text_secondary();
+    let max_rows = 20;
+
+    egui::Frame::new()
+        .fill(theme.bg_base())
+        .inner_margin(8.0)
+        .show(ui, |ui| {
+            let avail = ui.available_width();
+            let half = (avail - 16.0) / 2.0;
+
+            egui::ScrollArea::vertical()
+                .max_height(300.0)
+                .id_salt(("diff_scroll", cell_idx))
+                .show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        // Left table
+                        ui.vertical(|ui| {
+                            ui.set_max_width(half);
+                            ui.label(
+                                RichText::new(&diff.left_name)
+                                    .color(text_primary)
+                                    .size(10.0)
+                                    .strong(),
+                            );
+                            render_mini_table(
+                                ui,
+                                &diff.left_columns,
+                                &diff.left_rows,
+                                max_rows,
+                                text_primary,
+                                text_secondary,
+                                colors,
+                            );
+                            if diff.left_total_rows > diff.left_rows.len() as u64 {
+                                ui.label(
+                                    RichText::new(format!("… {} total rows", diff.left_total_rows))
+                                        .color(colors.faint_text)
+                                        .size(10.0)
+                                        .italics(),
+                                );
+                            }
+                        });
+
+                        ui.add_space(16.0);
+
+                        // Right table
+                        ui.vertical(|ui| {
+                            ui.set_max_width(half);
+                            ui.label(
+                                RichText::new(&diff.right_name)
+                                    .color(text_primary)
+                                    .size(10.0)
+                                    .strong(),
+                            );
+                            render_mini_table(
+                                ui,
+                                &diff.right_columns,
+                                &diff.right_rows,
+                                max_rows,
+                                text_primary,
+                                text_secondary,
+                                colors,
+                            );
+                            if diff.right_total_rows > diff.right_rows.len() as u64 {
+                                ui.label(
+                                    RichText::new(format!(
+                                        "… {} total rows",
+                                        diff.right_total_rows
+                                    ))
+                                    .color(colors.faint_text)
+                                    .size(10.0)
+                                    .italics(),
+                                );
+                            }
+                        });
+                    });
+                });
+        });
+}
+
+/// Render a small table from stringified snapshot data.
+fn render_mini_table(
+    ui: &mut egui::Ui,
+    columns: &[enya_config::SnapshotTableColumn],
+    rows: &[Vec<String>],
+    max_rows: usize,
+    text_primary: Color32,
+    text_secondary: Color32,
+    colors: &OverlayColors,
+) {
+    if columns.is_empty() {
+        ui.label(
+            RichText::new("No data")
+                .color(text_secondary)
+                .size(10.0)
+                .italics(),
+        );
+        return;
+    }
+
+    // Headers
+    ui.horizontal(|ui| {
+        for col in columns.iter().take(6) {
+            let name = if col.name.len() > 12 {
+                format!("{}…", &col.name[..11])
+            } else {
+                col.name.clone()
+            };
+            ui.label(
+                RichText::new(name)
+                    .color(text_primary)
+                    .size(9.0)
+                    .strong()
+                    .monospace(),
+            );
+            ui.add_space(8.0);
+        }
+        if columns.len() > 6 {
+            ui.label(
+                RichText::new(format!("+{}", columns.len() - 6))
+                    .color(colors.faint_text)
+                    .size(9.0),
+            );
+        }
+    });
+
+    // Rows
+    for row in rows.iter().take(max_rows) {
+        ui.horizontal(|ui| {
+            for value in row.iter().take(6) {
+                let (display, color) = if value == "NULL" {
+                    ("null".to_string(), colors.faint_text)
+                } else if value.len() > 12 {
+                    (format!("{}…", &value[..11]), text_secondary)
+                } else {
+                    (value.clone(), text_secondary)
+                };
+                ui.label(RichText::new(display).color(color).size(9.0).monospace());
+                ui.add_space(8.0);
+            }
+        });
+    }
 }

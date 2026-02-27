@@ -12,30 +12,11 @@ use crate::ui::theme::AppTheme;
 
 use super::SqlPaneAction;
 
-/// Which content tab is active in an expanded cell.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-enum CellTab {
-    #[default]
-    Table,
-    Plan,
-}
-
 /// Per-cell UI state.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 struct CellViewState {
     expanded: bool,
-    active_tab: CellTab,
     table_page: usize,
-}
-
-impl Default for CellViewState {
-    fn default() -> Self {
-        Self {
-            expanded: false,
-            active_tab: CellTab::Table,
-            table_page: 0,
-        }
-    }
 }
 
 /// SQL pane stub for builds without SQL support.
@@ -245,9 +226,6 @@ impl SqlPane {
                                 }
                                 snapshot_card::CardAction::Collapse => {
                                     self.cell_states[idx].expanded = false;
-                                }
-                                snapshot_card::CardAction::SetTab(tab) => {
-                                    self.cell_states[idx].active_tab = tab;
                                 }
                                 snapshot_card::CardAction::NextPage => {
                                     self.cell_states[idx].table_page += 1;

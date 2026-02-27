@@ -16,6 +16,8 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Changed
 
+- **SQL pane cell abstraction**: Replaced the monolithic `QueryCell` struct with a proper enum-based `Cell` type system. Cells now use a `CellKind` enum (`Query`, `Info`, `Diff`, `Explain`) carrying only variant-specific data, eliminating meaningless `Option` fields and making the type system enforce valid states at compile time.
+- **Snapshot-friendly SQL cell kinds**: The snapshot format is now cell-kind-aware, so all SQL notebook content — queries, info messages, diff comparisons, and explain plans — round-trips through save/restore. Shared immutable snapshots now display the full notebook workflow in read-only mode, even without a SQL connection. This is a breaking change to the snapshot binary format; previously saved snapshots are not compatible.
 - **Streamlined WASM tutorial**: Removed the on-call and deep-dive tutorial workspaces to simplify the demo. Replaced the Latency time series in the quick-start workspace with a Latency Heatmap.
 - **Hide workspace name in agent mode**: The workspace name segment in the status line is now hidden when agent mode is active, freeing up space for the inline agent input bar.
 - **Neovim tilde markers flush left**: Removed 16px left margin on `~` markers in the empty workspace view so they sit at the very left edge.
@@ -87,7 +89,7 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Fixed
 
-- **SQL pane connection popup not clickable**: Fixed the connections dropdown in the SQL pane being unresponsive to clicks. The popup rows used `egui::Frame` which only senses hover, not clicks. Added explicit click interaction via `ui.interact()` on row rects. Also added hover highlight for better discoverability.
+- **SQL pane connection popup**: Three fixes: (1) popup rows used `egui::Frame` which only senses hover — added `ui.interact()` with `Sense::click()` for proper click handling. (2) Popup was positioned using pane width instead of screen coordinates via `Area::fixed_pos`, causing it to render off-screen — now uses `ui.max_rect()` to compute correct screen position. (3) `connect_saved` didn't mark the connection as active during connecting, so the pill stayed on "Not connected" — now sets active immediately with state-aware dot colors (accent=connecting, green=connected, red=failed).
 
 - **Landing page cutoff on WASM**: Fixed text cutting off below keyboard hints at default 100% zoom on WASM. Increased `UNSCALED_CONTENT_HEIGHT` to account for the memorial text line and WASM-only "Download Native App" link, using platform-specific values (720 for WASM, 690 for native).
 

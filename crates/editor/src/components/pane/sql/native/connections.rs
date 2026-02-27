@@ -142,10 +142,15 @@ impl From<&SavedConnection> for ConnectionSnapshot {
 
 /// Render the connection dropdown popup.
 /// Returns actions to be handled by the caller.
+/// `pill_rect` is the screen-space rect of the connection pill that anchors the popup.
+/// `just_opened` suppresses "click outside to close" on the opening frame so
+/// the pill's click doesn't immediately close the popup it just opened.
 pub fn render_connection_popup(
     ui: &mut egui::Ui,
     theme: AppTheme,
     connections: &[ConnectionSnapshot],
+    pill_rect: egui::Rect,
+    just_opened: bool,
 ) -> Vec<ConnectionAction> {
     let mut actions = Vec::new();
 
@@ -153,9 +158,14 @@ pub fn render_connection_popup(
     let text_secondary = theme.text_secondary();
     let accent = theme.accent_primary();
 
+    // Anchor the popup just above the connection pill (bottom-left pivot).
+    let popup_x = pill_rect.left();
+    let popup_y = pill_rect.top() - 8.0;
+
     egui::Area::new(egui::Id::new("connection_popup"))
         .order(egui::Order::Foreground)
-        .fixed_pos(egui::pos2(ui.available_width() - 250.0, 60.0))
+        .pivot(egui::Align2::LEFT_BOTTOM)
+        .fixed_pos(egui::pos2(popup_x, popup_y))
         .show(ui.ctx(), |ui| {
             egui::Frame::new()
                 .fill(theme.bg_elevated())
@@ -195,10 +205,13 @@ pub fn render_connection_popup(
                             let is_connected = matches!(conn.state, ConnectionState::Connected);
                             let is_connecting = matches!(conn.state, ConnectionState::Connecting);
 
+                            let is_failed = matches!(conn.state, ConnectionState::Failed(_));
                             let status_color = if is_connected {
                                 theme.semantic_success()
                             } else if is_connecting {
                                 accent
+                            } else if is_failed {
+                                theme.semantic_error()
                             } else {
                                 text_secondary.gamma_multiply(0.4)
                             };
@@ -293,8 +306,9 @@ pub fn render_connection_popup(
                     }
                 });
 
-            // Close popup when clicking outside
-            if ui.input(|i| i.pointer.any_click()) {
+            // Close popup when clicking outside (skip on the opening frame so
+            // the pill's click doesn't immediately dismiss the popup).
+            if !just_opened && ui.input(|i| i.pointer.any_click()) {
                 let popup_rect = ui.min_rect();
                 if let Some(pos) = ui.input(|i| i.pointer.interact_pos()) {
                     if !popup_rect.contains(pos) {
