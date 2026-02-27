@@ -1340,21 +1340,8 @@ impl EnyaApp {
                     );
                 }
             }
-            WorkspaceAction::ShareLiveWorkspace => {
-                if let Some(url) = self.build_share_workspace_url() {
-                    self.copy_share_url(ctx, &url, "Workspace URL copied to clipboard");
-                }
-            }
-            WorkspaceAction::ShareLivePane(pane_index) => {
-                if let Some(url) = self.build_share_pane_url(pane_index) {
-                    self.copy_share_url(ctx, &url, "Pane URL copied to clipboard");
-                }
-            }
             WorkspaceAction::UploadSnapshot(title) => {
                 self.upload_snapshot(ctx, title.as_deref());
-            }
-            WorkspaceAction::OpenSnapshot(id) => {
-                self.fetch_snapshot(ctx, &id);
             }
             WorkspaceAction::FocusProjectSidebar => {
                 if self.project_sidebar.is_visible() {

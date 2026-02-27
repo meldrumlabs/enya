@@ -98,20 +98,10 @@ pub enum CommandResult {
     WriteWorkspace,
     /// Take a screenshot of the window (optionally with a custom path)
     TakeScreenshot(Option<String>),
-    /// Load workspace (:source <name>)
-    LoadWorkspace(String),
     /// Share workspace as URL — snapshot if data loaded, config-only otherwise (:share)
     ShareWorkspace,
-    /// Share workspace as config-only URL, no embedded data (:share-live)
-    ShareLiveWorkspace,
     /// Upload snapshot to blob server with conversation data (:snapshot [title])
     UploadSnapshot(Option<String>),
-    /// Open a snapshot by ID from blob server (:open-snapshot)
-    OpenSnapshot(String),
-    /// Set AI provider (claude, codex)
-    SetProvider(String),
-    /// Set auto-refresh interval (off/10s/30s/1m/5m/15m)
-    SetRefresh(String),
     /// Open a terminal pane (native only)
     OpenTerminal,
     /// Open a tracing pane (optionally with a trace ID)
@@ -122,8 +112,6 @@ pub enum CommandResult {
     Error(String),
     /// Open logs pane (demo mode)
     OpenLogs,
-    /// Open logs pane connected to Loki
-    OpenLoki(String),
     /// Float the focused pane (detach to floating window)
     FloatPane,
     /// Dock all floating panes back to tile layout
@@ -151,8 +139,8 @@ const BASE_COMMANDS: &[PaletteCommand] = &[
         kind: CommandKind::NoArgs,
     },
     PaletteCommand {
-        name: "info",
-        aliases: &["version"],
+        name: "version",
+        aliases: &[],
         description: "Show version and build info",
         kind: CommandKind::NoArgs,
     },
@@ -187,45 +175,15 @@ const BASE_COMMANDS: &[PaletteCommand] = &[
         kind: CommandKind::SingleArg,
     },
     PaletteCommand {
-        name: "source",
-        aliases: &["so"],
-        description: "Load workspace",
-        kind: CommandKind::SingleArg,
-    },
-    PaletteCommand {
         name: "share",
         aliases: &[],
         description: "Share workspace as URL (snapshot if data loaded)",
         kind: CommandKind::NoArgs,
     },
     PaletteCommand {
-        name: "share-live",
-        aliases: &[],
-        description: "Share workspace as config-only URL (no data)",
-        kind: CommandKind::NoArgs,
-    },
-    PaletteCommand {
         name: "snapshot",
         aliases: &[],
         description: "Upload snapshot to blob server (with conversation)",
-        kind: CommandKind::SingleArg,
-    },
-    PaletteCommand {
-        name: "open-snapshot",
-        aliases: &["os"],
-        description: "Open a snapshot by ID from blob server",
-        kind: CommandKind::SingleArg,
-    },
-    PaletteCommand {
-        name: "provider",
-        aliases: &["ai"],
-        description: "Set AI provider (claude, codex)",
-        kind: CommandKind::SingleArg,
-    },
-    PaletteCommand {
-        name: "refresh",
-        aliases: &["r"],
-        description: "Set auto-refresh interval (off/10s/30s/1m/5m/15m)",
         kind: CommandKind::SingleArg,
     },
     PaletteCommand {
@@ -239,12 +197,6 @@ const BASE_COMMANDS: &[PaletteCommand] = &[
         aliases: &["log"],
         description: "Open logs pane (demo mode)",
         kind: CommandKind::NoArgs,
-    },
-    PaletteCommand {
-        name: "loki",
-        aliases: &[],
-        description: "Connect to Loki server (e.g., :loki localhost:3100)",
-        kind: CommandKind::SingleArg,
     },
     PaletteCommand {
         name: "float",
@@ -565,7 +517,7 @@ impl CommandPalette {
     fn execute(&self, cmd: &PaletteCommand, args: &[&str]) -> CommandResult {
         match cmd.name {
             "style" => CommandResult::OpenStylePicker,
-            "info" => CommandResult::ShowInfo,
+            "version" => CommandResult::ShowInfo,
             "split" => {
                 if args.is_empty() {
                     CommandResult::SplitHorizontal
@@ -592,16 +544,7 @@ impl CommandPalette {
                 };
                 CommandResult::TakeScreenshot(path)
             }
-            "source" => {
-                // :source name - load workspace by name
-                if args.is_empty() {
-                    CommandResult::Error("Usage: :source <workspace-name>".to_string())
-                } else {
-                    CommandResult::LoadWorkspace(args.join(" "))
-                }
-            }
             "share" => CommandResult::ShareWorkspace,
-            "share-live" => CommandResult::ShareLiveWorkspace,
             "snapshot" => {
                 let title = if args.is_empty() {
                     None
@@ -609,30 +552,6 @@ impl CommandPalette {
                     Some(args.join(" "))
                 };
                 CommandResult::UploadSnapshot(title)
-            }
-            "open-snapshot" | "os" => {
-                if args.is_empty() {
-                    CommandResult::Error("Usage: :open-snapshot <id>".to_string())
-                } else {
-                    CommandResult::OpenSnapshot(args.join(" "))
-                }
-            }
-            "provider" | "ai" => {
-                // :provider <name> - set AI provider
-                if args.is_empty() {
-                    CommandResult::Error("Usage: :provider <claude|codex>".to_string())
-                } else {
-                    CommandResult::SetProvider(args[0].to_lowercase())
-                }
-            }
-            "refresh" => {
-                // :refresh <interval> - set auto-refresh interval
-                if args.is_empty() {
-                    // No argument: disable refresh
-                    CommandResult::SetRefresh("off".to_string())
-                } else {
-                    CommandResult::SetRefresh(args[0].to_lowercase())
-                }
             }
             "terminal" => CommandResult::OpenTerminal,
             "trace" | "tr" | "tracing" => {
@@ -642,15 +561,6 @@ impl CommandPalette {
             }
             "sql" | "datafusion" => CommandResult::OpenSql,
             "logs" | "log" => CommandResult::OpenLogs,
-            "loki" => {
-                if args.is_empty() {
-                    CommandResult::Error(
-                        "Usage: :loki <url> (e.g., :loki localhost:3100)".to_string(),
-                    )
-                } else {
-                    CommandResult::OpenLoki(args[0].to_string())
-                }
-            }
             "float" | "fl" => {
                 if !args.is_empty() && (args[0] == "arrange" || args[0] == "a") {
                     CommandResult::ArrangeFloatingPanes

@@ -139,16 +139,10 @@ pub enum WorkspaceAction {
     ShareWorkspace,
     /// Share a single pane as URL (snapshot if data loaded, config-only otherwise)
     SharePane(usize),
-    /// Share workspace as config-only URL (no embedded data)
-    ShareLiveWorkspace,
-    /// Share a single pane as config-only URL (no embedded data)
-    ShareLivePane(usize),
     /// Share selected panes as URL (snapshot if data loaded, config-only otherwise)
     ShareSelectedPanes(Vec<usize>),
     /// Upload snapshot to blob server (workspace + data + conversation + optional title)
     UploadSnapshot(Option<String>),
-    /// Open a snapshot by ID from blob server
-    OpenSnapshot(String),
     /// Focus the project sidebar (vim h at left edge)
     FocusProjectSidebar,
     /// Toggle project sidebar visibility (Space+b)
@@ -1897,48 +1891,13 @@ impl Workspace {
                 flight_sql_endpoint: None,
             },
             CommandResult::TakeScreenshot(path) => WorkspaceAction::TakeScreenshot(path),
-            CommandResult::LoadWorkspace(name) => WorkspaceAction::LoadWorkspace(name),
             CommandResult::ShareWorkspace => WorkspaceAction::ShareWorkspace,
-            CommandResult::ShareLiveWorkspace => WorkspaceAction::ShareLiveWorkspace,
             CommandResult::UploadSnapshot(title) => WorkspaceAction::UploadSnapshot(title),
-            CommandResult::OpenSnapshot(id) => WorkspaceAction::OpenSnapshot(id),
-            CommandResult::SetProvider(provider_name) => {
-                use crate::components::util::AiProvider;
-                if let Some(provider) = AiProvider::parse(&provider_name) {
-                    self.agent_panel.set_provider(provider);
-                    log::info!("Set AI provider to: {}", provider.display_name());
-                } else {
-                    log::warn!("Unknown AI provider: {provider_name}. Use 'claude' or 'codex'.");
-                }
-                WorkspaceAction::None
-            }
-            CommandResult::SetRefresh(interval_str) => {
-                let interval = RefreshInterval::parse(&interval_str);
-                self.set_refresh_interval(interval);
-                if interval == RefreshInterval::Off {
-                    WorkspaceAction::Notify {
-                        level: "info".to_string(),
-                        message: "Auto-refresh disabled".to_string(),
-                    }
-                } else {
-                    WorkspaceAction::Notify {
-                        level: "info".to_string(),
-                        message: format!("Auto-refresh set to {}", interval.label()),
-                    }
-                }
-            }
             CommandResult::OpenLogs => {
                 // Use a default time range of the last hour for the logs pane
                 let now_ns = crate::util::now_unix_secs() * 1_000_000_000;
                 let one_hour_ns = 3600 * 1_000_000_000;
                 self.add_logs_pane(now_ns - one_hour_ns, now_ns);
-                WorkspaceAction::None
-            }
-            CommandResult::OpenLoki(url) => {
-                // Connect to a real Loki server
-                let now_ns = crate::util::now_unix_secs() * 1_000_000_000;
-                let one_hour_ns = 3600 * 1_000_000_000;
-                self.add_loki_pane(now_ns - one_hour_ns, now_ns, url);
                 WorkspaceAction::None
             }
             CommandResult::OpenTerminal => {
