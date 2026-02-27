@@ -123,8 +123,7 @@ fn show_mobile_message() {
                     <img src="logo.png" alt="Enya" width="50%">
                 </picture>
             </p>
-            <p class="mobile-message">Desktop browser required</p>
-            <p class="mobile-message-sub">Enya needs a keyboard and a larger screen to work properly.</p>"#,
+            <p class="mobile-message">Enya is designed for desktop</p>"#,
         );
     }
 }
