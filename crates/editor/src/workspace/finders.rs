@@ -184,20 +184,26 @@ impl Workspace {
                 mode,
                 FinderMode::All | FinderMode::Alerts | FinderMode::Commits | FinderMode::Metrics
             );
-            if needs_codebase && !query.is_empty() && self.unified_finder.needs_codebase_search() {
-                let filter = match mode {
-                    FinderMode::Metrics => SearchFilter::Metrics,
-                    FinderMode::Alerts => SearchFilter::Alerts,
-                    FinderMode::Commits => SearchFilter::Commits,
-                    FinderMode::All => SearchFilter::All,
-                };
-                let results = self.codebase_manager.search_ranked(&query, filter, 50);
-                if mode == FinderMode::Metrics {
-                    // Append to existing live metrics
-                    self.unified_finder.append_codebase_results(results);
-                } else {
-                    // Replace results for other modes
+            if needs_codebase && self.unified_finder.needs_codebase_search() {
+                if query.is_empty() && mode == FinderMode::Commits {
+                    // Show recent commits when entering # mode with no query
+                    let results = self.codebase_manager.recent_commits(50);
                     self.unified_finder.set_codebase_results(results);
+                } else if !query.is_empty() {
+                    let filter = match mode {
+                        FinderMode::Metrics => SearchFilter::Metrics,
+                        FinderMode::Alerts => SearchFilter::Alerts,
+                        FinderMode::Commits => SearchFilter::Commits,
+                        FinderMode::All => SearchFilter::All,
+                    };
+                    let results = self.codebase_manager.search_ranked(&query, filter, 50);
+                    if mode == FinderMode::Metrics {
+                        // Append to existing live metrics
+                        self.unified_finder.append_codebase_results(results);
+                    } else {
+                        // Replace results for other modes
+                        self.unified_finder.set_codebase_results(results);
+                    }
                 }
             }
         }

@@ -818,6 +818,19 @@ impl CodebaseManager {
         }
     }
 
+    /// Returns the most recent commits, sorted by timestamp (newest first).
+    ///
+    /// Used when the user enters Commits mode with no search query.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[must_use]
+    pub fn recent_commits(&self, limit: usize) -> Vec<SearchResult> {
+        if let Some(tantivy) = &self.tantivy_index {
+            tantivy.recent_commits(limit)
+        } else {
+            Vec::new()
+        }
+    }
+
     /// Fallback in-memory search when Tantivy is not available.
     #[cfg(not(target_arch = "wasm32"))]
     fn fallback_search(
