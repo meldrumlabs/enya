@@ -4,8 +4,6 @@ use enya_datafusion::arrow::array::RecordBatch;
 use enya_datafusion::arrow::datatypes::SchemaRef;
 use enya_datafusion::{ColumnInfo, ExecutionStats, PlanNode, QueryId};
 
-use crate::util::Instant;
-
 use super::connections::ConnectionId;
 
 /// Type of diff being displayed.
@@ -194,8 +192,6 @@ pub(super) struct CellMeta {
     pub id: QueryId,
     /// The SQL query or display text.
     pub sql: String,
-    /// When the cell was created.
-    pub created_at: Instant,
 }
 
 /// Data specific to a query result cell.
@@ -237,6 +233,7 @@ pub(super) struct ExplainData {
 }
 
 /// The kind of cell, carrying variant-specific data.
+#[allow(clippy::large_enum_variant)]
 pub(super) enum CellKind {
     /// Standard query with tabular results.
     Query(QueryData),
@@ -263,7 +260,6 @@ impl Cell {
             meta: CellMeta {
                 id,
                 sql: sql.into(),
-                created_at: Instant::now(),
             },
             kind: CellKind::Query(QueryData {
                 status: QueryStatus::Running,
@@ -293,7 +289,6 @@ impl Cell {
             meta: CellMeta {
                 id,
                 sql: sql.into(),
-                created_at: Instant::now(),
             },
             kind: CellKind::Query(QueryData {
                 status,
@@ -311,7 +306,6 @@ impl Cell {
             meta: CellMeta {
                 id: QueryId::new(),
                 sql: message.into(),
-                created_at: Instant::now(),
             },
             kind: CellKind::Info(InfoData { error: None }),
         }
@@ -324,7 +318,6 @@ impl Cell {
             meta: CellMeta {
                 id: QueryId::new(),
                 sql: String::new(),
-                created_at: Instant::now(),
             },
             kind: CellKind::Info(InfoData { error: Some(msg) }),
         }
@@ -336,7 +329,6 @@ impl Cell {
             meta: CellMeta {
                 id,
                 sql: sql.into(),
-                created_at: Instant::now(),
             },
             kind: CellKind::Diff(DiffData {
                 status: QueryStatus::Running,
@@ -356,7 +348,6 @@ impl Cell {
             meta: CellMeta {
                 id,
                 sql: sql.into(),
-                created_at: Instant::now(),
             },
             kind: CellKind::Diff(DiffData {
                 status: QueryStatus::Completed,
@@ -372,7 +363,6 @@ impl Cell {
             meta: CellMeta {
                 id,
                 sql: sql.into(),
-                created_at: Instant::now(),
             },
             kind: CellKind::Explain(ExplainData {
                 status: QueryStatus::Completed,
@@ -391,11 +381,6 @@ impl Cell {
     /// The SQL text or display message.
     pub fn sql(&self) -> &str {
         &self.meta.sql
-    }
-
-    /// When the cell was created.
-    pub fn created_at(&self) -> Instant {
-        self.meta.created_at
     }
 
     /// Current execution status.
@@ -503,15 +488,19 @@ impl Cell {
     }
 }
 
-/// Per-cell UI state (stored separately from Cell data).
+/// Per-cell UI state.
 #[derive(Debug, Clone, Default)]
 pub(super) struct CellViewState {
-    /// Whether the cell is expanded (showing full results inline).
-    pub expanded: bool,
     /// Current page in table view (0-indexed).
     pub table_page: usize,
     /// Column to sort by (None = original order).
     pub sort_column: Option<usize>,
     /// Sort direction (true = ascending).
     pub sort_ascending: bool,
+}
+
+/// Transient info/error message displayed between the result cell and input bar.
+pub(super) struct StatusMessage {
+    pub text: String,
+    pub is_error: bool,
 }

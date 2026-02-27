@@ -1,26 +1,13 @@
-//! SQL Pane - REPL-style SQL query execution using Arrow Flight SQL.
+//! SQL Pane - single-cell SQL query execution using Arrow Flight SQL.
 //!
 //! This pane provides a SQL interface for connecting to Flight SQL servers
 //! (DataFusion, DuckDB, InfluxDB, etc.) and executing queries. Features:
 //! - Connections managed via Settings page
-//! - Query history displayed as cells with execution timing
+//! - Single result cell updated in place (use additional panes for multiple results)
 //! - Results rendered as tables with export options
 //! - Schema browser sidebar with remote table metadata
 //! - Query plan visualization with `/explain` and `/analyze` commands
 //! - Slash commands: `/close`, `/tables`, `/plan`, `/explain`, `/analyze`, `/demo`, etc.
-
-use egui::{Color32, RichText, TextEdit, TextFormat};
-use enya_datafusion::arrow::array::{Array, RecordBatch};
-use enya_datafusion::arrow::datatypes::SchemaRef;
-use enya_datafusion::{
-    ConnectionState, ExecutionStats, FlightClient, PlanNode, QueryEvent, QueryId, QueryRequest,
-    TableInfo, format_array_value, format_duration, format_rows,
-};
-use nucleo_matcher::{
-    Config, Matcher, Utf32Str,
-    pattern::{AtomKind, CaseMatching, Normalization, Pattern},
-};
-use rustc_hash::FxHashMap;
 
 use super::super::highlighting::highlight_sql;
 use super::command::SqlCommand;
@@ -43,7 +30,7 @@ use super::suggestions::{
 };
 use super::types::{
     Cell, CellKind, CellViewState, DiffQueryResult, DiffType, QueryStatus, ResultOverlay,
-    SchemaDiffResult, SqlMode, SqlPaneAction,
+    SchemaDiffResult, SqlMode, SqlPaneAction, StatusMessage,
 };
 use crate::components::util::id_generator::next_id_usize;
 use crate::components::util::{
@@ -53,6 +40,17 @@ use crate::components::{OverlayColors, OverlayStyle};
 use crate::ui::semantic_icons::{action, category, empty, file, nav, status, time};
 use crate::ui::theme::AppTheme;
 use crate::ui::typography;
+use egui::{Color32, RichText, TextEdit, TextFormat};
+use enya_datafusion::arrow::array::{Array, RecordBatch};
+use enya_datafusion::arrow::datatypes::SchemaRef;
+use enya_datafusion::{
+    ConnectionState, ExecutionStats, FlightClient, PlanNode, QueryEvent, QueryId, QueryRequest,
+    TableInfo, format_array_value, format_duration, format_rows,
+};
+use nucleo_matcher::{
+    Config, Matcher, Utf32Str,
+    pattern::{AtomKind, CaseMatching, Normalization, Pattern},
+};
 
 /// A SQL pane with REPL-style interface.
 pub struct SqlPane {
@@ -72,17 +70,12 @@ pub struct SqlPane {
     connection_state: ConnectionState,
     /// Connected endpoint URL (if any).
     endpoint: Option<String>,
-    /// Query history (executed queries with results).
-    history: Vec<Cell>,
-    /// Per-cell UI state for notebook view (keyed by QueryId).
-    cell_states: FxHashMap<QueryId, CellViewState>,
-    /// Index of the currently selected (highlighted) cell for vim navigation.
-    /// `None` means no cell is selected (input bar is focused).
-    selected_cell_idx: Option<usize>,
-    /// Whether to scroll the selected cell into view on the next frame.
-    scroll_to_selected: bool,
-    /// Whether the first `g` of a `gg` motion was pressed (awaiting second `g`).
-    pending_g: bool,
+    /// The single result cell (replaced in-place when a new query runs).
+    result_cell: Option<Cell>,
+    /// UI state for the result cell.
+    cell_view_state: CellViewState,
+    /// Transient info/error message banner.
+    status_message: Option<StatusMessage>,
     /// Current input buffer.
     input: String,
     /// Whether the input is focused.
@@ -108,6 +101,8 @@ pub struct SqlPane {
     pending_explain: Option<tokio::sync::oneshot::Receiver<Result<String, String>>>,
     /// ID of connection being connected.
     pending_connect_id: Option<ConnectionId>,
+    /// Whether auto-connect has been attempted (prevents re-connecting on settings re-sync).
+    auto_connected: bool,
     /// Pending table fetch result receiver.
     pending_tables: Option<tokio::sync::oneshot::Receiver<Result<Vec<TableInfo>, String>>>,
     /// ID of connection for pending table fetch.
@@ -169,8 +164,8 @@ pub struct SqlPane {
     // ========================
     /// Currently active overlay (None = compact preview mode).
     active_overlay: ResultOverlay,
-    /// Index of the result being viewed in the overlay.
-    overlay_result_idx: Option<usize>,
+    /// Whether the result overlay is active.
+    overlay_active: bool,
     /// Current page in table overlay (0-indexed).
     overlay_table_page: usize,
     /// Filter text for table overlay.
@@ -207,11 +202,9 @@ impl SqlPane {
             backend: None,
             connection_state: ConnectionState::Disconnected,
             endpoint: None,
-            history: Vec::new(),
-            cell_states: FxHashMap::default(),
-            selected_cell_idx: None,
-            scroll_to_selected: false,
-            pending_g: false,
+            result_cell: None,
+            cell_view_state: CellViewState::default(),
+            status_message: None,
             input: String::new(),
             input_focused: true,
             move_cursor_to_end: false,
@@ -223,6 +216,7 @@ impl SqlPane {
             pending_query_id: None,
             pending_explain: None,
             pending_connect_id: None,
+            auto_connected: false,
             pending_tables: None,
             pending_tables_id: None,
             pending_diff: None,
@@ -237,7 +231,7 @@ impl SqlPane {
             prev_input: String::new(),
             matcher: Matcher::new(Config::DEFAULT),
             active_overlay: ResultOverlay::None,
-            overlay_result_idx: None,
+            overlay_active: false,
             overlay_table_page: 0,
             overlay_filter: String::new(),
             overlay_blocks_input: false,
@@ -267,6 +261,14 @@ impl SqlPane {
         self.backend = None;
         self.connection_state = ConnectionState::Disconnected;
         self.endpoint = None;
+    }
+
+    /// Replace the single result cell in-place.
+    fn set_result_cell(&mut self, cell: Cell) {
+        self.status_message = None;
+        self.cell_view_state = CellViewState::default();
+        self.result_cell = Some(cell);
+        self.scroll_to_bottom = true;
     }
 
     // ========================================================================
@@ -580,14 +582,10 @@ impl SqlPane {
                 // Load a demo plan for testing the visualization
                 self.load_demo_plan();
                 // Add a placeholder result so we can open the overlay
-                self.history.push(Cell::explain(
+                self.set_result_cell(Cell::explain(
                     "-- Demo Query Plan",
                     enya_datafusion::QueryId::new(),
                 ));
-                let idx = self.history.len() - 1;
-                let cell_id = self.history[idx].id();
-                self.expand_cell(&cell_id);
-                self.scroll_to_bottom = true;
             }
             "schema" => {
                 if let Some(table_name) = parts.get(1) {
@@ -598,31 +596,19 @@ impl SqlPane {
                 }
             }
             "history" => {
-                if self.history.is_empty() {
-                    self.add_info_cell("No query history yet.");
+                // With single-cell model, show input history instead
+                if self.input_history.is_empty() {
+                    self.set_status_info("No query history yet.");
                 } else {
                     let history_text: Vec<_> = self
-                        .history
+                        .input_history
                         .iter()
-                        .enumerate()
-                        .filter(|(_, cell)| !cell.sql().is_empty() && !cell.sql().starts_with('/'))
+                        .rev()
                         .take(10)
-                        .map(|(i, cell)| {
-                            let status = match cell.status() {
-                                QueryStatus::Completed => "✓",
-                                QueryStatus::Failed => "✗",
-                                QueryStatus::Running => "…",
-                                QueryStatus::Cancelled => "○",
-                            };
-                            format!(
-                                "[{}] {} {}",
-                                i + 1,
-                                status,
-                                cell.sql().lines().next().unwrap_or("")
-                            )
-                        })
+                        .enumerate()
+                        .map(|(i, sql)| format!("[{}] {}", i + 1, sql.lines().next().unwrap_or("")))
                         .collect();
-                    self.add_info_cell(&format!("Recent queries:\n{}", history_text.join("\n")));
+                    self.set_status_info(&format!("Recent queries:\n{}", history_text.join("\n")));
                 }
             }
             "close" => {
@@ -732,20 +718,16 @@ impl SqlPane {
     fn execute_query(&mut self, sql: &str) {
         let query_id = QueryId::new();
 
-        // Add to history
-        self.history.push(Cell::query(sql, query_id));
+        // Replace result cell
+        self.set_result_cell(Cell::query(sql, query_id));
 
         match &mut self.backend {
             Some(SqlBackend::Flight { .. }) => {
-                // Execute via Flight - we need to take ownership temporarily
-                // This is a workaround for the borrow checker
                 let sql = sql.to_string();
                 let (tx, rx) = tokio::sync::oneshot::channel();
                 self.pending_query = Some(rx);
                 self.pending_query_id = Some(query_id);
 
-                // We can't easily move client out, so we'll do blocking connect
-                // This is a temporary solution - proper implementation would use Arc<Mutex>
                 if let Some(endpoint) = self.endpoint.clone() {
                     self.runtime_handle.spawn(async move {
                         let result = async {
@@ -764,18 +746,16 @@ impl SqlPane {
                 }
             }
             Some(SqlBackend::Local { session, .. }) => {
-                // Execute via local session
                 let request = QueryRequest::new(sql).with_id(query_id);
                 if let Err(e) = session.execute(request) {
-                    if let Some(cell) = self.history.last_mut() {
+                    if let Some(cell) = self.result_cell.as_mut() {
                         cell.set_status(QueryStatus::Failed);
                         cell.set_error(e.to_string());
                     }
                 }
             }
             None => {
-                // No backend connected - show error
-                if let Some(cell) = self.history.last_mut() {
+                if let Some(cell) = self.result_cell.as_mut() {
                     cell.set_status(QueryStatus::Failed);
                     cell.set_error("Not connected. Configure connections in Settings.".to_string());
                 }
@@ -861,8 +841,8 @@ impl SqlPane {
             _ => format!("/diff {left_name} {right_name} {sql}"),
         };
 
-        // Add to history with Running status
-        self.history.push(Cell::diff(display_sql, query_id));
+        // Replace result cell with Running status
+        self.set_result_cell(Cell::diff(display_sql, query_id));
 
         // Spawn async task to run both queries
         let (tx, rx) = tokio::sync::oneshot::channel();
@@ -998,8 +978,8 @@ impl SqlPane {
         let display_sql = format!("/diff schema {left_name} {right_name} {table}");
         let table_owned = table.to_string();
 
-        // Add to history with Running status
-        self.history.push(Cell::diff(display_sql, query_id));
+        // Replace result cell with Running status
+        self.set_result_cell(Cell::diff(display_sql, query_id));
 
         // Spawn async task to fetch schemas from both connections
         let (tx, rx) = tokio::sync::oneshot::channel();
@@ -1041,136 +1021,56 @@ impl SqlPane {
             .map_err(|e| e.to_string())
     }
 
-    /// Add an error message cell to history.
+    /// Show an error status banner (does not replace the result cell).
     fn add_error_cell(&mut self, message: &str) {
-        self.history.push(Cell::error(message));
-        self.scroll_to_bottom = true;
+        self.status_message = Some(StatusMessage {
+            text: message.to_string(),
+            is_error: true,
+        });
     }
 
-    /// Add an info message cell to history.
+    /// Show an info status banner (does not replace the result cell).
     fn add_info_cell(&mut self, message: &str) {
-        self.history.push(Cell::info(message));
-        self.scroll_to_bottom = true;
+        self.status_message = Some(StatusMessage {
+            text: message.to_string(),
+            is_error: false,
+        });
     }
 
-    /// Clear all query results from history.
-    fn clear_results(&mut self) {
-        // Remove all non-running query results (keep running queries)
-        let running_ids: rustc_hash::FxHashSet<QueryId> = self
-            .history
-            .iter()
-            .filter(|c| c.status() == QueryStatus::Running)
-            .map(|c| c.id())
-            .collect();
-        self.history
-            .retain(|cell| cell.status() == QueryStatus::Running);
-        self.cell_states.retain(|id, _| running_ids.contains(id));
-        self.selected_cell_idx = None;
-        self.active_overlay = ResultOverlay::None;
-        self.overlay_result_idx = None;
+    /// Show an info status banner (alias for add_info_cell).
+    fn set_status_info(&mut self, message: &str) {
+        self.add_info_cell(message);
     }
 
-    /// Expand a cell, collapsing any other expanded cell.
-    fn expand_cell(&mut self, id: &QueryId) {
-        for state in self.cell_states.values_mut() {
-            state.expanded = false;
-        }
-        self.cell_state_mut(id).expanded = true;
-        self.input_focused = false;
-        self.selected_cell_idx = None;
-    }
-
-    /// Collapse the currently expanded cell and return selection to that cell's index.
-    fn collapse_expanded(&mut self) {
-        // Find the index of the expanded cell before collapsing
-        let expanded_idx = self
-            .history
-            .iter()
-            .enumerate()
-            .find(|(_, c)| self.cell_states.get(&c.id()).is_some_and(|s| s.expanded))
-            .map(|(i, _)| i);
-
-        for state in self.cell_states.values_mut() {
-            state.expanded = false;
-        }
-        self.selected_cell_idx = expanded_idx;
-        self.scroll_to_selected = expanded_idx.is_some();
-        self.input_focused = expanded_idx.is_none();
-    }
-
-    /// Get indices of navigable (non-info) cells.
-    fn navigable_cell_indices(&self) -> Vec<usize> {
-        self.history
-            .iter()
-            .enumerate()
-            .filter(|(_, c)| c.is_navigable())
-            .map(|(i, _)| i)
-            .collect()
-    }
-
-    /// Get or create mutable view state for a cell.
-    fn cell_state_mut(&mut self, id: &QueryId) -> &mut CellViewState {
-        self.cell_states.entry(*id).or_default()
-    }
-
-    /// Get the QueryId of the currently expanded cell, if any.
-    fn expanded_cell_id(&self) -> Option<QueryId> {
-        self.cell_states
-            .iter()
-            .find(|(_, s)| s.expanded)
-            .map(|(id, _)| *id)
+    /// Whether the result cell exists and is navigable.
+    fn has_result(&self) -> bool {
+        self.result_cell.as_ref().is_some_and(|c| c.is_navigable())
     }
 
     /// Process card actions from the query card renderer.
-    fn handle_card_actions(
-        &mut self,
-        actions: Vec<super::query_card::CardAction>,
-        cell_idx: usize,
-    ) {
+    fn handle_card_actions(&mut self, actions: Vec<super::query_card::CardAction>) {
         use super::query_card::CardAction;
         for action in actions {
             match action {
-                CardAction::Select => {
-                    self.selected_cell_idx = Some(cell_idx);
-                    self.input_focused = false;
-                    self.scroll_to_selected = true;
-                }
-                CardAction::Expand => {
-                    if let Some(cell) = self.history.get(cell_idx) {
-                        let id = cell.id();
-                        self.expand_cell(&id);
-                    }
-                }
                 CardAction::Collapse => {
-                    self.collapse_expanded();
+                    // Refocus input bar
+                    self.input_focused = true;
                 }
                 CardAction::CopyToClipboard(text) => {
                     self.copy_to_clipboard(&text);
                 }
                 CardAction::ShareToAgent => {
-                    if let Some(table) = self.result_to_inline_table(cell_idx) {
+                    if let Some(table) = self.result_to_inline_table() {
                         self.pending_action = SqlPaneAction::ShareResultToAgent(table);
                     }
                 }
                 CardAction::Delete => {
-                    if let Some(cell) = self.history.get(cell_idx) {
-                        let id = cell.id();
-                        self.cell_states.remove(&id);
-                        self.history.remove(cell_idx);
-                        // Adjust selection after deletion
-                        if self.selected_cell_idx == Some(cell_idx) {
-                            let nav = self.navigable_cell_indices();
-                            if nav.is_empty() {
-                                self.selected_cell_idx = None;
-                                self.input_focused = true;
-                            } else {
-                                // Select the next cell, or the last one if we deleted the last
-                                let new_idx =
-                                    nav.iter().find(|&&i| i >= cell_idx).or(nav.last()).copied();
-                                self.selected_cell_idx = new_idx;
-                            }
-                        }
-                    }
+                    self.result_cell = None;
+                    self.cell_view_state = CellViewState::default();
+                    self.input_focused = true;
+                }
+                CardAction::ExpandTable => {
+                    self.open_overlay(ResultOverlay::Table);
                 }
             }
         }
@@ -1208,16 +1108,10 @@ impl SqlPane {
                             }
                         }
 
-                        // Add info cell and expand tree
-                        if let Some(name) = conn_name {
-                            self.add_info_cell(&format!("Connected to {name}"));
+                        if let Some(name) = &conn_name {
+                            log::info!("Connected to {name}");
                         }
                         self.tree_state.expanded.insert(conn_id);
-                    } else {
-                        self.add_info_cell(&format!(
-                            "Connected to {}",
-                            self.endpoint.as_deref().unwrap_or("server")
-                        ));
                     }
                     // Fetch tables in background
                     self.fetch_tables();
@@ -1267,7 +1161,8 @@ impl SqlPane {
                 Ok(Ok((schema, batches))) => {
                     // Query successful
                     if let Some(query_id) = self.pending_query_id.take() {
-                        if let Some(cell) = self.history.iter_mut().find(|c| c.id() == query_id) {
+                        if let Some(cell) = self.result_cell.as_mut().filter(|c| c.id() == query_id)
+                        {
                             if let Some(q) = cell.as_query_mut() {
                                 let row_count: usize = batches.iter().map(|b| b.num_rows()).sum();
                                 q.status = QueryStatus::Completed;
@@ -1279,19 +1174,14 @@ impl SqlPane {
                                 });
                             }
                         }
-                        // Auto-expand cell for results
-                        if let Some(idx) = self.history.iter().position(|c| c.id() == query_id) {
-                            if !self.history[idx].batches().is_empty() {
-                                self.expand_cell(&query_id);
-                                self.scroll_to_bottom = true;
-                            }
-                        }
+                        self.scroll_to_bottom = true;
                     }
                 }
                 Ok(Err(e)) => {
                     // Query failed
                     if let Some(query_id) = self.pending_query_id.take() {
-                        if let Some(cell) = self.history.iter_mut().find(|c| c.id() == query_id) {
+                        if let Some(cell) = self.result_cell.as_mut().filter(|c| c.id() == query_id)
+                        {
                             cell.set_status(QueryStatus::Failed);
                             cell.set_error(e);
                         }
@@ -1304,7 +1194,8 @@ impl SqlPane {
                 Err(tokio::sync::oneshot::error::TryRecvError::Closed) => {
                     // Query task dropped
                     if let Some(query_id) = self.pending_query_id.take() {
-                        if let Some(cell) = self.history.iter_mut().find(|c| c.id() == query_id) {
+                        if let Some(cell) = self.result_cell.as_mut().filter(|c| c.id() == query_id)
+                        {
                             cell.set_status(QueryStatus::Failed);
                             cell.set_error("Query task dropped".to_string());
                         }
@@ -1322,16 +1213,12 @@ impl SqlPane {
                     self.plan_viewer.load_plan(&plan);
                     self.show_plan_viewer = true;
 
-                    // Add a result cell and open the Plan overlay
+                    // Replace result cell with explain cell
                     let explain_id = enya_datafusion::QueryId::new();
-                    self.history.push(Cell::explain(
+                    self.set_result_cell(Cell::explain(
                         format!("EXPLAIN {}", plan_text.lines().next().unwrap_or("...")),
                         explain_id,
                     ));
-                    let idx = self.history.len() - 1;
-                    let cell_id = self.history[idx].id();
-                    self.expand_cell(&cell_id);
-                    self.scroll_to_bottom = true;
                 }
                 Ok(Err(e)) => {
                     self.add_error_cell(&format!("EXPLAIN failed: {e}"));
@@ -1455,11 +1342,10 @@ impl SqlPane {
                         diff_result.left_error.is_some() || diff_result.right_error.is_some();
 
                     // Update the cell
-                    if let Some(cell) = self.history.iter_mut().find(|c| c.id() == query_id) {
+                    if let Some(cell) = self.result_cell.as_mut().filter(|c| c.id() == query_id) {
                         if let Some(d) = cell.as_diff_mut() {
                             if has_error {
                                 d.status = QueryStatus::Failed;
-                                // Combine errors for display
                                 let mut errors = Vec::new();
                                 if let Some(e) = &diff_result.left_error {
                                     errors.push(format!("{left_name}: {e}"));
@@ -1476,11 +1362,12 @@ impl SqlPane {
                     }
 
                     // Open the diff overlay
-                    let idx = self.history.iter().position(|c| c.id() == query_id);
-                    if let Some(idx) = idx {
-                        // For plan diff, use a different overlay approach if desired
-                        // For now, use the Diff overlay for both
-                        self.open_overlay(ResultOverlay::Diff { other_idx: idx }, idx);
+                    if self
+                        .result_cell
+                        .as_ref()
+                        .is_some_and(|c| c.id() == query_id)
+                    {
+                        self.open_overlay(ResultOverlay::Diff { other_idx: 0 });
                     }
                 }
                 Err(tokio::sync::oneshot::error::TryRecvError::Empty) => {
@@ -1489,7 +1376,7 @@ impl SqlPane {
                 }
                 Err(tokio::sync::oneshot::error::TryRecvError::Closed) => {
                     // Task dropped
-                    if let Some(cell) = self.history.iter_mut().find(|c| c.id() == query_id) {
+                    if let Some(cell) = self.result_cell.as_mut().filter(|c| c.id() == query_id) {
                         cell.set_status(QueryStatus::Failed);
                         cell.set_error("Diff query task dropped".to_string());
                     }
@@ -1541,7 +1428,7 @@ impl SqlPane {
                         diff_result.left_error.is_some() || diff_result.right_error.is_some();
 
                     // Update the cell
-                    if let Some(cell) = self.history.iter_mut().find(|c| c.id() == query_id) {
+                    if let Some(cell) = self.result_cell.as_mut().filter(|c| c.id() == query_id) {
                         if let Some(d) = cell.as_diff_mut() {
                             if has_error {
                                 d.status = QueryStatus::Failed;
@@ -1561,9 +1448,12 @@ impl SqlPane {
                     }
 
                     // Open the diff overlay
-                    let idx = self.history.iter().position(|c| c.id() == query_id);
-                    if let Some(idx) = idx {
-                        self.open_overlay(ResultOverlay::Diff { other_idx: idx }, idx);
+                    if self
+                        .result_cell
+                        .as_ref()
+                        .is_some_and(|c| c.id() == query_id)
+                    {
+                        self.open_overlay(ResultOverlay::Diff { other_idx: 0 });
                     }
                 }
                 Err(tokio::sync::oneshot::error::TryRecvError::Empty) => {
@@ -1573,7 +1463,7 @@ impl SqlPane {
                 }
                 Err(tokio::sync::oneshot::error::TryRecvError::Closed) => {
                     // Task dropped
-                    if let Some(cell) = self.history.iter_mut().find(|c| c.id() == query_id) {
+                    if let Some(cell) = self.result_cell.as_mut().filter(|c| c.id() == query_id) {
                         cell.set_status(QueryStatus::Failed);
                         cell.set_error("Schema diff task dropped".to_string());
                     }
@@ -1582,11 +1472,10 @@ impl SqlPane {
         }
 
         // Poll local session events
-        let mut completed_query_id = None;
         if let Some(SqlBackend::Local { event_rx, .. }) = &mut self.backend {
             while let Ok(event) = event_rx.try_recv() {
                 let query_id = event.query_id();
-                if let Some(cell) = self.history.iter_mut().find(|c| c.id() == query_id) {
+                if let Some(cell) = self.result_cell.as_mut().filter(|c| c.id() == query_id) {
                     if let Some(q) = cell.as_query_mut() {
                         match event {
                             QueryEvent::Started { schema, .. } => {
@@ -1598,7 +1487,6 @@ impl SqlPane {
                             QueryEvent::Completed { stats, .. } => {
                                 q.status = QueryStatus::Completed;
                                 q.stats = Some(stats);
-                                completed_query_id = Some(query_id);
                             }
                             QueryEvent::Failed { error, .. } => {
                                 q.status = QueryStatus::Failed;
@@ -1610,15 +1498,6 @@ impl SqlPane {
                             QueryEvent::Progress { .. } => {}
                         }
                     }
-                }
-            }
-        }
-        // Auto-expand cell for completed local queries
-        if let Some(query_id) = completed_query_id {
-            if let Some(idx) = self.history.iter().position(|c| c.id() == query_id) {
-                if !self.history[idx].batches().is_empty() {
-                    self.expand_cell(&query_id);
-                    self.scroll_to_bottom = true;
                 }
             }
         }
@@ -1634,39 +1513,30 @@ impl SqlPane {
     fn load_diff_demo(&mut self) {
         let diff_result = create_diff_demo();
         let query_id = QueryId::new();
-        self.history.push(Cell::diff_completed(
+        self.set_result_cell(Cell::diff_completed(
             "/diff demo (staging vs production)",
             query_id,
             diff_result,
         ));
-
-        // Open the diff overlay
-        let idx = self.history.len() - 1;
-        self.open_overlay(ResultOverlay::Diff { other_idx: idx }, idx);
-        self.scroll_to_bottom = true;
+        self.open_overlay(ResultOverlay::Diff { other_idx: 0 });
     }
 
     /// Load a demo schema diff result for testing the schema diff overlay.
     fn load_schema_diff_demo(&mut self) {
         let diff_result = create_schema_diff_demo();
         let query_id = QueryId::new();
-        self.history.push(Cell::diff_completed(
+        self.set_result_cell(Cell::diff_completed(
             "/diff schema demo (staging vs production users)",
             query_id,
             diff_result,
         ));
-
-        // Open the diff overlay
-        let idx = self.history.len() - 1;
-        self.open_overlay(ResultOverlay::Diff { other_idx: idx }, idx);
-        self.scroll_to_bottom = true;
+        self.open_overlay(ResultOverlay::Diff { other_idx: 0 });
     }
 
     /// Load a demo profile diff result for testing the profile diff overlay.
     fn load_profile_diff_demo(&mut self) {
         let (left_plan, right_plan) = create_profile_diff_demo();
 
-        // Create the diff result
         let diff_result = DiffQueryResult {
             left_name: "staging".to_string(),
             right_name: "production".to_string(),
@@ -1685,16 +1555,12 @@ impl SqlPane {
         };
 
         let query_id = QueryId::new();
-        self.history.push(Cell::diff_completed(
+        self.set_result_cell(Cell::diff_completed(
             "/diff profile demo (staging vs production)",
             query_id,
             diff_result,
         ));
-
-        // Open the diff overlay
-        let idx = self.history.len() - 1;
-        self.open_overlay(ResultOverlay::Diff { other_idx: idx }, idx);
-        self.scroll_to_bottom = true;
+        self.open_overlay(ResultOverlay::Diff { other_idx: 0 });
     }
 
     /// Fetch table list from connected server.
@@ -1783,22 +1649,14 @@ impl SqlPane {
                         let input_height = 100.0;
                         let scroll_height = (ui.available_height() - input_height).max(100.0);
 
-                        // === Notebook cells (scrollable) ===
-                        let mut all_actions: Vec<(usize, Vec<super::query_card::CardAction>)> =
-                            Vec::new();
+                        // === Single result cell (scrollable) ===
+                        let mut card_actions: Vec<super::query_card::CardAction> = Vec::new();
 
-                        // Split borrows: history (read), cell_states (write), plan_viewer (write)
                         let has_connections = !self.connections.is_empty();
                         let is_connected = self.active_connection().is_some_and(|c| {
                             matches!(c.state, ConnectionState::Connected)
                         });
-                        let history = &self.history;
-                        let cell_states = &mut self.cell_states;
-                        let plan_viewer = &mut self.plan_viewer;
                         let theme = self.theme;
-                        let overlay_blocks = self.overlay_blocks_input;
-                        let selected_idx = self.selected_cell_idx;
-                        let scroll_to_selected = self.scroll_to_selected;
 
                         // Use a floating scrollbar so the scroll area content
                         // width matches the input bar width below it.
@@ -1809,9 +1667,34 @@ impl SqlPane {
                             .max_height(scroll_height)
                             .stick_to_bottom(self.scroll_to_bottom)
                             .show(ui, |ui| {
-                                let has_cells = history.iter().any(|c| c.is_navigable());
+                                if let Some(cell) = &self.result_cell {
+                                    if cell.is_navigable() {
+                                        let vs = &mut self.cell_view_state;
+                                        let plan_viewer = &mut self.plan_viewer;
+                                        let overlay_blocks =
+                                            self.overlay_blocks_input || self.overlay_active;
+                                        let input_id =
+                                            egui::Id::new(format!("sql_input_{}", self.id));
+                                        let input_has_focus = ui
+                                            .ctx()
+                                            .memory(|m| m.has_focus(input_id))
+                                            || self.input_focused;
+                                        let actions = super::query_card::render_query_card(
+                                            ui,
+                                            cell,
+                                            0,
+                                            vs,
+                                            theme,
+                                            overlay_blocks,
+                                            plan_viewer,
+                                            input_has_focus,
+                                        );
+                                        card_actions = actions;
+                                        ui.add_space(8.0);
+                                    }
+                                }
 
-                                if !has_cells {
+                                if !self.has_result() {
                                     // Empty state placeholder
                                     ui.vertical_centered(|ui| {
                                         ui.add_space(scroll_height / 4.0);
@@ -1849,224 +1732,57 @@ impl SqlPane {
                                                 .size(10.0),
                                         );
                                     });
-                                } else {
-                                    let mut cell_number: usize = 0;
-                                    for (idx, cell) in history.iter().enumerate() {
-                                        // Skip info/system messages
-                                        if cell.is_info() {
-                                            continue;
-                                        }
-                                        cell_number += 1;
-
-                                        let is_selected = selected_idx == Some(idx);
-                                        let vs = cell_states.entry(cell.id()).or_default();
-                                        let actions = super::query_card::render_query_card(
-                                            ui,
-                                            cell,
-                                            idx,
-                                            vs,
-                                            theme,
-                                            overlay_blocks,
-                                            plan_viewer,
-                                            is_selected,
-                                            cell_number,
-                                        );
-                                        all_actions.push((idx, actions));
-
-                                        // Auto-scroll the selected/expanded card into view
-                                        if is_selected && scroll_to_selected {
-                                            ui.scroll_to_cursor(Some(egui::Align::Center));
-                                        }
-
-                                        ui.add_space(8.0);
-                                    }
                                 }
                             });
 
                         self.scroll_to_bottom = false;
-                        self.scroll_to_selected = false;
 
                         // Process card actions
-                        for (idx, actions) in all_actions {
-                            self.handle_card_actions(actions, idx);
+                        if !card_actions.is_empty() {
+                            self.handle_card_actions(card_actions);
                         }
 
-                        // === Vim navigation between cells ===
-                        // Active when a cell is selected (not when typing in input).
-                        // Enter cell navigation via Escape from input bar.
-                        let has_expanded = self.expanded_cell_id().is_some();
-                        if !has_expanded
-                            && !self.overlay_blocks_input
-                            && self.selected_cell_idx.is_some()
-                        {
-                            let nav_indices = self.navigable_cell_indices();
-
-                            if !nav_indices.is_empty() {
-                                let current = self.selected_cell_idx.unwrap();
-                                let current_pos =
-                                    nav_indices.iter().position(|&i| i == current).unwrap_or(0);
-
-                                // j/Down or Tab: move selection down
-                                let j_pressed = ui.ctx().input_mut(|i| {
-                                    i.consume_key(egui::Modifiers::NONE, egui::Key::J)
-                                        || i.consume_key(
-                                            egui::Modifiers::NONE,
-                                            egui::Key::ArrowDown,
-                                        )
-                                        || i.consume_key(egui::Modifiers::NONE, egui::Key::Tab)
+                        // Render status message banner (between cell and input)
+                        let mut dismiss_status = false;
+                        if let Some(msg) = &self.status_message {
+                            ui.add_space(4.0);
+                            let color = if msg.is_error {
+                                self.theme.semantic_error()
+                            } else {
+                                self.theme.text_secondary()
+                            };
+                            let text = msg.text.clone();
+                            let close_color =
+                                self.theme.text_secondary().gamma_multiply(0.5);
+                            egui::Frame::new()
+                                .fill(self.theme.bg_elevated())
+                                .corner_radius(4.0)
+                                .inner_margin(egui::Margin::symmetric(8, 4))
+                                .show(ui, |ui| {
+                                    ui.horizontal(|ui| {
+                                        ui.label(
+                                            RichText::new(&text).color(color).size(11.0),
+                                        );
+                                        ui.with_layout(
+                                            egui::Layout::right_to_left(egui::Align::Center),
+                                            |ui| {
+                                                if ui
+                                                    .small_button(
+                                                        RichText::new(action::CLOSE)
+                                                            .color(close_color)
+                                                            .size(10.0),
+                                                    )
+                                                    .clicked()
+                                                {
+                                                    dismiss_status = true;
+                                                }
+                                            },
+                                        );
+                                    });
                                 });
-
-                                // k/Up or Shift+Tab: move selection up
-                                let k_pressed = ui.ctx().input_mut(|i| {
-                                    i.consume_key(egui::Modifiers::NONE, egui::Key::K)
-                                        || i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowUp)
-                                        || i.consume_key(egui::Modifiers::SHIFT, egui::Key::Tab)
-                                });
-
-                                // Ctrl+d: half-page down
-                                let ctrl_d = ui.ctx().input_mut(|i| {
-                                    i.consume_key(egui::Modifiers::CTRL, egui::Key::D)
-                                });
-
-                                // Ctrl+u: half-page up
-                                let ctrl_u = ui.ctx().input_mut(|i| {
-                                    i.consume_key(egui::Modifiers::CTRL, egui::Key::U)
-                                });
-
-                                // G: jump to last cell
-                                let shift_g = ui.ctx().input_mut(|i| {
-                                    i.consume_key(egui::Modifiers::SHIFT, egui::Key::G)
-                                });
-
-                                // g: first press sets pending_g, second press jumps to first cell
-                                let g_pressed = ui.ctx().input_mut(|i| {
-                                    i.consume_key(egui::Modifiers::NONE, egui::Key::G)
-                                });
-
-                                // y: yank (copy SQL of selected cell to clipboard)
-                                let y_pressed = ui.ctx().input_mut(|i| {
-                                    i.consume_key(egui::Modifiers::NONE, egui::Key::Y)
-                                });
-
-                                // d or x: delete selected cell from history
-                                let d_pressed = ui.ctx().input_mut(|i| {
-                                    i.consume_key(egui::Modifiers::NONE, egui::Key::D)
-                                        || i.consume_key(egui::Modifiers::NONE, egui::Key::X)
-                                });
-
-                                // Handle gg motion (two consecutive g presses)
-                                if g_pressed {
-                                    if self.pending_g {
-                                        // gg: jump to first cell
-                                        self.selected_cell_idx = Some(nav_indices[0]);
-                                        self.scroll_to_selected = true;
-                                        self.pending_g = false;
-                                    } else {
-                                        self.pending_g = true;
-                                    }
-                                } else if shift_g
-                                    || j_pressed
-                                    || k_pressed
-                                    || ctrl_d
-                                    || ctrl_u
-                                    || y_pressed
-                                    || d_pressed
-                                {
-                                    // Any other key cancels pending g
-                                    self.pending_g = false;
-                                }
-
-                                if j_pressed {
-                                    if current_pos + 1 < nav_indices.len() {
-                                        self.selected_cell_idx = Some(nav_indices[current_pos + 1]);
-                                        self.scroll_to_selected = true;
-                                    } else {
-                                        // Past last cell: deselect, focus input
-                                        self.selected_cell_idx = None;
-                                        self.input_focused = true;
-                                    }
-                                }
-
-                                if k_pressed {
-                                    if current_pos > 0 {
-                                        self.selected_cell_idx = Some(nav_indices[current_pos - 1]);
-                                        self.scroll_to_selected = true;
-                                    } else {
-                                        // Before first cell: deselect, focus input
-                                        self.selected_cell_idx = None;
-                                        self.input_focused = true;
-                                    }
-                                }
-
-                                // Half-page jumps (5 cells)
-                                let half_page = 5;
-                                if ctrl_d {
-                                    let target = (current_pos + half_page)
-                                        .min(nav_indices.len().saturating_sub(1));
-                                    self.selected_cell_idx = Some(nav_indices[target]);
-                                    self.scroll_to_selected = true;
-                                }
-                                if ctrl_u {
-                                    let target = current_pos.saturating_sub(half_page);
-                                    self.selected_cell_idx = Some(nav_indices[target]);
-                                    self.scroll_to_selected = true;
-                                }
-
-                                // G: jump to last cell
-                                if shift_g {
-                                    self.selected_cell_idx = Some(*nav_indices.last().unwrap());
-                                    self.scroll_to_selected = true;
-                                }
-
-                                // y: yank SQL to clipboard
-                                if y_pressed {
-                                    if let Some(cell) = self.history.get(current) {
-                                        let sql = cell.sql().to_string();
-                                        self.copy_to_clipboard(&sql);
-                                    }
-                                }
-
-                                // d/x: delete cell
-                                if d_pressed {
-                                    self.handle_card_actions(
-                                        vec![super::query_card::CardAction::Delete],
-                                        current,
-                                    );
-                                }
-
-                                // Enter: expand selected cell
-                                if ui.ctx().input_mut(|i| {
-                                    i.consume_key(egui::Modifiers::NONE, egui::Key::Enter)
-                                }) {
-                                    if let Some(cell) = self.history.get(current) {
-                                        let id = cell.id();
-                                        self.expand_cell(&id);
-                                    }
-                                }
-
-                                // Escape or i: deselect cell, return to input
-                                if ui.ctx().input_mut(|i| {
-                                    i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)
-                                        || i.consume_key(egui::Modifiers::NONE, egui::Key::I)
-                                }) {
-                                    self.selected_cell_idx = None;
-                                    self.input_focused = true;
-                                    self.pending_g = false;
-                                }
-                            }
-                        } else if !has_expanded {
-                            // Reset pending_g when not in cell navigation mode
-                            self.pending_g = false;
                         }
-
-                        // Global Esc: collapse expanded cell
-                        if has_expanded
-                            && !self.overlay_blocks_input
-                            && ui.ctx().input_mut(|i| {
-                                i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)
-                            })
-                        {
-                            self.collapse_expanded();
+                        if dismiss_status {
+                            self.status_message = None;
                         }
 
                         // === Input section (pinned at bottom) ===
@@ -2125,10 +1841,10 @@ impl SqlPane {
         }
     }
 
-    /// Open an overlay for the specified result.
-    fn open_overlay(&mut self, overlay: ResultOverlay, result_idx: usize) {
+    /// Open an overlay for the result cell.
+    fn open_overlay(&mut self, overlay: ResultOverlay) {
         self.active_overlay = overlay;
-        self.overlay_result_idx = Some(result_idx);
+        self.overlay_active = true;
         self.overlay_table_page = 0;
         self.overlay_filter.clear();
     }
@@ -2136,7 +1852,7 @@ impl SqlPane {
     /// Close the active overlay and refocus the input bar.
     fn close_overlay(&mut self) {
         self.active_overlay = ResultOverlay::None;
-        self.overlay_result_idx = None;
+        self.overlay_active = false;
         self.overlay_table_page = 0;
         self.overlay_filter.clear();
         self.overlay_sort_column = None;
@@ -2146,12 +1862,7 @@ impl SqlPane {
 
     /// Render the result overlay.
     fn render_result_overlay(&mut self, ui: &mut egui::Ui) {
-        let Some(result_idx) = self.overlay_result_idx else {
-            return;
-        };
-
-        // Get result - need to check bounds
-        if result_idx >= self.history.len() {
+        if !self.overlay_active || self.result_cell.is_none() {
             self.close_overlay();
             return;
         }
@@ -2159,7 +1870,11 @@ impl SqlPane {
         let screen_rect = ui.ctx().available_rect();
 
         // Handle Esc to close (before drawing anything) — skip if a workspace overlay is open
-        if !self.overlay_blocks_input && ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+        if !self.overlay_blocks_input
+            && ui
+                .ctx()
+                .input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape))
+        {
             self.close_overlay();
             return;
         }
@@ -2187,14 +1902,13 @@ impl SqlPane {
                     match &self.active_overlay {
                         ResultOverlay::None => {}
                         ResultOverlay::Table => {
-                            self.render_table_overlay(ui, result_idx);
+                            self.render_table_overlay(ui);
                         }
                         ResultOverlay::Plan => {
-                            self.render_plan_overlay(ui, result_idx);
+                            self.render_plan_overlay(ui);
                         }
-                        ResultOverlay::Diff { other_idx } => {
-                            let other = *other_idx;
-                            self.render_diff_overlay(ui, result_idx, other);
+                        ResultOverlay::Diff { .. } => {
+                            self.render_diff_overlay(ui);
                         }
                     }
                 });
@@ -2202,7 +1916,7 @@ impl SqlPane {
     }
 
     /// Render the table overlay view.
-    fn render_table_overlay(&mut self, ui: &mut egui::Ui, result_idx: usize) {
+    fn render_table_overlay(&mut self, ui: &mut egui::Ui) {
         // Clear egui focus so vim navigation keys (h/j/k/l) don't leak into the input bar.
         ui.ctx()
             .memory_mut(|mem| mem.surrender_focus(egui::Id::NULL));
@@ -2214,7 +1928,7 @@ impl SqlPane {
 
         // Extract data from cell first to avoid borrow conflicts
         let (total_rows, num_cols, execution_time_ms, has_schema, column_widths) = {
-            let cell = &self.history[result_idx];
+            let cell = self.result_cell.as_ref().unwrap();
             let total: usize = cell.batches().iter().map(|b| b.num_rows()).sum();
             let cols = cell.schema().map(|s| s.fields().len()).unwrap_or(0);
             let time_ms = cell.stats().map(|s| s.total_time.as_millis());
@@ -2298,16 +2012,18 @@ impl SqlPane {
 
         // Share to agent panel
         if should_share_to_agent {
-            if let Some(table) = self.result_to_inline_table(result_idx) {
+            if let Some(table) = self.result_to_inline_table() {
                 self.pending_action = SqlPaneAction::ShareResultToAgent(table);
             }
         }
 
         // Copy all results as TSV
         if should_copy {
-            if let Some(schema) = self.history[result_idx].schema() {
-                let tsv = Self::format_results_as_tsv(schema, self.history[result_idx].batches());
-                self.copy_to_clipboard(&tsv);
+            if let Some(cell) = &self.result_cell {
+                if let Some(schema) = cell.schema() {
+                    let tsv = Self::format_results_as_tsv(schema, cell.batches());
+                    self.copy_to_clipboard(&tsv);
+                }
             }
         }
 
@@ -2380,7 +2096,7 @@ impl SqlPane {
         }
 
         // Now we can safely access cell data for rendering the table
-        let cell = &self.history[result_idx];
+        let cell = self.result_cell.as_ref().unwrap();
         let schema = cell.schema().unwrap(); // Safe because has_schema is true
 
         // Calculate row number width for alignment
@@ -2731,7 +2447,7 @@ impl SqlPane {
     }
 
     /// Render the plan overlay view.
-    fn render_plan_overlay(&mut self, ui: &mut egui::Ui, result_idx: usize) {
+    fn render_plan_overlay(&mut self, ui: &mut egui::Ui) {
         // Clear egui focus so vim navigation works and ':' can open command palette.
         // Without this, the SQL input TextEdit might retain focus, causing
         // listen_for_kb_shortcut() to return early before processing ':'.
@@ -2747,8 +2463,8 @@ impl SqlPane {
 
         // Extract query for footer
         let sql_query = self
-            .history
-            .get(result_idx)
+            .result_cell
+            .as_ref()
             .map(|c| c.sql().to_string())
             .unwrap_or_default();
 
@@ -2916,7 +2632,7 @@ impl SqlPane {
     }
 
     /// Render the diff overlay view.
-    fn render_diff_overlay(&mut self, ui: &mut egui::Ui, result_idx: usize, _other_idx: usize) {
+    fn render_diff_overlay(&mut self, ui: &mut egui::Ui) {
         use crate::ui::semantic_icons::diff;
 
         // Clear egui focus so keyboard shortcuts don't leak into the input bar.
@@ -2951,8 +2667,8 @@ impl SqlPane {
 
         // Extract data from diff result to avoid borrow conflicts in closures
         let diff_data = self
-            .history
-            .get(result_idx)
+            .result_cell
+            .as_ref()
             .and_then(|c| c.diff_result())
             .map(|d| {
                 // Calculate profile timing if plans are available
@@ -3203,7 +2919,7 @@ impl SqlPane {
                 } else {
                     // Re-borrow diff_result for content rendering (no mutable self access here)
                     if let Some(diff_result) =
-                        self.history.get(result_idx).and_then(|c| c.diff_result())
+                        self.result_cell.as_ref().and_then(|c| c.diff_result())
                     {
                         match diff_type {
                             DiffType::Schema => {
@@ -4445,17 +4161,7 @@ impl SqlPane {
                         response.request_focus();
                     }
 
-                    // Surrender focus when a cell is expanded or selected (vim navigation)
-                    if response.has_focus()
-                        && (self.expanded_cell_id().is_some() || self.selected_cell_idx.is_some())
-                    {
-                        response.surrender_focus();
-                    }
-
-                    // If user clicked the input, clear cell selection
-                    if response.clicked() && self.selected_cell_idx.is_some() {
-                        self.selected_cell_idx = None;
-                    }
+                    // (No multi-cell navigation — input always has focus)
 
                     // Move cursor to end after inserting suggestion
                     if self.move_cursor_to_end {
@@ -4471,19 +4177,11 @@ impl SqlPane {
 
                     // Handle keyboard navigation for suggestions
                     if response.has_focus() {
-                        // Handle Escape key
-                        if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
-                            if self.suggestions.visible {
-                                self.suggestions.visible = false;
-                            } else {
-                                // Surrender focus and select last navigable cell
-                                response.surrender_focus();
-                                let nav = self.navigable_cell_indices();
-                                if let Some(&last) = nav.last() {
-                                    self.selected_cell_idx = Some(last);
-                                    self.scroll_to_selected = true;
-                                }
-                            }
+                        // Handle Escape key — dismiss suggestions
+                        if ui.input(|i| i.key_pressed(egui::Key::Escape))
+                            && self.suggestions.visible
+                        {
+                            self.suggestions.visible = false;
                         }
 
                         // Up/Down for suggestion navigation (only when suggestions visible)
@@ -4568,7 +4266,6 @@ impl SqlPane {
     fn render_input_hints(&self, ui: &mut egui::Ui, text_secondary: Color32) {
         let hint_color = text_secondary.gamma_multiply(0.5);
         let dot_color = text_secondary.gamma_multiply(0.3);
-        let accent = self.theme.accent_primary();
 
         /// Render a single hint label.
         fn hint(ui: &mut egui::Ui, text: &str, color: Color32) {
@@ -4581,55 +4278,18 @@ impl SqlPane {
 
         ui.add_space(6.0);
         ui.horizontal(|ui| {
-            let has_expanded = self.expanded_cell_id().is_some();
-
-            if self.selected_cell_idx.is_some() && !has_expanded {
-                // === NAVIGATE mode hints ===
-                // Mode indicator
-                hint(ui, "NAV", accent);
+            // === INPUT mode hints ===
+            if self.suggestions.visible {
+                hint(ui, "↑↓ navigate", hint_color);
                 dot(ui, dot_color);
-                hint(ui, "j/k navigate", hint_color);
+                hint(ui, "Tab insert", hint_color);
                 dot(ui, dot_color);
-                hint(ui, "↵ expand", hint_color);
-                dot(ui, dot_color);
-                hint(ui, "y yank", hint_color);
-                dot(ui, dot_color);
-                hint(ui, "d delete", hint_color);
-                dot(ui, dot_color);
-                hint(ui, "G end · gg top", hint_color);
-                dot(ui, dot_color);
-                hint(ui, "i input", hint_color);
-            } else if has_expanded {
-                // === EXPANDED mode hints ===
-                hint(ui, "EXPAND", accent);
-                dot(ui, dot_color);
-                hint(ui, "hjkl scroll", hint_color);
-                dot(ui, dot_color);
-                hint(ui, "[] page", hint_color);
-                dot(ui, dot_color);
-                hint(ui, "gg/G first/last", hint_color);
-                dot(ui, dot_color);
-                hint(ui, "⌘C copy", hint_color);
-                dot(ui, dot_color);
-                hint(ui, "S share", hint_color);
-                dot(ui, dot_color);
-                hint(ui, "Esc collapse", hint_color);
-            } else {
-                // === INPUT mode hints ===
-                if self.suggestions.visible {
-                    hint(ui, "↑↓ navigate", hint_color);
-                    dot(ui, dot_color);
-                    hint(ui, "Tab insert", hint_color);
-                    dot(ui, dot_color);
-                }
-                hint(ui, "↵ run", hint_color);
-                dot(ui, dot_color);
-                hint(ui, "↑↓ history", hint_color);
-                dot(ui, dot_color);
-                hint(ui, "⇧↵ newline", hint_color);
-                dot(ui, dot_color);
-                hint(ui, "Esc cells", hint_color);
             }
+            hint(ui, "↵ run", hint_color);
+            dot(ui, dot_color);
+            hint(ui, "↑↓ history", hint_color);
+            dot(ui, dot_color);
+            hint(ui, "⇧↵ newline", hint_color);
 
             // Connection status on the right
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -4656,1549 +4316,6 @@ impl SqlPane {
                 }
             });
         });
-    }
-
-    // ========================================================================
-    // Legacy Minimal Premium Layout Components (kept for reference)
-    // ========================================================================
-
-    /// Render minimal header with title and connection pill.
-    #[allow(dead_code)]
-    fn render_minimal_header(
-        &mut self,
-        ui: &mut egui::Ui,
-        text_secondary: Color32,
-        accent: Color32,
-    ) {
-        ui.horizontal(|ui| {
-            // Left: "SQL" title
-            ui.label(
-                RichText::new("SQL")
-                    .color(self.theme.text_primary())
-                    .size(18.0)
-                    .strong(),
-            );
-
-            // Right: Connection pill
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                let pill_response = self.render_connection_pill(ui, text_secondary, accent);
-
-                // Toggle popup on click
-                if pill_response.clicked() {
-                    // Toggle popup state (we'll use sidebar_width as a flag, repurposed)
-                    if self.sidebar_width == 0.0 {
-                        self.sidebar_width = 1.0; // Show popup
-                    } else {
-                        self.sidebar_width = 0.0; // Hide popup
-                    }
-                }
-            });
-        });
-    }
-
-    /// Render the connection status pill (clickable).
-    #[allow(dead_code)]
-    fn render_connection_pill(
-        &self,
-        ui: &mut egui::Ui,
-        text_secondary: Color32,
-        accent: Color32,
-    ) -> egui::Response {
-        let (pill_text, pill_color, status_color) = if let Some(conn) = self.active_connection() {
-            match &conn.state {
-                ConnectionState::Connected => (
-                    conn.name.clone(),
-                    text_secondary,
-                    self.theme.semantic_success(),
-                ),
-                ConnectionState::Connecting => (conn.name.clone(), accent, accent),
-                ConnectionState::Disconnected => (
-                    conn.name.clone(),
-                    text_secondary.gamma_multiply(0.7),
-                    text_secondary.gamma_multiply(0.5),
-                ),
-                ConnectionState::Failed(_) => (
-                    conn.name.clone(),
-                    self.theme.semantic_error(),
-                    self.theme.semantic_error(),
-                ),
-            }
-        } else if !self.connections.is_empty() {
-            (
-                "Select connection".to_string(),
-                text_secondary.gamma_multiply(0.7),
-                text_secondary.gamma_multiply(0.3),
-            )
-        } else {
-            (
-                "No connection".to_string(),
-                text_secondary.gamma_multiply(0.7),
-                text_secondary.gamma_multiply(0.3),
-            )
-        };
-
-        // Pill button
-        let response = egui::Frame::new()
-            .fill(self.theme.bg_elevated())
-            .stroke(egui::Stroke::new(1.0, self.theme.border_default()))
-            .corner_radius(12.0)
-            .inner_margin(egui::Margin::symmetric(10, 4))
-            .show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    // Status dot
-                    ui.label(RichText::new("●").color(status_color).size(8.0));
-                    ui.add_space(6.0);
-
-                    // Connection name
-                    ui.label(RichText::new(&pill_text).color(pill_color).size(12.0));
-
-                    ui.add_space(4.0);
-
-                    // Dropdown arrow
-                    ui.label(
-                        RichText::new(nav::EXPAND)
-                            .color(text_secondary.gamma_multiply(0.5))
-                            .size(10.0),
-                    );
-                });
-            })
-            .response;
-
-        response.on_hover_cursor(egui::CursorIcon::PointingHand)
-    }
-
-    /// Render the query editor (hero element).
-    #[allow(dead_code)]
-    fn render_query_editor(&mut self, ui: &mut egui::Ui, accent: Color32) {
-        let text_secondary = self.theme.text_secondary();
-
-        // Query input container with subtle styling
-        egui::Frame::new()
-            .fill(self.theme.bg_elevated())
-            .stroke(egui::Stroke::new(
-                1.0,
-                if self.input_focused {
-                    accent.gamma_multiply(0.3)
-                } else {
-                    self.theme.border_default()
-                },
-            ))
-            .corner_radius(8.0)
-            .inner_margin(egui::Margin::symmetric(16, 12))
-            .show(ui, |ui| {
-                // SQL syntax-highlighted text input
-                let theme = self.theme;
-                let mut layouter =
-                    move |ui: &egui::Ui, text: &dyn egui::TextBuffer, wrap_width: f32| {
-                        let mut job = highlight_sql(text.as_str(), theme, &[]);
-                        job.wrap.max_width = wrap_width;
-                        ui.fonts_mut(|f| f.layout_job(job))
-                    };
-
-                let response = ui.add(
-                    TextEdit::multiline(&mut self.input)
-                        .font(egui::TextStyle::Monospace)
-                        .desired_width(ui.available_width())
-                        .desired_rows(4)
-                        .frame(false)
-                        .layouter(&mut layouter)
-                        .hint_text(
-                            RichText::new("SELECT * FROM table WHERE ...")
-                                .color(text_secondary.gamma_multiply(0.4))
-                                .monospace(),
-                        ),
-                );
-
-                if self.input_focused {
-                    response.request_focus();
-                    self.input_focused = false;
-                }
-
-                // Execute on Ctrl+Enter or Cmd+Enter
-                if response.has_focus() {
-                    let modifiers = ui.input(|i| i.modifiers);
-                    let enter_pressed = ui.input(|i| i.key_pressed(egui::Key::Enter));
-                    if enter_pressed && (modifiers.ctrl || modifiers.command) {
-                        self.execute_input();
-                    }
-                }
-            });
-
-        // Subtle hint below input
-        ui.horizontal(|ui| {
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                let has_connection = self.active_connection().is_some();
-                let hint_text = if has_connection {
-                    "⌘↵ to run"
-                } else {
-                    "Connect to run queries"
-                };
-                ui.label(
-                    RichText::new(hint_text)
-                        .color(text_secondary.gamma_multiply(0.5))
-                        .size(11.0),
-                );
-            });
-        });
-    }
-
-    /// Render query results - compact preview with overlay expansion (legacy, replaced by notebook cells).
-    #[allow(dead_code)]
-    fn render_results(&mut self, ui: &mut egui::Ui) {
-        let text_primary = self.theme.text_primary();
-        let text_secondary = self.theme.text_secondary();
-        let accent = self.theme.accent_primary();
-
-        // Check for running query and extract elapsed time (to avoid borrow issues)
-        let running_elapsed_secs = self
-            .history
-            .iter()
-            .find(|cell| cell.is_navigable() && cell.status() == QueryStatus::Running)
-            .map(|cell| cell.created_at().elapsed().as_secs_f32());
-
-        // Show loading badge if query is running
-        if let Some(elapsed_secs) = running_elapsed_secs {
-            egui::Frame::new()
-                .fill(self.theme.bg_elevated())
-                .stroke(egui::Stroke::new(1.0, accent.gamma_multiply(0.3)))
-                .corner_radius(6.0)
-                .inner_margin(egui::Margin::symmetric(12, 8))
-                .show(ui, |ui| {
-                    ui.horizontal(|ui| {
-                        ui.spinner();
-                        ui.add_space(8.0);
-                        ui.label(RichText::new("Running").color(accent).size(11.0));
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            ui.label(
-                                RichText::new(format!("{elapsed_secs:.1}s"))
-                                    .color(text_secondary.gamma_multiply(0.7))
-                                    .size(10.0)
-                                    .monospace(),
-                            );
-                        });
-                    });
-                });
-
-            ui.add_space(12.0);
-
-            // Request repaint to update timer
-            ui.ctx().request_repaint();
-        }
-
-        // Find the most recent non-info result
-        let latest_result_idx = self
-            .history
-            .iter()
-            .enumerate()
-            .rev()
-            .find(|(_, cell)| cell.is_navigable() && cell.status() != QueryStatus::Running)
-            .map(|(idx, _)| idx);
-
-        // Handle keyboard shortcuts for overlay (only when not in overlay and input not focused)
-        let input_focused = ui.ctx().memory(|m| m.focused().is_some());
-        let mut should_clear = false;
-        if self.active_overlay == ResultOverlay::None && !input_focused {
-            if let Some(idx) = latest_result_idx {
-                let cell = &self.history[idx];
-                let has_data = !cell.batches().is_empty();
-
-                ui.input(|i| {
-                    // 't' or Enter to open table view
-                    if has_data && (i.key_pressed(egui::Key::T) || i.key_pressed(egui::Key::Enter))
-                    {
-                        self.open_overlay(ResultOverlay::Table, idx);
-                    }
-                    // 'p' to open plan view
-                    if i.key_pressed(egui::Key::P) {
-                        self.open_overlay(ResultOverlay::Plan, idx);
-                    }
-                    // 'c' to clear results
-                    if i.key_pressed(egui::Key::C) {
-                        should_clear = true;
-                    }
-                });
-            }
-        }
-        if should_clear {
-            self.clear_results();
-            return; // Skip rendering since history was just cleared
-        }
-
-        // Render compact preview
-        if let Some(idx) = latest_result_idx {
-            self.render_compact_preview(ui, idx, text_primary, text_secondary, accent);
-        } else if running_elapsed_secs.is_none() {
-            // Show info messages only
-            for cell in self.history.iter().filter(|c| c.is_info()) {
-                if let Some(error) = cell.get_error() {
-                    ui.label(
-                        RichText::new(error)
-                            .color(self.theme.semantic_error())
-                            .size(12.0),
-                    );
-                } else {
-                    ui.label(RichText::new(cell.sql()).color(text_secondary).size(12.0));
-                }
-                ui.add_space(8.0);
-            }
-        }
-    }
-
-    /// Render a compact preview of a single result with expand hints (legacy, replaced by query_card).
-    #[allow(dead_code)]
-    fn render_compact_preview(
-        &mut self,
-        ui: &mut egui::Ui,
-        idx: usize,
-        text_primary: Color32,
-        text_secondary: Color32,
-        accent: Color32,
-    ) {
-        let cell = &self.history[idx];
-        let max_preview_rows = 3;
-        let max_value_len = 16; // Truncate long values for compactness
-
-        // Result container
-        egui::Frame::new()
-            .fill(self.theme.bg_elevated())
-            .stroke(egui::Stroke::new(1.0, self.theme.border_default()))
-            .corner_radius(8.0)
-            .inner_margin(0.0)
-            .show(ui, |ui| {
-                // Header: status and stats
-                egui::Frame::new()
-                    .fill(self.theme.bg_surface())
-                    .inner_margin(egui::Margin::symmetric(12, 8))
-                    .corner_radius(egui::CornerRadius {
-                        nw: 8,
-                        ne: 8,
-                        sw: 0,
-                        se: 0,
-                    })
-                    .show(ui, |ui| {
-                        ui.horizontal(|ui| match cell.status() {
-                            QueryStatus::Running => {
-                                ui.spinner();
-                                ui.add_space(8.0);
-                                ui.label(RichText::new("Running...").color(accent).size(11.0));
-                            }
-                            QueryStatus::Completed => {
-                                ui.label(
-                                    RichText::new(status::SUCCESS)
-                                        .color(self.theme.semantic_success())
-                                        .size(11.0),
-                                );
-                                ui.add_space(6.0);
-
-                                let row_count: usize =
-                                    cell.batches().iter().map(|b| b.num_rows()).sum();
-                                ui.label(
-                                    RichText::new(format!("{row_count} rows"))
-                                        .color(text_primary)
-                                        .size(11.0),
-                                );
-
-                                if let Some(stats) = cell.stats() {
-                                    ui.label(
-                                        RichText::new("·")
-                                            .color(text_secondary.gamma_multiply(0.5))
-                                            .size(11.0),
-                                    );
-                                    ui.label(
-                                        RichText::new(format!(
-                                            "{}ms",
-                                            stats.total_time.as_millis()
-                                        ))
-                                        .color(text_secondary)
-                                        .size(11.0),
-                                    );
-                                }
-                            }
-                            QueryStatus::Failed => {
-                                ui.label(
-                                    RichText::new(status::ERROR)
-                                        .color(self.theme.semantic_error())
-                                        .size(11.0),
-                                );
-                                ui.add_space(6.0);
-                                ui.label(
-                                    RichText::new("Error")
-                                        .color(self.theme.semantic_error())
-                                        .size(11.0),
-                                );
-                            }
-                            QueryStatus::Cancelled => {
-                                ui.label(
-                                    RichText::new("Cancelled")
-                                        .color(text_secondary)
-                                        .size(11.0)
-                                        .italics(),
-                                );
-                            }
-                        });
-                    });
-
-                // Error message if failed
-                if let Some(error) = cell.get_error() {
-                    egui::Frame::new()
-                        .fill(self.theme.semantic_error().gamma_multiply(0.1))
-                        .inner_margin(egui::Margin::symmetric(12, 8))
-                        .show(ui, |ui| {
-                            // Truncate long errors
-                            let display_error = if error.len() > 100 {
-                                format!("{}...", &error[..100])
-                            } else {
-                                error.to_string()
-                            };
-                            ui.label(
-                                RichText::new(display_error)
-                                    .color(self.theme.semantic_error())
-                                    .size(11.0)
-                                    .monospace(),
-                            );
-                        });
-                }
-
-                // Compact table preview (if has data)
-                if !cell.batches().is_empty() {
-                    if let Some(schema) = cell.schema() {
-                        let total_cols = schema.fields().len();
-
-                        // Calculate how many columns fit in available width
-                        // Available width is ~700px max minus frame margins (~24px)
-                        let available_width = (ui.available_width() - 24.0).max(1.0);
-                        let col_spacing = 16.0; // Space between columns
-                        let char_width = 6.5; // Approximate width per monospace char at 10pt
-                        let overflow_indicator_width = 40.0; // Space for "+N" indicator
-
-                        // Calculate column widths based on header names (capped at max_value_len)
-                        let col_widths: Vec<f32> = schema
-                            .fields()
-                            .iter()
-                            .map(|f| {
-                                let name_len = f.name().len().min(max_value_len);
-                                (name_len as f32 * char_width).max(40.0) // Min 40px per column
-                            })
-                            .collect();
-
-                        // Determine how many columns fit
-                        let mut total_width = 0.0;
-                        let mut show_cols = 0;
-                        for (i, &width) in col_widths.iter().enumerate() {
-                            let needed = if i == 0 { width } else { col_spacing + width };
-                            // Reserve space for overflow indicator if not showing all
-                            let reserve = if i + 1 < total_cols {
-                                overflow_indicator_width
-                            } else {
-                                0.0
-                            };
-                            if total_width + needed + reserve <= available_width {
-                                total_width += needed;
-                                show_cols = i + 1;
-                            } else {
-                                break;
-                            }
-                        }
-                        // Show at least 1 column
-                        show_cols = show_cols.max(1);
-
-                        egui::Frame::new()
-                            .inner_margin(egui::Margin::symmetric(12, 8))
-                            .show(ui, |ui| {
-                                // Table header
-                                ui.horizontal(|ui| {
-                                    for (col_idx, field) in
-                                        schema.fields().iter().take(show_cols).enumerate()
-                                    {
-                                        if col_idx > 0 {
-                                            ui.add_space(col_spacing);
-                                        }
-                                        let name = field.name();
-                                        let display_name = if name.len() > max_value_len {
-                                            format!("{}…", &name[..max_value_len - 1])
-                                        } else {
-                                            name.to_string()
-                                        };
-                                        ui.label(
-                                            RichText::new(display_name)
-                                                .color(text_primary)
-                                                .size(10.0)
-                                                .strong()
-                                                .monospace(),
-                                        );
-                                    }
-                                    if total_cols > show_cols {
-                                        ui.add_space(8.0);
-                                        ui.label(
-                                            RichText::new(format!("+{}", total_cols - show_cols))
-                                                .color(text_secondary.gamma_multiply(0.5))
-                                                .size(10.0),
-                                        );
-                                    }
-                                });
-
-                                ui.add_space(2.0);
-
-                                // Preview rows
-                                let mut rows_shown = 0;
-                                'outer: for batch in cell.batches() {
-                                    for row_idx in 0..batch.num_rows() {
-                                        if rows_shown >= max_preview_rows {
-                                            break 'outer;
-                                        }
-
-                                        ui.horizontal(|ui| {
-                                            for col_idx in 0..batch.num_columns().min(show_cols) {
-                                                if col_idx > 0 {
-                                                    ui.add_space(col_spacing);
-                                                }
-                                                let col = batch.column(col_idx);
-                                                let value =
-                                                    format_array_value(col.as_ref(), row_idx);
-
-                                                let (display_val, color) = if value == "NULL" {
-                                                    (
-                                                        "null".to_string(),
-                                                        text_secondary.gamma_multiply(0.4),
-                                                    )
-                                                } else if value.len() > max_value_len {
-                                                    (
-                                                        format!("{}…", &value[..max_value_len - 1]),
-                                                        text_secondary,
-                                                    )
-                                                } else {
-                                                    (value, text_secondary)
-                                                };
-
-                                                ui.label(
-                                                    RichText::new(display_val)
-                                                        .color(color)
-                                                        .size(10.0)
-                                                        .monospace(),
-                                                );
-                                            }
-                                        });
-
-                                        rows_shown += 1;
-                                    }
-                                }
-
-                                // "More rows" indicator
-                                let total_rows: usize =
-                                    cell.batches().iter().map(|b| b.num_rows()).sum();
-                                if total_rows > max_preview_rows {
-                                    ui.label(
-                                        RichText::new(format!(
-                                            "… {} more",
-                                            total_rows - max_preview_rows
-                                        ))
-                                        .color(text_secondary.gamma_multiply(0.5))
-                                        .size(10.0)
-                                        .italics(),
-                                    );
-                                }
-                            });
-                    }
-                }
-
-                // Footer with expand hints
-                egui::Frame::new()
-                    .fill(self.theme.bg_surface())
-                    .inner_margin(egui::Margin::symmetric(12, 6))
-                    .corner_radius(egui::CornerRadius {
-                        nw: 0,
-                        ne: 0,
-                        sw: 8,
-                        se: 8,
-                    })
-                    .show(ui, |ui| {
-                        ui.horizontal(|ui| {
-                            let has_data = !cell.batches().is_empty();
-
-                            // Expand hints - more compact
-                            if has_data {
-                                ui.label(RichText::new("t").color(accent).size(10.0).monospace());
-                                ui.label(
-                                    RichText::new("table")
-                                        .color(text_secondary.gamma_multiply(0.6))
-                                        .size(9.0),
-                                );
-
-                                ui.add_space(8.0);
-                            }
-
-                            ui.label(RichText::new("p").color(accent).size(10.0).monospace());
-                            ui.label(
-                                RichText::new("plan")
-                                    .color(text_secondary.gamma_multiply(0.6))
-                                    .size(9.0),
-                            );
-
-                            ui.add_space(8.0);
-
-                            ui.label(RichText::new("c").color(accent).size(10.0).monospace());
-                            ui.label(
-                                RichText::new("clear")
-                                    .color(text_secondary.gamma_multiply(0.6))
-                                    .size(9.0),
-                            );
-
-                            // History hint on the right
-                            ui.with_layout(
-                                egui::Layout::right_to_left(egui::Align::Center),
-                                |ui| {
-                                    let query_count =
-                                        self.history.iter().filter(|c| c.is_navigable()).count();
-                                    if query_count > 1 {
-                                        ui.label(
-                                            RichText::new(format!("↑↓ {query_count}"))
-                                                .color(text_secondary.gamma_multiply(0.4))
-                                                .size(9.0),
-                                        );
-                                    }
-                                },
-                            );
-                        });
-                    });
-            });
-    }
-
-    /// Render a single result cell (legacy, kept for reference).
-    #[allow(dead_code)]
-    #[allow(clippy::too_many_arguments)]
-    fn render_result_cell(
-        &self,
-        ui: &mut egui::Ui,
-        cell: &Cell,
-        idx: usize,
-        text_primary: Color32,
-        text_secondary: Color32,
-        _accent: Color32,
-    ) {
-        // Info cells are rendered as simple messages without index/row count
-        if cell.is_info() {
-            // For info messages, just show the message
-            if let Some(error) = cell.get_error() {
-                // Error info cell
-                ui.label(
-                    RichText::new(error)
-                        .color(self.theme.semantic_error())
-                        .size(12.0),
-                );
-            } else {
-                // Regular info cell
-                ui.label(RichText::new(cell.sql()).color(text_secondary).size(12.0));
-            }
-            return;
-        }
-
-        // Metadata line: row count and timing (for actual queries)
-        ui.horizontal(|ui| {
-            // Cell number (subtle)
-            ui.label(
-                RichText::new(format!("[{}]", idx + 1))
-                    .color(text_secondary.gamma_multiply(0.5))
-                    .size(10.0)
-                    .monospace(),
-            );
-
-            ui.add_space(8.0);
-
-            // Status-specific content
-            match cell.status() {
-                QueryStatus::Running => {
-                    ui.spinner();
-                    ui.label(RichText::new("Running...").color(text_secondary).size(11.0));
-                }
-                QueryStatus::Completed => {
-                    // Row count
-                    let row_count: usize = cell.batches().iter().map(|b| b.num_rows()).sum();
-                    ui.label(
-                        RichText::new(format!("{row_count} rows"))
-                            .color(text_secondary)
-                            .size(11.0),
-                    );
-
-                    // Timing
-                    if let Some(stats) = cell.stats() {
-                        ui.label(
-                            RichText::new("·")
-                                .color(text_secondary.gamma_multiply(0.5))
-                                .size(11.0),
-                        );
-                        ui.label(
-                            RichText::new(format!("{}ms", stats.total_time.as_millis()))
-                                .color(text_secondary.gamma_multiply(0.7))
-                                .size(11.0),
-                        );
-                    }
-                }
-                QueryStatus::Failed => {
-                    ui.label(
-                        RichText::new(status::ERROR)
-                            .color(self.theme.semantic_error())
-                            .size(11.0),
-                    );
-                    ui.label(
-                        RichText::new("Error")
-                            .color(self.theme.semantic_error())
-                            .size(11.0),
-                    );
-                }
-                QueryStatus::Cancelled => {
-                    ui.label(RichText::new("Cancelled").color(text_secondary).size(11.0));
-                }
-            }
-        });
-
-        ui.add_space(8.0);
-
-        // Error message
-        if let Some(error) = cell.get_error() {
-            egui::Frame::new()
-                .fill(self.theme.semantic_error().gamma_multiply(0.1))
-                .corner_radius(4.0)
-                .inner_margin(egui::Margin::symmetric(12, 8))
-                .show(ui, |ui| {
-                    ui.label(
-                        RichText::new(error)
-                            .color(self.theme.semantic_error())
-                            .size(12.0)
-                            .monospace(),
-                    );
-                });
-            return;
-        }
-
-        // Results table
-        if !cell.batches().is_empty() {
-            self.render_results_table(ui, cell, text_primary, text_secondary);
-        } else if !cell.sql().is_empty() {
-            // Info message (from /help, etc.)
-            ui.label(RichText::new(cell.sql()).color(text_primary).size(12.0));
-        }
-    }
-
-    /// Render the plan viewer panel (right side).
-    #[allow(dead_code)]
-    fn render_plan_viewer_panel(
-        &mut self,
-        ui: &mut egui::Ui,
-        _width: f32,
-        _height: f32,
-        _text_primary: Color32,
-        text_secondary: Color32,
-        accent: Color32,
-    ) {
-        // Fill available space - StripBuilder handles sizing
-        let available = ui.available_size();
-
-        egui::Frame::new()
-            .fill(self.theme.bg_elevated())
-            .inner_margin(0.0)
-            .show(ui, |ui| {
-                ui.set_min_size(available);
-
-                ui.vertical(|ui| {
-                    // Header
-                    egui::Frame::new()
-                        .fill(self.theme.bg_surface())
-                        .inner_margin(egui::Margin::symmetric(12, 8))
-                        .show(ui, |ui| {
-                            ui.horizontal(|ui| {
-                                ui.label(
-                                    RichText::new("PLAN VIEWER")
-                                        .color(text_secondary)
-                                        .size(10.0)
-                                        .strong(),
-                                );
-
-                                ui.with_layout(
-                                    egui::Layout::right_to_left(egui::Align::Center),
-                                    |ui| {
-                                        // Close button
-                                        let close_btn = ui.add(
-                                            egui::Button::new(
-                                                RichText::new(action::CLOSE)
-                                                    .color(text_secondary)
-                                                    .size(12.0),
-                                            )
-                                            .fill(Color32::TRANSPARENT)
-                                            .stroke(egui::Stroke::NONE)
-                                            .min_size(egui::vec2(20.0, 20.0)),
-                                        );
-                                        if close_btn.clicked() {
-                                            self.show_plan_viewer = false;
-                                        }
-                                        close_btn.on_hover_text("Close plan viewer");
-
-                                        ui.add_space(8.0);
-
-                                        // Mode selector buttons
-                                        let modes = [
-                                            (PlanViewMode::Tree, "Tree"),
-                                            (PlanViewMode::Stats, "Stats"),
-                                            (PlanViewMode::Waterfall, "Waterfall"),
-                                        ];
-
-                                        for (mode, label) in modes {
-                                            let is_active = self.plan_viewer.mode == mode;
-                                            let btn = ui.add(
-                                                egui::Button::new(
-                                                    RichText::new(label)
-                                                        .color(if is_active {
-                                                            accent
-                                                        } else {
-                                                            text_secondary
-                                                        })
-                                                        .size(10.0),
-                                                )
-                                                .fill(if is_active {
-                                                    accent.gamma_multiply(0.15)
-                                                } else {
-                                                    Color32::TRANSPARENT
-                                                })
-                                                .stroke(egui::Stroke::NONE)
-                                                .corner_radius(4.0),
-                                            );
-                                            if btn.clicked() {
-                                                self.plan_viewer.mode = mode;
-                                            }
-                                        }
-                                    },
-                                );
-                            });
-                        });
-
-                    // Plan viewer content
-                    egui::Frame::new()
-                        .fill(self.theme.bg_base())
-                        .inner_margin(8.0)
-                        .show(ui, |ui| {
-                            if self.plan_viewer.has_plan() {
-                                self.plan_viewer.show(ui);
-                            } else {
-                                // Empty state
-                                let empty_height = ui.available_height();
-                                ui.vertical_centered(|ui| {
-                                    ui.add_space(empty_height / 4.0);
-                                    ui.label(
-                                        RichText::new(nav::TREE)
-                                            .color(text_secondary.gamma_multiply(0.3))
-                                            .size(32.0),
-                                    );
-                                    ui.add_space(8.0);
-                                    ui.label(
-                                        RichText::new("No query plan")
-                                            .color(text_secondary)
-                                            .size(12.0),
-                                    );
-                                    ui.add_space(4.0);
-                                    ui.label(
-                                        RichText::new("Run .explain <query> to visualize")
-                                            .color(text_secondary.gamma_multiply(0.7))
-                                            .size(10.0),
-                                    );
-                                    ui.add_space(16.0);
-
-                                    // Demo button
-                                    let demo_btn = ui.add(
-                                        egui::Button::new(
-                                            RichText::new("Load Demo Plan")
-                                                .color(accent)
-                                                .size(11.0),
-                                        )
-                                        .fill(accent.gamma_multiply(0.1))
-                                        .stroke(egui::Stroke::new(1.0, accent.gamma_multiply(0.3)))
-                                        .corner_radius(4.0),
-                                    );
-                                    if demo_btn.clicked() {
-                                        self.load_demo_plan();
-                                    }
-                                });
-                            }
-                        });
-                });
-            });
-    }
-
-    #[allow(dead_code)]
-    fn render_history(
-        &mut self,
-        ui: &mut egui::Ui,
-        height: f32,
-        text_primary: Color32,
-        text_secondary: Color32,
-        accent: Color32,
-    ) {
-        let scroll_id = egui::Id::new(format!("sql_history_{}", self.id));
-
-        egui::ScrollArea::vertical()
-            .id_salt(scroll_id)
-            .max_height(height)
-            .auto_shrink([false, false])
-            .stick_to_bottom(true)
-            .show(ui, |ui| {
-                ui.set_min_height(height);
-
-                if self.history.is_empty() {
-                    self.render_empty_state(ui, height, text_primary, text_secondary, accent);
-                } else {
-                    ui.add_space(8.0);
-                    let history_len = self.history.len();
-                    for (idx, cell) in self.history.iter().enumerate() {
-                        self.render_query_cell(
-                            ui,
-                            cell,
-                            idx,
-                            history_len,
-                            text_primary,
-                            text_secondary,
-                            accent,
-                        );
-                        ui.add_space(8.0);
-                    }
-                }
-
-                if self.scroll_to_bottom {
-                    ui.scroll_to_cursor(Some(egui::Align::BOTTOM));
-                    self.scroll_to_bottom = false;
-                }
-            });
-    }
-
-    /// Render empty state for the query results area.
-    #[allow(dead_code)]
-    fn render_empty_state(
-        &self,
-        ui: &mut egui::Ui,
-        height: f32,
-        _text_primary: Color32,
-        text_secondary: Color32,
-        accent: Color32,
-    ) {
-        ui.vertical_centered(|ui| {
-            ui.add_space(height / 3.0);
-
-            // Icon
-            ui.label(
-                RichText::new(category::DATAFUSION)
-                    .color(text_secondary.gamma_multiply(0.3))
-                    .size(40.0),
-            );
-
-            ui.add_space(12.0);
-
-            if self.connections.is_empty() {
-                // No connections yet
-                ui.label(
-                    RichText::new("No connections configured")
-                        .color(text_secondary)
-                        .size(13.0),
-                );
-                ui.add_space(4.0);
-                ui.label(
-                    RichText::new("Add Flight SQL connections in Settings")
-                        .color(text_secondary.gamma_multiply(0.7))
-                        .size(11.0),
-                );
-            } else if self.active_connection().is_none() {
-                // Has connections but none active
-                ui.label(
-                    RichText::new("Select a connection")
-                        .color(text_secondary)
-                        .size(13.0),
-                );
-                ui.add_space(4.0);
-                ui.label(
-                    RichText::new("Click the connection pill above to choose an endpoint")
-                        .color(text_secondary.gamma_multiply(0.7))
-                        .size(11.0),
-                );
-            } else {
-                // Has active connection, ready to query
-                ui.label(
-                    RichText::new("Ready to query")
-                        .color(text_secondary)
-                        .size(13.0),
-                );
-                ui.add_space(4.0);
-                ui.label(
-                    RichText::new("Enter a SQL query below and press Ctrl+Enter")
-                        .color(text_secondary.gamma_multiply(0.7))
-                        .size(11.0),
-                );
-
-                ui.add_space(16.0);
-
-                // Quick commands
-                egui::Frame::new()
-                    .fill(self.theme.bg_elevated())
-                    .corner_radius(6.0)
-                    .inner_margin(12.0)
-                    .show(ui, |ui| {
-                        ui.horizontal(|ui| {
-                            ui.label(
-                                RichText::new("/tables")
-                                    .color(accent)
-                                    .size(11.0)
-                                    .monospace(),
-                            );
-                            ui.label(
-                                RichText::new("list tables")
-                                    .color(text_secondary.gamma_multiply(0.7))
-                                    .size(10.0),
-                            );
-                            ui.add_space(16.0);
-                            ui.label(
-                                RichText::new("/explain")
-                                    .color(accent)
-                                    .size(11.0)
-                                    .monospace(),
-                            );
-                            ui.label(
-                                RichText::new("query plan")
-                                    .color(text_secondary.gamma_multiply(0.7))
-                                    .size(10.0),
-                            );
-                        });
-                    });
-            }
-        });
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    #[allow(dead_code)]
-    fn render_query_cell(
-        &self,
-        ui: &mut egui::Ui,
-        cell: &Cell,
-        idx: usize,
-        _history_len: usize,
-        text_primary: Color32,
-        text_secondary: Color32,
-        accent: Color32,
-    ) {
-        // Determine cell styling based on status
-        let (border_color, left_accent) = match cell.status() {
-            QueryStatus::Running => (self.theme.accent_primary(), self.theme.accent_primary()),
-            QueryStatus::Completed => (self.theme.border_default(), self.theme.semantic_success()),
-            QueryStatus::Failed => (
-                self.theme.semantic_error().gamma_multiply(0.5),
-                self.theme.semantic_error(),
-            ),
-            QueryStatus::Cancelled => (self.theme.border_default(), text_secondary),
-        };
-
-        egui::Frame::new()
-            .fill(self.theme.bg_elevated())
-            .stroke(egui::Stroke::new(1.0, border_color))
-            .corner_radius(6.0)
-            .inner_margin(egui::Margin::symmetric(16, 12))
-            .show(ui, |ui| {
-                // Left accent bar for visual hierarchy
-                let rect = ui.available_rect_before_wrap();
-                ui.painter().rect_filled(
-                    egui::Rect::from_min_size(
-                        rect.left_top() - egui::vec2(12.0, 0.0),
-                        egui::vec2(3.0, rect.height().min(60.0)),
-                    ),
-                    2.0,
-                    left_accent,
-                );
-
-                // Cell header with number and status
-                ui.horizontal(|ui| {
-                    // Cell number badge
-                    egui::Frame::new()
-                        .fill(self.theme.bg_surface())
-                        .corner_radius(4.0)
-                        .inner_margin(egui::Margin::symmetric(6, 2))
-                        .show(ui, |ui| {
-                            ui.label(
-                                RichText::new(format!("[{}]", idx + 1))
-                                    .color(text_secondary)
-                                    .size(10.0)
-                                    .monospace(),
-                            );
-                        });
-
-                    ui.add_space(8.0);
-
-                    // Query text (if present)
-                    if !cell.sql().is_empty()
-                        && cell.batches().is_empty()
-                        && cell.get_error().is_none()
-                    {
-                        // Info message - show directly (not SQL, so no highlighting)
-                        ui.label(RichText::new(cell.sql()).color(text_primary).size(12.0));
-                    } else if !cell.sql().is_empty() {
-                        // SQL query - styled with prompt and syntax highlighting
-                        ui.label(RichText::new(action::PLAY).color(accent).size(11.0));
-                        ui.add_space(4.0);
-
-                        // Truncate long SQL for display
-                        let display_sql = if cell.sql().len() > 80 {
-                            format!("{}...", &cell.sql()[..77])
-                        } else {
-                            cell.sql().to_string()
-                        };
-
-                        // Use syntax highlighting for the SQL
-                        let job = highlight_sql(&display_sql, self.theme, &[]);
-                        ui.label(job);
-                    }
-
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        // Status indicator
-                        match cell.status() {
-                            QueryStatus::Running => {
-                                ui.spinner();
-                                ui.add_space(4.0);
-                                ui.label(RichText::new("Running").color(accent).size(11.0));
-                            }
-                            QueryStatus::Completed => {
-                                if let Some(stats) = cell.stats() {
-                                    let mut parts = Vec::new();
-                                    if stats.rows_returned > 0 {
-                                        parts.push(format!("{} rows", stats.rows_returned));
-                                    }
-                                    if !stats.total_time.is_zero() {
-                                        parts.push(format_duration(stats.total_time));
-                                    }
-                                    if !parts.is_empty() {
-                                        ui.label(
-                                            RichText::new(parts.join(" · "))
-                                                .color(text_secondary)
-                                                .size(11.0),
-                                        );
-                                    }
-                                }
-                            }
-                            QueryStatus::Failed => {
-                                ui.label(
-                                    RichText::new(status::ERROR)
-                                        .color(self.theme.semantic_error())
-                                        .size(11.0),
-                                );
-                                ui.add_space(4.0);
-                                ui.label(
-                                    RichText::new("Error")
-                                        .color(self.theme.semantic_error())
-                                        .size(11.0),
-                                );
-                            }
-                            QueryStatus::Cancelled => {
-                                ui.label(
-                                    RichText::new("Cancelled")
-                                        .color(text_secondary)
-                                        .size(11.0)
-                                        .italics(),
-                                );
-                            }
-                        }
-                    });
-                });
-
-                // Error message (if failed)
-                if let Some(error) = cell.get_error() {
-                    ui.add_space(8.0);
-                    egui::Frame::new()
-                        .fill(self.theme.semantic_error().gamma_multiply(0.1))
-                        .corner_radius(4.0)
-                        .inner_margin(8.0)
-                        .show(ui, |ui| {
-                            ui.label(
-                                RichText::new(error)
-                                    .color(self.theme.semantic_error())
-                                    .size(12.0),
-                            );
-                        });
-                }
-
-                // Render results table (if completed with data)
-                if cell.status() == QueryStatus::Completed && !cell.batches().is_empty() {
-                    ui.add_space(12.0);
-                    self.render_results_table(ui, cell, text_primary, text_secondary);
-                }
-            });
-    }
-
-    fn render_results_table(
-        &self,
-        ui: &mut egui::Ui,
-        cell: &Cell,
-        text_primary: Color32,
-        text_secondary: Color32,
-    ) {
-        let Some(schema) = cell.schema() else { return };
-
-        let total_rows: usize = cell.batches().iter().map(|b| b.num_rows()).sum();
-        let max_display_rows = 100;
-        let accent = self.theme.accent_primary();
-
-        // Table container with premium styling
-        egui::Frame::new()
-            .fill(self.theme.bg_base())
-            .stroke(egui::Stroke::new(1.0, self.theme.border_default()))
-            .corner_radius(6.0)
-            .inner_margin(0.0)
-            .show(ui, |ui| {
-                // Table header
-                egui::Frame::new()
-                    .fill(self.theme.bg_surface())
-                    .inner_margin(egui::Margin::symmetric(8, 6))
-                    .corner_radius(egui::CornerRadius {
-                        nw: 6,
-                        ne: 6,
-                        sw: 0,
-                        se: 0,
-                    })
-                    .show(ui, |ui| {
-                        egui::ScrollArea::horizontal()
-                            .id_salt(format!("header_{:?}", cell.id()))
-                            .show(ui, |ui| {
-                                ui.horizontal(|ui| {
-                                    for (idx, field) in schema.fields().iter().enumerate() {
-                                        if idx > 0 {
-                                            ui.add_space(16.0);
-                                        }
-                                        ui.set_min_width(80.0);
-                                        ui.vertical(|ui| {
-                                            ui.label(
-                                                RichText::new(field.name())
-                                                    .color(text_primary)
-                                                    .size(11.0)
-                                                    .strong(),
-                                            );
-                                            ui.label(
-                                                RichText::new(format!("{}", field.data_type()))
-                                                    .color(text_secondary.gamma_multiply(0.7))
-                                                    .size(9.0),
-                                            );
-                                        });
-                                    }
-                                });
-                            });
-                    });
-
-                // Table body
-                egui::ScrollArea::both()
-                    .id_salt(format!("body_{:?}", cell.id()))
-                    .max_height(250.0)
-                    .show(ui, |ui| {
-                        egui::Frame::new()
-                            .inner_margin(egui::Margin::symmetric(8, 4))
-                            .show(ui, |ui| {
-                                let mut rows_shown = 0;
-                                'outer: for batch in cell.batches() {
-                                    for row_idx in 0..batch.num_rows() {
-                                        if rows_shown >= max_display_rows {
-                                            break 'outer;
-                                        }
-
-                                        // Alternate row background
-                                        let row_bg = if rows_shown % 2 == 0 {
-                                            Color32::TRANSPARENT
-                                        } else {
-                                            self.theme.bg_surface().gamma_multiply(0.5)
-                                        };
-
-                                        egui::Frame::new()
-                                            .fill(row_bg)
-                                            .inner_margin(egui::Margin::symmetric(0, 2))
-                                            .show(ui, |ui| {
-                                                ui.horizontal(|ui| {
-                                                    for col_idx in 0..batch.num_columns() {
-                                                        if col_idx > 0 {
-                                                            ui.add_space(16.0);
-                                                        }
-                                                        ui.set_min_width(80.0);
-                                                        let col = batch.column(col_idx);
-                                                        let value = format_array_value(
-                                                            col.as_ref(),
-                                                            row_idx,
-                                                        );
-
-                                                        // Style NULL values differently
-                                                        let (display_val, color) = if value
-                                                            == "NULL"
-                                                        {
-                                                            (
-                                                                "null".to_string(),
-                                                                text_secondary.gamma_multiply(0.5),
-                                                            )
-                                                        } else {
-                                                            (value, text_secondary)
-                                                        };
-
-                                                        ui.label(
-                                                            RichText::new(display_val)
-                                                                .color(color)
-                                                                .size(11.0)
-                                                                .monospace(),
-                                                        );
-                                                    }
-                                                });
-                                            });
-                                        rows_shown += 1;
-                                    }
-                                }
-                            });
-                    });
-
-                // Table footer with row count
-                egui::Frame::new()
-                    .fill(self.theme.bg_surface())
-                    .inner_margin(egui::Margin::symmetric(8, 4))
-                    .corner_radius(egui::CornerRadius {
-                        nw: 0,
-                        ne: 0,
-                        sw: 6,
-                        se: 6,
-                    })
-                    .show(ui, |ui| {
-                        ui.horizontal(|ui| {
-                            ui.label(
-                                RichText::new(format!("{total_rows} rows"))
-                                    .color(text_secondary)
-                                    .size(10.0),
-                            );
-
-                            if total_rows > max_display_rows {
-                                ui.add_space(8.0);
-                                ui.label(
-                                    RichText::new(format!("(showing first {max_display_rows})"))
-                                        .color(accent.gamma_multiply(0.7))
-                                        .size(10.0),
-                                );
-                            }
-                        });
-                    });
-            });
-    }
-
-    #[allow(dead_code)]
-    fn render_input(&mut self, ui: &mut egui::Ui, _text_primary: Color32, accent: Color32) {
-        let text_secondary = self.theme.text_secondary();
-
-        // Input container with code-editor styling
-        egui::Frame::new()
-            .fill(self.theme.bg_elevated())
-            .stroke(egui::Stroke::new(
-                1.0,
-                if self.input_focused {
-                    accent.gamma_multiply(0.5)
-                } else {
-                    self.theme.border_default()
-                },
-            ))
-            .corner_radius(8.0)
-            .inner_margin(0.0)
-            .show(ui, |ui| {
-                ui.vertical(|ui| {
-                    // Input header bar
-                    egui::Frame::new()
-                        .fill(self.theme.bg_surface())
-                        .inner_margin(egui::Margin::symmetric(12, 6))
-                        .corner_radius(egui::CornerRadius {
-                            nw: 8,
-                            ne: 8,
-                            sw: 0,
-                            se: 0,
-                        })
-                        .show(ui, |ui| {
-                            ui.horizontal(|ui| {
-                                ui.label(
-                                    RichText::new(category::DATAFUSION).color(accent).size(12.0),
-                                );
-                                ui.add_space(4.0);
-                                ui.label(RichText::new("Query").color(text_secondary).size(11.0));
-
-                                // Show active connection name
-                                if let Some(conn) = self.active_connection() {
-                                    ui.add_space(8.0);
-                                    ui.label(
-                                        RichText::new(nav::COLLAPSE)
-                                            .color(text_secondary.gamma_multiply(0.5))
-                                            .size(10.0),
-                                    );
-                                    ui.add_space(4.0);
-                                    egui::Frame::new()
-                                        .fill(self.theme.semantic_success().gamma_multiply(0.15))
-                                        .corner_radius(4.0)
-                                        .inner_margin(egui::Margin::symmetric(6, 2))
-                                        .show(ui, |ui| {
-                                            ui.label(
-                                                RichText::new(&conn.name)
-                                                    .color(self.theme.semantic_success())
-                                                    .size(10.0),
-                                            );
-                                        });
-                                }
-
-                                ui.with_layout(
-                                    egui::Layout::right_to_left(egui::Align::Center),
-                                    |ui| {
-                                        // Execute button with premium styling
-                                        let has_connection = self.active_connection().is_some();
-                                        let btn = ui.add_enabled(
-                                            has_connection,
-                                            egui::Button::new(
-                                                RichText::new(format!("{} Run", action::PLAY))
-                                                    .color(if has_connection {
-                                                        self.theme.bg_base()
-                                                    } else {
-                                                        text_secondary
-                                                    })
-                                                    .size(11.0),
-                                            )
-                                            .fill(if has_connection {
-                                                accent
-                                            } else {
-                                                self.theme.bg_surface()
-                                            })
-                                            .stroke(egui::Stroke::NONE)
-                                            .corner_radius(4.0)
-                                            .min_size(egui::vec2(60.0, 22.0)),
-                                        );
-                                        if btn.clicked() {
-                                            self.execute_input();
-                                        }
-                                        if has_connection {
-                                            btn.on_hover_text("Execute query (Ctrl+Enter)");
-                                        } else {
-                                            btn.on_hover_text("Connect to a database first");
-                                        }
-
-                                        ui.add_space(8.0);
-
-                                        // Keyboard shortcut hint
-                                        ui.label(
-                                            RichText::new("Ctrl+Enter")
-                                                .color(text_secondary.gamma_multiply(0.7))
-                                                .size(10.0),
-                                        );
-                                    },
-                                );
-                            });
-                        });
-
-                    // Text input area
-                    egui::Frame::new()
-                        .fill(self.theme.bg_base())
-                        .inner_margin(egui::Margin::symmetric(12, 8))
-                        .show(ui, |ui| {
-                            ui.horizontal(|ui| {
-                                // Line number gutter
-                                ui.vertical(|ui| {
-                                    let line_count = self.input.lines().count().max(1);
-                                    for i in 1..=line_count.max(3) {
-                                        ui.label(
-                                            RichText::new(format!("{i:>2}"))
-                                                .color(text_secondary.gamma_multiply(0.5))
-                                                .size(12.0)
-                                                .monospace(),
-                                        );
-                                    }
-                                });
-
-                                ui.add_space(8.0);
-
-                                // Vertical separator
-                                ui.painter().rect_filled(
-                                    egui::Rect::from_min_size(
-                                        ui.cursor().left_top(),
-                                        egui::vec2(1.0, 50.0),
-                                    ),
-                                    0.0,
-                                    self.theme.border_default(),
-                                );
-                                ui.add_space(8.0);
-
-                                // Main text input with SQL syntax highlighting
-                                let theme = self.theme;
-                                let mut layouter =
-                                    move |ui: &egui::Ui,
-                                          text: &dyn egui::TextBuffer,
-                                          wrap_width: f32| {
-                                        let mut job = highlight_sql(text.as_str(), theme, &[]);
-                                        job.wrap.max_width = wrap_width;
-                                        ui.fonts_mut(|f| f.layout_job(job))
-                                    };
-
-                                let response = ui.add(
-                                    TextEdit::multiline(&mut self.input)
-                                        .font(egui::TextStyle::Monospace)
-                                        .desired_width(ui.available_width())
-                                        .desired_rows(3)
-                                        .frame(false)
-                                        .layouter(&mut layouter)
-                                        .hint_text(
-                                            RichText::new("SELECT * FROM table...")
-                                                .color(text_secondary.gamma_multiply(0.5))
-                                                .monospace(),
-                                        ),
-                                );
-
-                                if self.input_focused {
-                                    response.request_focus();
-                                    self.input_focused = false;
-                                }
-
-                                // Execute on Ctrl+Enter or Cmd+Enter
-                                if response.has_focus() {
-                                    let modifiers = ui.input(|i| i.modifiers);
-                                    let enter_pressed =
-                                        ui.input(|i| i.key_pressed(egui::Key::Enter));
-                                    if enter_pressed && (modifiers.ctrl || modifiers.command) {
-                                        self.execute_input();
-                                    }
-                                }
-                            });
-                        });
-
-                    // Footer with command hint
-                    egui::Frame::new()
-                        .fill(self.theme.bg_surface())
-                        .inner_margin(egui::Margin::symmetric(12, 4))
-                        .corner_radius(egui::CornerRadius {
-                            nw: 0,
-                            ne: 0,
-                            sw: 8,
-                            se: 8,
-                        })
-                        .show(ui, |ui| {
-                            ui.horizontal(|ui| {
-                                ui.label(
-                                    RichText::new("/tables")
-                                        .color(accent.gamma_multiply(0.7))
-                                        .size(10.0)
-                                        .monospace(),
-                                );
-                                ui.label(
-                                    RichText::new("list tables")
-                                        .color(text_secondary.gamma_multiply(0.6))
-                                        .size(10.0),
-                                );
-
-                                ui.add_space(16.0);
-
-                                ui.label(
-                                    RichText::new("/explain")
-                                        .color(accent.gamma_multiply(0.7))
-                                        .size(10.0)
-                                        .monospace(),
-                                );
-                                ui.label(
-                                    RichText::new("query plan")
-                                        .color(text_secondary.gamma_multiply(0.6))
-                                        .size(10.0),
-                                );
-                            });
-                        });
-                });
-            });
     }
 
     /// Take the pending action, if any.
@@ -6245,17 +4362,27 @@ impl SqlPane {
             "SqlPane::sync_connections: now has {} connections",
             self.connections.len()
         );
+
+        // Auto-connect to the first connection on initial sync
+        if !self.auto_connected
+            && self.active_connection().is_none()
+            && !self.connections.is_empty()
+        {
+            self.auto_connected = true;
+            let first_id = self.connections[0].id;
+            log::info!("SqlPane: auto-connecting to '{}'", self.connections[0].name);
+            self.connect_saved(first_id);
+        }
     }
 
-    /// Convert a query result at the given history index to an InlineTable.
+    /// Convert the result cell to an InlineTable.
     /// Truncates to at most 20 rows of pre-formatted string data.
     fn result_to_inline_table(
         &self,
-        idx: usize,
     ) -> Option<crate::components::pane::inline_content::InlineTable> {
         use crate::components::pane::inline_content::{InlineTable, InlineTableColumn};
 
-        let cell = self.history.get(idx)?;
+        let cell = self.result_cell.as_ref()?;
         let schema = cell.schema()?;
         if cell.batches().is_empty() {
             return None;
@@ -6294,22 +4421,20 @@ impl SqlPane {
         })
     }
 
-    /// Get the latest (or query-matched) result as an InlineTable.
+    /// Get the result cell as an InlineTable.
     /// Used by the workspace to serve `show_inline_table` agent commands.
     pub fn get_inline_table(
         &self,
         query: Option<&str>,
     ) -> Option<crate::components::pane::inline_content::InlineTable> {
+        // With single-cell model, optionally filter by query match
         if let Some(q) = query {
-            let idx = self
-                .history
-                .iter()
-                .rposition(|c| c.sql().trim() == q.trim())?;
-            self.result_to_inline_table(idx)
-        } else {
-            let idx = self.history.len().checked_sub(1)?;
-            self.result_to_inline_table(idx)
+            let cell = self.result_cell.as_ref()?;
+            if cell.sql().trim() != q.trim() {
+                return None;
+            }
         }
+        self.result_to_inline_table()
     }
 
     /// Copy text to the system clipboard (no-op on WASM).
@@ -6466,7 +4591,7 @@ impl SqlPane {
         }
 
         let cells: Vec<SnapshotQueryCell> = self
-            .history
+            .result_cell
             .iter()
             .filter(|cell| {
                 // Skip running cells (incomplete data)
@@ -6692,9 +4817,8 @@ impl SqlPane {
             }
         }
 
-        self.history.clear();
-        self.cell_states.clear();
-        self.selected_cell_idx = None;
+        self.result_cell = None;
+        self.cell_view_state = CellViewState::default();
 
         for cell_data in &data.cells {
             let id = QueryId::new();
@@ -6799,10 +4923,11 @@ impl SqlPane {
                 }
             };
 
-            // For info cells, use the generated id from the cell itself
-            let cell_id = cell.id();
-            self.history.push(cell);
-            self.cell_states.insert(cell_id, CellViewState::default());
+            // Load the last non-info cell as the result cell (single-cell model)
+            if !cell.is_info() {
+                self.result_cell = Some(cell);
+                self.cell_view_state = CellViewState::default();
+            }
         }
 
         // Load plan into plan_viewer from the last cell that has one

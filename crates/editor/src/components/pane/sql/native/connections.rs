@@ -226,7 +226,7 @@ pub fn render_connection_popup(
                                 .show(ui, |ui| {
                                     ui.horizontal(|ui| {
                                         if is_connecting {
-                                            ui.spinner();
+                                            ui.add(egui::Spinner::new().color(accent).size(12.0));
                                         } else {
                                             ui.label(
                                                 RichText::new("●").color(status_color).size(8.0),
@@ -525,7 +525,7 @@ fn render_connection_item(
                 };
 
                 if is_connecting {
-                    ui.spinner();
+                    ui.add(egui::Spinner::new().color(accent).size(12.0));
                 } else {
                     ui.label(RichText::new("●").color(status_color).size(8.0));
                 }

@@ -15,7 +15,6 @@ use super::SqlPaneAction;
 /// Per-cell UI state.
 #[derive(Debug, Clone, Default)]
 struct CellViewState {
-    expanded: bool,
     table_page: usize,
 }
 
@@ -26,12 +25,10 @@ struct CellViewState {
 pub struct SqlPane {
     id: usize,
     theme: AppTheme,
-    /// Snapshot cells loaded from snapshot data.
-    snapshot_cells: Vec<enya_config::SnapshotQueryCell>,
-    /// Per-cell view state.
-    cell_states: Vec<CellViewState>,
-    /// Currently selected cell index.
-    selected_cell: Option<usize>,
+    /// The single snapshot cell (if loaded from snapshot).
+    snapshot_cell: Option<enya_config::SnapshotQueryCell>,
+    /// View state for the snapshot cell.
+    cell_view_state: CellViewState,
     /// Whether snapshot data has been loaded.
     has_snapshot: bool,
 }
@@ -42,9 +39,8 @@ impl SqlPane {
         Self {
             id: next_id_usize(),
             theme,
-            snapshot_cells: Vec::new(),
-            cell_states: Vec::new(),
-            selected_cell: None,
+            snapshot_cell: None,
+            cell_view_state: CellViewState::default(),
             has_snapshot: false,
         }
     }
@@ -71,34 +67,28 @@ impl SqlPane {
 
     /// Extract snapshot data from the SQL pane.
     pub fn extract_snapshot_data(&self) -> Option<enya_config::SnapshotSqlPane> {
-        if self.snapshot_cells.is_empty() {
-            None
-        } else {
-            Some(enya_config::SnapshotSqlPane {
-                cells: self.snapshot_cells.clone(),
+        self.snapshot_cell
+            .as_ref()
+            .map(|cell| enya_config::SnapshotSqlPane {
+                cells: vec![cell.clone()],
             })
-        }
     }
 
     /// Load snapshot data into the SQL pane for read-only display.
     pub fn load_snapshot_data(&mut self, data: &enya_config::SnapshotSqlPane) {
-        self.snapshot_cells = data.cells.clone();
-        self.cell_states = data
+        // Take the last non-info cell from the snapshot
+        self.snapshot_cell = data
             .cells
             .iter()
-            .map(|_| CellViewState::default())
-            .collect();
+            .rev()
+            .find(|c| c.kind != enya_config::SnapshotCellKind::Info)
+            .cloned();
+        self.cell_view_state = CellViewState::default();
         self.has_snapshot = true;
 
-        // Auto-expand the last cell
-        if let Some(last) = self.cell_states.last_mut() {
-            last.expanded = true;
-            self.selected_cell = Some(self.cell_states.len() - 1);
-        }
-
         log::info!(
-            "Loaded SQL snapshot data: {} cells",
-            self.snapshot_cells.len()
+            "Loaded SQL snapshot data: {} cells (showing last result)",
+            data.cells.len()
         );
     }
 
@@ -171,9 +161,8 @@ impl SqlPane {
         });
     }
 
-    /// Render the notebook cell list from snapshot data.
+    /// Render the single snapshot cell.
     fn show_notebook(&mut self, ui: &mut egui::Ui) {
-        // Centered max-width layout
         let max_width = 900.0;
         let avail_width = ui.available_width();
         let side_pad = ((avail_width - max_width) / 2.0).max(0.0);
@@ -186,53 +175,21 @@ impl SqlPane {
                 egui::ScrollArea::vertical()
                     .auto_shrink([false, false])
                     .show(ui, |ui| {
-                        // Render each cell as a card
-                        let mut actions: Vec<(usize, snapshot_card::CardAction)> = Vec::new();
-
-                        for (idx, cell) in self.snapshot_cells.iter().enumerate() {
-                            let state = &mut self.cell_states[idx];
-                            let is_selected = self.selected_cell == Some(idx);
-                            let cell_number = idx + 1;
-
-                            let card_actions = snapshot_card::render_snapshot_card(
-                                ui,
-                                cell,
-                                idx,
-                                state,
-                                self.theme,
-                                is_selected,
-                                cell_number,
-                            );
+                        if let Some(cell) = &self.snapshot_cell {
+                            let state = &mut self.cell_view_state;
+                            let card_actions =
+                                snapshot_card::render_snapshot_card(ui, cell, 0, state, self.theme);
 
                             for action in card_actions {
-                                actions.push((idx, action));
-                            }
-
-                            ui.add_space(4.0);
-                        }
-
-                        // Apply actions
-                        for (idx, action) in actions {
-                            match action {
-                                snapshot_card::CardAction::Select => {
-                                    self.selected_cell = Some(idx);
-                                }
-                                snapshot_card::CardAction::Expand => {
-                                    // Collapse all others
-                                    for (i, s) in self.cell_states.iter_mut().enumerate() {
-                                        s.expanded = i == idx;
+                                match action {
+                                    snapshot_card::CardAction::Collapse => {}
+                                    snapshot_card::CardAction::NextPage => {
+                                        self.cell_view_state.table_page += 1;
                                     }
-                                    self.selected_cell = Some(idx);
-                                }
-                                snapshot_card::CardAction::Collapse => {
-                                    self.cell_states[idx].expanded = false;
-                                }
-                                snapshot_card::CardAction::NextPage => {
-                                    self.cell_states[idx].table_page += 1;
-                                }
-                                snapshot_card::CardAction::PrevPage => {
-                                    if self.cell_states[idx].table_page > 0 {
-                                        self.cell_states[idx].table_page -= 1;
+                                    snapshot_card::CardAction::PrevPage => {
+                                        if self.cell_view_state.table_page > 0 {
+                                            self.cell_view_state.table_page -= 1;
+                                        }
                                     }
                                 }
                             }
@@ -273,7 +230,7 @@ impl Component for SqlPane {
     fn show(&mut self, ui: &mut egui::Ui) {
         if !self.has_snapshot {
             self.show_not_available(ui);
-        } else if self.snapshot_cells.is_empty() {
+        } else if self.snapshot_cell.is_none() {
             self.show_empty_state(ui);
         } else {
             self.show_notebook(ui);
