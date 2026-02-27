@@ -6,9 +6,11 @@ use std::path::{Path, PathBuf};
 
 use enya_analyzer::{AlertRule, CodebaseIndex, CommitInfo, MetricInstrumentation, MetricKind};
 use tantivy::collector::TopDocs;
-use tantivy::query::QueryParser;
-use tantivy::schema::Value;
-use tantivy::{Index, IndexReader, IndexWriter, ReloadPolicy, TantivyDocument, TantivyError, doc};
+use tantivy::query::{QueryParser, TermQuery};
+use tantivy::schema::{IndexRecordOption, Value};
+use tantivy::{
+    Index, IndexReader, IndexWriter, Order, ReloadPolicy, TantivyDocument, TantivyError, Term, doc,
+};
 
 use crate::schema::{DocType, SchemaFields, build_schema};
 use crate::{SearchFilter, SearchResult, SearchResultKind, TantivyPhase, TantivyProgress};
@@ -817,6 +819,43 @@ impl TantivyCodebaseIndex {
     #[must_use]
     pub fn search_commits(&self, query: &str, limit: usize) -> Vec<SearchResult> {
         self.search(query, SearchFilter::Commits, limit)
+    }
+
+    /// Returns the most recent commits, sorted by timestamp (newest first).
+    ///
+    /// This is used when the user enters Commits mode (`#`) with no search query
+    /// to show a browsable list of recent commits.
+    #[must_use]
+    pub fn recent_commits(&self, limit: usize) -> Vec<SearchResult> {
+        let searcher = self.reader.searcher();
+
+        // Query all commit documents
+        let term = Term::from_field_u64(self.fields.doc_type, DocType::Commit as u64);
+        let query = TermQuery::new(term, IndexRecordOption::Basic);
+
+        // Collect top N commits ordered by timestamp (descending = newest first)
+        let collector =
+            TopDocs::with_limit(limit).order_by_fast_field::<i64>("commit_timestamp", Order::Desc);
+
+        let top_docs = match searcher.search(&query, &collector) {
+            Ok(docs) => docs,
+            Err(e) => {
+                log::warn!("Recent commits query failed: {e}");
+                return Vec::new();
+            }
+        };
+
+        let mut results = Vec::with_capacity(top_docs.len());
+        for (_timestamp, doc_address) in top_docs {
+            let Ok(doc) = searcher.doc::<TantivyDocument>(doc_address) else {
+                continue;
+            };
+            if let Some(result) = self.document_to_result(&doc, 0.0, SearchFilter::Commits) {
+                results.push(result);
+            }
+        }
+
+        results
     }
 
     /// Deletes the index directory.
