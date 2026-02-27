@@ -805,6 +805,8 @@ impl Workspace {
         // Update component themes
         self.time_range_toolbar.set_theme(self.theme());
         self.landing_page.set_theme(self.theme());
+        #[cfg(target_arch = "wasm32")]
+        self.landing_page.set_mobile(self.is_mobile);
 
         // Handle adding a pending chart to the viewport
         if let Some(metric_name) = self.pending_chart.take() {

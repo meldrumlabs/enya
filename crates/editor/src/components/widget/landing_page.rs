@@ -73,6 +73,8 @@ pub struct LandingPage {
     tinted_logo: TintedLogo,
     /// When the landing page was first shown (for entrance animation)
     first_shown: Option<Instant>,
+    /// Whether the user is on a mobile browser (WASM only)
+    is_mobile: bool,
 }
 
 impl Default for LandingPage {
@@ -90,6 +92,7 @@ impl LandingPage {
             last_mouse_pos: None,
             tinted_logo: TintedLogo::new(),
             first_shown: None,
+            is_mobile: false,
         }
     }
 
@@ -151,6 +154,10 @@ impl LandingPage {
 
     pub fn set_theme(&mut self, theme: AppTheme) {
         self.theme = theme;
+    }
+
+    pub fn set_mobile(&mut self, is_mobile: bool) {
+        self.is_mobile = is_mobile;
     }
 
     /// Show the landing page UI
@@ -305,42 +312,64 @@ impl LandingPage {
                 .color(muted_color.gamma_multiply(0.7)),
         );
 
-        // On WASM, show a subtle native app notification below version
+        // On WASM, show a contextual message below version
         #[cfg(target_arch = "wasm32")]
         {
-            let accent = self.theme.accent_primary();
             ui.add_space(8.0 * scale);
-            let wasm_text = format!(
-                "{}  Download Native App for full features",
-                semantic_icons::action::IMPORT
-            );
             let wasm_start = version_start + 0.2;
-            let visible_wasm = self.typewriter(&wasm_text, wasm_start);
-            let wasm_cursor = if self.is_typing(&wasm_text, wasm_start) {
-                self.cursor()
-            } else {
-                ""
-            };
-            let sense = if self.keyboard_disabled {
-                egui::Sense::hover()
-            } else {
-                egui::Sense::click()
-            };
-            let response = ui.add(
-                egui::Label::new(
-                    RichText::new(format!("{}{}", visible_wasm, wasm_cursor))
+
+            if self.is_mobile {
+                // Mobile: show a warning that the editor requires desktop
+                let warning_color = self.theme.semantic_warning();
+                let wasm_text = format!(
+                    "{}  Enya is designed for desktop",
+                    semantic_icons::status::WARNING
+                );
+                let visible_wasm = self.typewriter(&wasm_text, wasm_start);
+                let wasm_cursor = if self.is_typing(&wasm_text, wasm_start) {
+                    self.cursor()
+                } else {
+                    ""
+                };
+                ui.label(
+                    RichText::new(format!("{visible_wasm}{wasm_cursor}"))
                         .size(typography::SM * scale)
-                        .color(accent.gamma_multiply(0.7)),
-                )
-                .sense(sense),
-            );
+                        .color(warning_color.gamma_multiply(0.7)),
+                );
+            } else {
+                // Desktop: show download native app link
+                let accent = self.theme.accent_primary();
+                let wasm_text = format!(
+                    "{}  Download Native App for full features",
+                    semantic_icons::action::IMPORT
+                );
+                let visible_wasm = self.typewriter(&wasm_text, wasm_start);
+                let wasm_cursor = if self.is_typing(&wasm_text, wasm_start) {
+                    self.cursor()
+                } else {
+                    ""
+                };
+                let sense = if self.keyboard_disabled {
+                    egui::Sense::hover()
+                } else {
+                    egui::Sense::click()
+                };
+                let response = ui.add(
+                    egui::Label::new(
+                        RichText::new(format!("{visible_wasm}{wasm_cursor}"))
+                            .size(typography::SM * scale)
+                            .color(accent.gamma_multiply(0.7)),
+                    )
+                    .sense(sense),
+                );
 
-            if !self.keyboard_disabled && response.hovered() {
-                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-            }
+                if !self.keyboard_disabled && response.hovered() {
+                    ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                }
 
-            if !self.keyboard_disabled && response.clicked() {
-                return LandingPageAction::ShowNativeAppInfo;
+                if !self.keyboard_disabled && response.clicked() {
+                    return LandingPageAction::ShowNativeAppInfo;
+                }
             }
         }
 
