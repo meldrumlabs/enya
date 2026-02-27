@@ -134,6 +134,7 @@ impl Workspace {
         let mut should_focus_sidebar = false;
         let mut should_undo = false;
         let mut should_open_time_range_picker = false;
+        let mut should_cycle_theme = false;
 
         ctx.input_mut(|input| {
             // yy - share focused pane (vim-style yank)
@@ -151,14 +152,13 @@ impl Workspace {
                 return;
             }
 
-            // cv - cycle visualization type on focused pane (time series -> stat -> ...)
+            // c - leader key for cycle operations (cv = cycle viz, ct = cycle theme)
             // Only handle if Space leader key is NOT active (Space+c is codebase finder)
             // NOTE: Check space_active BEFORE consume_key, as consume_key has side effects
             if !self.leader_keys.is_space_active()
-                && current_focus.is_some()
                 && input.consume_key(egui::Modifiers::NONE, egui::Key::C)
             {
-                // Record c press time for cv detection
+                // Record c press time for cv/ct detection
                 self.leader_keys.press_c();
                 consumed = true;
                 return;
@@ -166,12 +166,22 @@ impl Workspace {
 
             if input.consume_key(egui::Modifiers::NONE, egui::Key::V) && current_focus.is_some() {
                 // Check if this is part of a cv sequence
-                if self.leader_keys.is_cv_ready() {
+                if self.leader_keys.is_c_active() {
                     should_cycle_visualization = true;
                     self.leader_keys.clear_c();
                     consumed = true;
                     return;
                 }
+            }
+
+            // ct - cycle theme
+            if self.leader_keys.is_c_active()
+                && input.consume_key(egui::Modifiers::NONE, egui::Key::T)
+            {
+                should_cycle_theme = true;
+                self.leader_keys.clear_c();
+                consumed = true;
+                return;
             }
 
             // Space - leader key for sequences (Space+w, Space+f, Space+a, etc.)
@@ -889,6 +899,8 @@ impl Workspace {
             self.open_source_preview_demo();
         } else if should_cycle_visualization {
             self.cycle_focused_visualization();
+        } else if should_cycle_theme {
+            return Some(WorkspaceAction::NextTheme);
         } else if should_toggle_zen {
             self.toggle_zen_mode();
         } else if should_toggle_fullscreen {
