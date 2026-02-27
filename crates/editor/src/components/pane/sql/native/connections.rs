@@ -142,10 +142,15 @@ impl From<&SavedConnection> for ConnectionSnapshot {
 
 /// Render the connection dropdown popup.
 /// Returns actions to be handled by the caller.
+/// `pill_rect` is the screen-space rect of the connection pill that anchors the popup.
+/// `just_opened` suppresses "click outside to close" on the opening frame so
+/// the pill's click doesn't immediately close the popup it just opened.
 pub fn render_connection_popup(
     ui: &mut egui::Ui,
     theme: AppTheme,
     connections: &[ConnectionSnapshot],
+    pill_rect: egui::Rect,
+    just_opened: bool,
 ) -> Vec<ConnectionAction> {
     let mut actions = Vec::new();
 
@@ -153,9 +158,14 @@ pub fn render_connection_popup(
     let text_secondary = theme.text_secondary();
     let accent = theme.accent_primary();
 
+    // Anchor the popup just above the connection pill (bottom-left pivot).
+    let popup_x = pill_rect.left();
+    let popup_y = pill_rect.top() - 8.0;
+
     egui::Area::new(egui::Id::new("connection_popup"))
         .order(egui::Order::Foreground)
-        .fixed_pos(egui::pos2(ui.available_width() - 250.0, 60.0))
+        .pivot(egui::Align2::LEFT_BOTTOM)
+        .fixed_pos(egui::pos2(popup_x, popup_y))
         .show(ui.ctx(), |ui| {
             egui::Frame::new()
                 .fill(theme.bg_elevated())
@@ -195,28 +205,28 @@ pub fn render_connection_popup(
                             let is_connected = matches!(conn.state, ConnectionState::Connected);
                             let is_connecting = matches!(conn.state, ConnectionState::Connecting);
 
+                            let is_failed = matches!(conn.state, ConnectionState::Failed(_));
                             let status_color = if is_connected {
                                 theme.semantic_success()
                             } else if is_connecting {
                                 accent
+                            } else if is_failed {
+                                theme.semantic_error()
                             } else {
                                 text_secondary.gamma_multiply(0.4)
                             };
 
-                            let row_bg = if conn.active {
-                                accent.gamma_multiply(0.1)
-                            } else {
-                                Color32::TRANSPARENT
-                            };
+                            // Reserve a paint slot for the row background so we can
+                            // paint it behind the text after we know the interaction state.
+                            let bg_idx = ui.painter().add(egui::Shape::Noop);
 
                             let row = egui::Frame::new()
-                                .fill(row_bg)
                                 .corner_radius(4.0)
                                 .inner_margin(egui::Margin::symmetric(8, 6))
                                 .show(ui, |ui| {
                                     ui.horizontal(|ui| {
                                         if is_connecting {
-                                            ui.spinner();
+                                            ui.add(egui::Spinner::new().color(accent).size(12.0));
                                         } else {
                                             ui.label(
                                                 RichText::new("●").color(status_color).size(8.0),
@@ -232,7 +242,28 @@ pub fn render_connection_popup(
                                     });
                                 });
 
-                            if row.response.clicked() {
+                            // Frame::show() only senses hover, not clicks. Interact
+                            // with the row rect to make it respond to click events.
+                            let row_response = ui.interact(
+                                row.response.rect,
+                                row.response.id.with("click"),
+                                egui::Sense::click(),
+                            );
+
+                            // Paint hover/active background behind the row text.
+                            let row_bg = if conn.active {
+                                accent.gamma_multiply(0.1)
+                            } else if row_response.hovered() {
+                                theme.bg_surface()
+                            } else {
+                                Color32::TRANSPARENT
+                            };
+                            ui.painter().set(
+                                bg_idx,
+                                egui::Shape::rect_filled(row.response.rect, 4.0, row_bg),
+                            );
+
+                            if row_response.clicked() {
                                 if is_connected {
                                     actions.push(ConnectionAction::SetActive(conn.id));
                                 } else if !is_connecting {
@@ -241,7 +272,7 @@ pub fn render_connection_popup(
                                 actions.push(ConnectionAction::ClosePopup);
                             }
 
-                            row.response.context_menu(|ui| {
+                            row_response.context_menu(|ui| {
                                 if is_connected && ui.button("Disconnect").clicked() {
                                     actions.push(ConnectionAction::Disconnect(conn.id));
                                     ui.close();
@@ -275,8 +306,9 @@ pub fn render_connection_popup(
                     }
                 });
 
-            // Close popup when clicking outside
-            if ui.input(|i| i.pointer.any_click()) {
+            // Close popup when clicking outside (skip on the opening frame so
+            // the pill's click doesn't immediately dismiss the popup).
+            if !just_opened && ui.input(|i| i.pointer.any_click()) {
                 let popup_rect = ui.min_rect();
                 if let Some(pos) = ui.input(|i| i.pointer.interact_pos()) {
                     if !popup_rect.contains(pos) {
@@ -493,7 +525,7 @@ fn render_connection_item(
                 };
 
                 if is_connecting {
-                    ui.spinner();
+                    ui.add(egui::Spinner::new().color(accent).size(12.0));
                 } else {
                     ui.label(RichText::new("●").color(status_color).size(8.0));
                 }

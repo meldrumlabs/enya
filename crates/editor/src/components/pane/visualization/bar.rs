@@ -240,7 +240,8 @@ impl BarChartViz {
                             );
 
                             // Bar
-                            let bar_area_width = (ui.available_width() - value_width - 16.0).max(1.0);
+                            let bar_area_width =
+                                (ui.available_width() - value_width - 16.0).max(1.0);
                             let bar_width = (bar.value / max_value) as f32 * bar_area_width;
                             let bar_color = bar.color.unwrap_or(accent_color);
 

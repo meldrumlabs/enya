@@ -141,9 +141,100 @@ pub struct SnapshotPlanNode {
     pub metrics: Option<SnapshotOperatorMetrics>,
 }
 
-/// A single query cell in a SQL pane snapshot.
+/// Cell kind discriminant for snapshot SQL cells.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SnapshotCellKind {
+    /// Standard query with tabular results.
+    #[default]
+    Query,
+    /// Info or system message.
+    Info,
+    /// Diff comparison between two connections.
+    Diff,
+    /// Explain/analyze execution plan.
+    Explain,
+}
+
+/// Type of diff comparison.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SnapshotDiffType {
+    /// Query result comparison.
+    #[default]
+    Data,
+    /// Execution plan comparison.
+    Plan,
+    /// Table schema comparison.
+    Schema,
+    /// EXPLAIN ANALYZE profile comparison.
+    Profile,
+}
+
+/// Row-level diff statistics.
+#[derive(Debug, Clone)]
+pub struct SnapshotDiffStats {
+    pub left_only: u64,
+    pub right_only: u64,
+    pub different: u64,
+    pub matching: u64,
+}
+
+/// Column diff status in a schema comparison.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SnapshotColumnDiffStatus {
+    Matching,
+    LeftOnly,
+    RightOnly,
+    Changed,
+}
+
+/// A column in a schema diff.
+#[derive(Debug, Clone)]
+pub struct SnapshotSchemaDiffColumn {
+    pub name: String,
+    pub left_type: Option<String>,
+    pub left_nullable: Option<bool>,
+    pub right_type: Option<String>,
+    pub right_nullable: Option<bool>,
+    pub status: SnapshotColumnDiffStatus,
+}
+
+/// Schema diff result for a snapshot.
+#[derive(Debug, Clone)]
+pub struct SnapshotSchemaDiff {
+    pub table_name: String,
+    pub columns: Vec<SnapshotSchemaDiffColumn>,
+    pub matching: u64,
+    pub left_only: u64,
+    pub right_only: u64,
+    pub changed: u64,
+}
+
+/// Diff comparison data for a snapshot cell.
+#[derive(Debug, Clone)]
+pub struct SnapshotDiffData {
+    pub left_name: String,
+    pub right_name: String,
+    pub left_columns: Vec<SnapshotTableColumn>,
+    pub left_rows: Vec<Vec<String>>,
+    pub left_total_rows: u64,
+    pub left_error: Option<String>,
+    pub right_columns: Vec<SnapshotTableColumn>,
+    pub right_rows: Vec<Vec<String>>,
+    pub right_total_rows: u64,
+    pub right_error: Option<String>,
+    pub schemas_match: bool,
+    pub diff_stats: Option<SnapshotDiffStats>,
+    pub left_plan: Option<SnapshotPlanNode>,
+    pub right_plan: Option<SnapshotPlanNode>,
+    pub diff_type: SnapshotDiffType,
+    pub schema_diff: Option<SnapshotSchemaDiff>,
+}
+
+/// A single cell in a SQL pane snapshot (query, info, diff, or explain).
 #[derive(Debug, Clone)]
 pub struct SnapshotQueryCell {
+    /// Cell kind discriminant.
+    pub kind: SnapshotCellKind,
     pub sql: String,
     pub columns: Vec<SnapshotTableColumn>,
     pub rows: Vec<Vec<String>>,
@@ -151,6 +242,8 @@ pub struct SnapshotQueryCell {
     pub stats: Option<SnapshotQueryStats>,
     pub error: Option<String>,
     pub plan: Option<SnapshotPlanNode>,
+    /// Diff comparison data (populated only for Diff cells).
+    pub diff: Option<SnapshotDiffData>,
 }
 
 /// Snapshot data for a SQL pane (all query cells).
@@ -318,8 +411,84 @@ struct CompactPlanNode {
     pub metrics: Option<CompactOperatorMetrics>,
 }
 
+// --- Compact types for kind-aware SQL cells ---
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+enum CompactCellKind {
+    Query,
+    Info,
+    Diff,
+    Explain,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+enum CompactDiffType {
+    Data,
+    Plan,
+    Schema,
+    Profile,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct CompactQueryCell {
+struct CompactDiffStats {
+    pub left_only: u64,
+    pub right_only: u64,
+    pub different: u64,
+    pub matching: u64,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+enum CompactColumnDiffStatus {
+    Matching,
+    LeftOnly,
+    RightOnly,
+    Changed,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct CompactSchemaDiffColumn {
+    pub name: String,
+    pub left_type: Option<String>,
+    pub left_nullable: Option<bool>,
+    pub right_type: Option<String>,
+    pub right_nullable: Option<bool>,
+    pub status: CompactColumnDiffStatus,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct CompactSchemaDiff {
+    pub table_name: String,
+    pub columns: Vec<CompactSchemaDiffColumn>,
+    pub matching: u64,
+    pub left_only: u64,
+    pub right_only: u64,
+    pub changed: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct CompactDiffData {
+    pub left_name: String,
+    pub right_name: String,
+    pub left_columns: Vec<CompactTableColumn>,
+    pub left_rows: Vec<Vec<String>>,
+    pub left_total_rows: u64,
+    pub left_error: Option<String>,
+    pub right_columns: Vec<CompactTableColumn>,
+    pub right_rows: Vec<Vec<String>>,
+    pub right_total_rows: u64,
+    pub right_error: Option<String>,
+    pub schemas_match: bool,
+    pub diff_stats: Option<CompactDiffStats>,
+    pub left_plan: Option<CompactPlanNode>,
+    pub right_plan: Option<CompactPlanNode>,
+    pub diff_type: CompactDiffType,
+    pub schema_diff: Option<CompactSchemaDiff>,
+}
+
+/// V2 cell: kind-aware, with optional diff data.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct CompactSqlCell {
+    pub kind: CompactCellKind,
     pub sql: String,
     pub columns: Vec<CompactTableColumn>,
     pub rows: Vec<Vec<String>>,
@@ -327,11 +496,12 @@ struct CompactQueryCell {
     pub stats: Option<CompactQueryStats>,
     pub error: Option<String>,
     pub plan: Option<CompactPlanNode>,
+    pub diff: Option<CompactDiffData>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct CompactSqlPane {
-    pub cells: Vec<CompactQueryCell>,
+    pub cells: Vec<CompactSqlCell>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -362,13 +532,6 @@ struct CompactFullSnapshot {
     pub workspace: CompactSnapshotWorkspace,
     pub conversation: Option<CompactSnapshotConversation>,
     pub sql_pane: Option<CompactSqlPane>,
-}
-
-/// Legacy format without sql_pane field (for decoding old snapshots).
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct CompactFullSnapshotV1 {
-    pub workspace: CompactSnapshotWorkspace,
-    pub conversation: Option<CompactSnapshotConversation>,
 }
 
 // =============================================================================
@@ -418,35 +581,17 @@ pub fn encode_snapshot(
 }
 
 /// Decode a full snapshot from compressed binary.
-///
-/// Supports both the current format (with optional sql_pane) and the legacy
-/// format (without sql_pane) for backward compatibility with existing R2 blobs.
 pub fn decode_snapshot(bytes: &[u8]) -> Result<Snapshot, WorkspaceError> {
     let decompressed = lz4_flex::decompress_size_prepended(bytes)
         .map_err(|e| WorkspaceError::Decode(e.to_string()))?;
 
-    // Try current format first, fall back to legacy (without sql_pane field)
-    let full: CompactFullSnapshot = match postcard::from_bytes(&decompressed) {
-        Ok(f) => f,
-        Err(_) => {
-            let legacy: CompactFullSnapshotV1 = postcard::from_bytes(&decompressed)
-                .map_err(|e| WorkspaceError::Decode(e.to_string()))?;
-            CompactFullSnapshot {
-                workspace: legacy.workspace,
-                conversation: legacy.conversation,
-                sql_pane: None,
-            }
-        }
-    };
+    let full: CompactFullSnapshot =
+        postcard::from_bytes(&decompressed).map_err(|e| WorkspaceError::Decode(e.to_string()))?;
 
     let mut ws = full.workspace.into_workspace();
-
     let conversation = full.conversation.map(decode_conversation);
     let sql_pane = full.sql_pane.map(decode_sql_pane);
-
     let captured_at = ws.snapshot.as_ref().map_or(0, |s| s.captured_at);
-
-    // Attach conversation and SQL data to the snapshot meta
     if let Some(ref mut snapshot) = ws.snapshot {
         snapshot.conversation = conversation.clone();
         snapshot.sql_pane = sql_pane.clone();
@@ -660,65 +805,209 @@ fn decode_inline_content(content: CompactInlineContent) -> SnapshotInlineContent
 
 fn encode_sql_pane(pane: &SnapshotSqlPane) -> CompactSqlPane {
     CompactSqlPane {
-        cells: pane.cells.iter().map(encode_query_cell).collect(),
+        cells: pane.cells.iter().map(encode_sql_cell).collect(),
     }
 }
 
 fn decode_sql_pane(pane: CompactSqlPane) -> SnapshotSqlPane {
     SnapshotSqlPane {
-        cells: pane.cells.into_iter().map(decode_query_cell).collect(),
+        cells: pane.cells.into_iter().map(decode_sql_cell).collect(),
     }
 }
 
-fn encode_query_cell(cell: &SnapshotQueryCell) -> CompactQueryCell {
-    CompactQueryCell {
+fn encode_sql_cell(cell: &SnapshotQueryCell) -> CompactSqlCell {
+    CompactSqlCell {
+        kind: match cell.kind {
+            SnapshotCellKind::Query => CompactCellKind::Query,
+            SnapshotCellKind::Info => CompactCellKind::Info,
+            SnapshotCellKind::Diff => CompactCellKind::Diff,
+            SnapshotCellKind::Explain => CompactCellKind::Explain,
+        },
         sql: cell.sql.clone(),
-        columns: cell
-            .columns
-            .iter()
-            .map(|c| CompactTableColumn {
-                name: c.name.clone(),
-                data_type: c.data_type.clone(),
-            })
-            .collect(),
+        columns: encode_table_columns(&cell.columns),
         rows: cell.rows.clone(),
         total_rows: cell.total_rows,
-        stats: cell.stats.as_ref().map(|s| CompactQueryStats {
-            total_time_ms: s.total_time_ms,
-            planning_time_ms: s.planning_time_ms,
-            execution_time_ms: s.execution_time_ms,
-            rows_returned: s.rows_returned,
-            bytes_scanned: s.bytes_scanned,
-            partitions_scanned: s.partitions_scanned,
-        }),
+        stats: cell.stats.as_ref().map(encode_query_stats),
         error: cell.error.clone(),
         plan: cell.plan.as_ref().map(encode_plan_node),
+        diff: cell.diff.as_ref().map(encode_diff_data),
     }
 }
 
-fn decode_query_cell(cell: CompactQueryCell) -> SnapshotQueryCell {
+fn decode_sql_cell(cell: CompactSqlCell) -> SnapshotQueryCell {
     SnapshotQueryCell {
+        kind: match cell.kind {
+            CompactCellKind::Query => SnapshotCellKind::Query,
+            CompactCellKind::Info => SnapshotCellKind::Info,
+            CompactCellKind::Diff => SnapshotCellKind::Diff,
+            CompactCellKind::Explain => SnapshotCellKind::Explain,
+        },
         sql: cell.sql,
-        columns: cell
-            .columns
-            .into_iter()
-            .map(|c| SnapshotTableColumn {
-                name: c.name,
-                data_type: c.data_type,
-            })
-            .collect(),
+        columns: decode_table_columns(cell.columns),
         rows: cell.rows,
         total_rows: cell.total_rows,
-        stats: cell.stats.map(|s| SnapshotQueryStats {
-            total_time_ms: s.total_time_ms,
-            planning_time_ms: s.planning_time_ms,
-            execution_time_ms: s.execution_time_ms,
-            rows_returned: s.rows_returned,
-            bytes_scanned: s.bytes_scanned,
-            partitions_scanned: s.partitions_scanned,
-        }),
+        stats: cell.stats.map(decode_query_stats),
         error: cell.error,
         plan: cell.plan.map(decode_plan_node),
+        diff: cell.diff.map(decode_diff_data),
+    }
+}
+
+fn encode_diff_data(d: &SnapshotDiffData) -> CompactDiffData {
+    CompactDiffData {
+        left_name: d.left_name.clone(),
+        right_name: d.right_name.clone(),
+        left_columns: encode_table_columns(&d.left_columns),
+        left_rows: d.left_rows.clone(),
+        left_total_rows: d.left_total_rows,
+        left_error: d.left_error.clone(),
+        right_columns: encode_table_columns(&d.right_columns),
+        right_rows: d.right_rows.clone(),
+        right_total_rows: d.right_total_rows,
+        right_error: d.right_error.clone(),
+        schemas_match: d.schemas_match,
+        diff_stats: d.diff_stats.as_ref().map(|s| CompactDiffStats {
+            left_only: s.left_only,
+            right_only: s.right_only,
+            different: s.different,
+            matching: s.matching,
+        }),
+        left_plan: d.left_plan.as_ref().map(encode_plan_node),
+        right_plan: d.right_plan.as_ref().map(encode_plan_node),
+        diff_type: match d.diff_type {
+            SnapshotDiffType::Data => CompactDiffType::Data,
+            SnapshotDiffType::Plan => CompactDiffType::Plan,
+            SnapshotDiffType::Schema => CompactDiffType::Schema,
+            SnapshotDiffType::Profile => CompactDiffType::Profile,
+        },
+        schema_diff: d.schema_diff.as_ref().map(encode_schema_diff),
+    }
+}
+
+fn decode_diff_data(d: CompactDiffData) -> SnapshotDiffData {
+    SnapshotDiffData {
+        left_name: d.left_name,
+        right_name: d.right_name,
+        left_columns: decode_table_columns(d.left_columns),
+        left_rows: d.left_rows,
+        left_total_rows: d.left_total_rows,
+        left_error: d.left_error,
+        right_columns: decode_table_columns(d.right_columns),
+        right_rows: d.right_rows,
+        right_total_rows: d.right_total_rows,
+        right_error: d.right_error,
+        schemas_match: d.schemas_match,
+        diff_stats: d.diff_stats.map(|s| SnapshotDiffStats {
+            left_only: s.left_only,
+            right_only: s.right_only,
+            different: s.different,
+            matching: s.matching,
+        }),
+        left_plan: d.left_plan.map(decode_plan_node),
+        right_plan: d.right_plan.map(decode_plan_node),
+        diff_type: match d.diff_type {
+            CompactDiffType::Data => SnapshotDiffType::Data,
+            CompactDiffType::Plan => SnapshotDiffType::Plan,
+            CompactDiffType::Schema => SnapshotDiffType::Schema,
+            CompactDiffType::Profile => SnapshotDiffType::Profile,
+        },
+        schema_diff: d.schema_diff.map(decode_schema_diff),
+    }
+}
+
+fn encode_schema_diff(s: &SnapshotSchemaDiff) -> CompactSchemaDiff {
+    CompactSchemaDiff {
+        table_name: s.table_name.clone(),
+        columns: s
+            .columns
+            .iter()
+            .map(|c| CompactSchemaDiffColumn {
+                name: c.name.clone(),
+                left_type: c.left_type.clone(),
+                left_nullable: c.left_nullable,
+                right_type: c.right_type.clone(),
+                right_nullable: c.right_nullable,
+                status: match c.status {
+                    SnapshotColumnDiffStatus::Matching => CompactColumnDiffStatus::Matching,
+                    SnapshotColumnDiffStatus::LeftOnly => CompactColumnDiffStatus::LeftOnly,
+                    SnapshotColumnDiffStatus::RightOnly => CompactColumnDiffStatus::RightOnly,
+                    SnapshotColumnDiffStatus::Changed => CompactColumnDiffStatus::Changed,
+                },
+            })
+            .collect(),
+        matching: s.matching,
+        left_only: s.left_only,
+        right_only: s.right_only,
+        changed: s.changed,
+    }
+}
+
+fn decode_schema_diff(s: CompactSchemaDiff) -> SnapshotSchemaDiff {
+    SnapshotSchemaDiff {
+        table_name: s.table_name,
+        columns: s
+            .columns
+            .into_iter()
+            .map(|c| SnapshotSchemaDiffColumn {
+                name: c.name,
+                left_type: c.left_type,
+                left_nullable: c.left_nullable,
+                right_type: c.right_type,
+                right_nullable: c.right_nullable,
+                status: match c.status {
+                    CompactColumnDiffStatus::Matching => SnapshotColumnDiffStatus::Matching,
+                    CompactColumnDiffStatus::LeftOnly => SnapshotColumnDiffStatus::LeftOnly,
+                    CompactColumnDiffStatus::RightOnly => SnapshotColumnDiffStatus::RightOnly,
+                    CompactColumnDiffStatus::Changed => SnapshotColumnDiffStatus::Changed,
+                },
+            })
+            .collect(),
+        matching: s.matching,
+        left_only: s.left_only,
+        right_only: s.right_only,
+        changed: s.changed,
+    }
+}
+
+// --- Shared helpers ---
+
+fn encode_table_columns(cols: &[SnapshotTableColumn]) -> Vec<CompactTableColumn> {
+    cols.iter()
+        .map(|c| CompactTableColumn {
+            name: c.name.clone(),
+            data_type: c.data_type.clone(),
+        })
+        .collect()
+}
+
+fn decode_table_columns(cols: Vec<CompactTableColumn>) -> Vec<SnapshotTableColumn> {
+    cols.into_iter()
+        .map(|c| SnapshotTableColumn {
+            name: c.name,
+            data_type: c.data_type,
+        })
+        .collect()
+}
+
+fn encode_query_stats(s: &SnapshotQueryStats) -> CompactQueryStats {
+    CompactQueryStats {
+        total_time_ms: s.total_time_ms,
+        planning_time_ms: s.planning_time_ms,
+        execution_time_ms: s.execution_time_ms,
+        rows_returned: s.rows_returned,
+        bytes_scanned: s.bytes_scanned,
+        partitions_scanned: s.partitions_scanned,
+    }
+}
+
+fn decode_query_stats(s: CompactQueryStats) -> SnapshotQueryStats {
+    SnapshotQueryStats {
+        total_time_ms: s.total_time_ms,
+        planning_time_ms: s.planning_time_ms,
+        execution_time_ms: s.execution_time_ms,
+        rows_returned: s.rows_returned,
+        bytes_scanned: s.bytes_scanned,
+        partitions_scanned: s.partitions_scanned,
     }
 }
 
@@ -1221,5 +1510,252 @@ mod tests {
 
         // The workspace name survives the blob round-trip
         assert_eq!(decoded.workspace.workspace.name, "test-snapshot");
+    }
+
+    fn make_test_sql_pane() -> SnapshotSqlPane {
+        SnapshotSqlPane {
+            cells: vec![
+                // Query cell
+                SnapshotQueryCell {
+                    kind: SnapshotCellKind::Query,
+                    sql: "SELECT * FROM users".to_string(),
+                    columns: vec![
+                        SnapshotTableColumn {
+                            name: "id".to_string(),
+                            data_type: "Int64".to_string(),
+                        },
+                        SnapshotTableColumn {
+                            name: "name".to_string(),
+                            data_type: "Utf8".to_string(),
+                        },
+                    ],
+                    rows: vec![
+                        vec!["1".to_string(), "Alice".to_string()],
+                        vec!["2".to_string(), "Bob".to_string()],
+                    ],
+                    total_rows: 2,
+                    stats: Some(SnapshotQueryStats {
+                        total_time_ms: 42,
+                        planning_time_ms: 5,
+                        execution_time_ms: 37,
+                        rows_returned: 2,
+                        bytes_scanned: 1024,
+                        partitions_scanned: 1,
+                    }),
+                    error: None,
+                    plan: None,
+                    diff: None,
+                },
+                // Info cell
+                SnapshotQueryCell {
+                    kind: SnapshotCellKind::Info,
+                    sql: "Connected to production".to_string(),
+                    columns: Vec::new(),
+                    rows: Vec::new(),
+                    total_rows: 0,
+                    stats: None,
+                    error: None,
+                    plan: None,
+                    diff: None,
+                },
+                // Diff cell
+                SnapshotQueryCell {
+                    kind: SnapshotCellKind::Diff,
+                    sql: "SELECT count(*) FROM orders".to_string(),
+                    columns: Vec::new(),
+                    rows: Vec::new(),
+                    total_rows: 0,
+                    stats: None,
+                    error: None,
+                    plan: None,
+                    diff: Some(SnapshotDiffData {
+                        left_name: "staging".to_string(),
+                        right_name: "production".to_string(),
+                        left_columns: vec![SnapshotTableColumn {
+                            name: "count".to_string(),
+                            data_type: "Int64".to_string(),
+                        }],
+                        left_rows: vec![vec!["100".to_string()]],
+                        left_total_rows: 1,
+                        left_error: None,
+                        right_columns: vec![SnapshotTableColumn {
+                            name: "count".to_string(),
+                            data_type: "Int64".to_string(),
+                        }],
+                        right_rows: vec![vec!["105".to_string()]],
+                        right_total_rows: 1,
+                        right_error: None,
+                        schemas_match: true,
+                        diff_stats: Some(SnapshotDiffStats {
+                            left_only: 0,
+                            right_only: 0,
+                            different: 1,
+                            matching: 0,
+                        }),
+                        left_plan: None,
+                        right_plan: None,
+                        diff_type: SnapshotDiffType::Data,
+                        schema_diff: None,
+                    }),
+                },
+                // Explain cell
+                SnapshotQueryCell {
+                    kind: SnapshotCellKind::Explain,
+                    sql: "EXPLAIN SELECT * FROM users".to_string(),
+                    columns: Vec::new(),
+                    rows: Vec::new(),
+                    total_rows: 0,
+                    stats: None,
+                    error: None,
+                    plan: Some(SnapshotPlanNode {
+                        operator: "TableScan".to_string(),
+                        description: "users".to_string(),
+                        properties: vec![("rows".to_string(), "1000".to_string())],
+                        children: Vec::new(),
+                        metrics: Some(SnapshotOperatorMetrics {
+                            output_rows: 1000,
+                            elapsed_time_ms: 5,
+                            memory_bytes: 4096,
+                            spill_count: 0,
+                            spill_bytes: 0,
+                        }),
+                    }),
+                    diff: None,
+                },
+            ],
+        }
+    }
+
+    #[test]
+    fn round_trip_sql_pane_with_cell_kinds() {
+        let (ws, pane_data) = make_test_workspace();
+        let sql_pane = make_test_sql_pane();
+
+        let bytes = encode_snapshot(&ws, &pane_data, 1700000000, None, Some(&sql_pane)).unwrap();
+        let decoded = decode_snapshot(&bytes).unwrap();
+
+        let sql = decoded
+            .workspace
+            .snapshot
+            .as_ref()
+            .unwrap()
+            .sql_pane
+            .as_ref()
+            .unwrap();
+        assert_eq!(sql.cells.len(), 4);
+
+        // Query cell
+        assert_eq!(sql.cells[0].kind, SnapshotCellKind::Query);
+        assert_eq!(sql.cells[0].sql, "SELECT * FROM users");
+        assert_eq!(sql.cells[0].columns.len(), 2);
+        assert_eq!(sql.cells[0].rows.len(), 2);
+        assert_eq!(sql.cells[0].total_rows, 2);
+        assert!(sql.cells[0].stats.is_some());
+        assert!(sql.cells[0].diff.is_none());
+
+        // Info cell
+        assert_eq!(sql.cells[1].kind, SnapshotCellKind::Info);
+        assert_eq!(sql.cells[1].sql, "Connected to production");
+        assert!(sql.cells[1].columns.is_empty());
+        assert!(sql.cells[1].diff.is_none());
+
+        // Diff cell
+        assert_eq!(sql.cells[2].kind, SnapshotCellKind::Diff);
+        let diff = sql.cells[2].diff.as_ref().unwrap();
+        assert_eq!(diff.left_name, "staging");
+        assert_eq!(diff.right_name, "production");
+        assert_eq!(diff.left_rows, vec![vec!["100".to_string()]]);
+        assert_eq!(diff.right_rows, vec![vec!["105".to_string()]]);
+        assert!(diff.schemas_match);
+        assert_eq!(diff.diff_type, SnapshotDiffType::Data);
+        let stats = diff.diff_stats.as_ref().unwrap();
+        assert_eq!(stats.different, 1);
+        assert_eq!(stats.matching, 0);
+
+        // Explain cell
+        assert_eq!(sql.cells[3].kind, SnapshotCellKind::Explain);
+        let plan = sql.cells[3].plan.as_ref().unwrap();
+        assert_eq!(plan.operator, "TableScan");
+        assert!(plan.metrics.is_some());
+    }
+
+    #[test]
+    fn round_trip_diff_cell_with_schema_diff() {
+        let (ws, pane_data) = make_test_workspace();
+        let sql_pane = SnapshotSqlPane {
+            cells: vec![SnapshotQueryCell {
+                kind: SnapshotCellKind::Diff,
+                sql: "DESCRIBE users".to_string(),
+                columns: Vec::new(),
+                rows: Vec::new(),
+                total_rows: 0,
+                stats: None,
+                error: None,
+                plan: None,
+                diff: Some(SnapshotDiffData {
+                    left_name: "dev".to_string(),
+                    right_name: "prod".to_string(),
+                    left_columns: Vec::new(),
+                    left_rows: Vec::new(),
+                    left_total_rows: 0,
+                    left_error: None,
+                    right_columns: Vec::new(),
+                    right_rows: Vec::new(),
+                    right_total_rows: 0,
+                    right_error: None,
+                    schemas_match: false,
+                    diff_stats: None,
+                    left_plan: None,
+                    right_plan: None,
+                    diff_type: SnapshotDiffType::Schema,
+                    schema_diff: Some(SnapshotSchemaDiff {
+                        table_name: "users".to_string(),
+                        columns: vec![
+                            SnapshotSchemaDiffColumn {
+                                name: "id".to_string(),
+                                left_type: Some("Int64".to_string()),
+                                left_nullable: Some(false),
+                                right_type: Some("Int64".to_string()),
+                                right_nullable: Some(false),
+                                status: SnapshotColumnDiffStatus::Matching,
+                            },
+                            SnapshotSchemaDiffColumn {
+                                name: "email".to_string(),
+                                left_type: None,
+                                left_nullable: None,
+                                right_type: Some("Utf8".to_string()),
+                                right_nullable: Some(true),
+                                status: SnapshotColumnDiffStatus::RightOnly,
+                            },
+                        ],
+                        matching: 1,
+                        left_only: 0,
+                        right_only: 1,
+                        changed: 0,
+                    }),
+                }),
+            }],
+        };
+
+        let bytes = encode_snapshot(&ws, &pane_data, 1700000000, None, Some(&sql_pane)).unwrap();
+        let decoded = decode_snapshot(&bytes).unwrap();
+
+        let sql = decoded
+            .workspace
+            .snapshot
+            .as_ref()
+            .unwrap()
+            .sql_pane
+            .as_ref()
+            .unwrap();
+        let diff = sql.cells[0].diff.as_ref().unwrap();
+        assert_eq!(diff.diff_type, SnapshotDiffType::Schema);
+        let sd = diff.schema_diff.as_ref().unwrap();
+        assert_eq!(sd.table_name, "users");
+        assert_eq!(sd.columns.len(), 2);
+        assert_eq!(sd.columns[0].status, SnapshotColumnDiffStatus::Matching);
+        assert_eq!(sd.columns[1].status, SnapshotColumnDiffStatus::RightOnly);
+        assert_eq!(sd.matching, 1);
+        assert_eq!(sd.right_only, 1);
     }
 }

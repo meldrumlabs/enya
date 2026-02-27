@@ -7,15 +7,24 @@ All notable changes to the Enya editor will be documented in this file.
 ### Fixed
 
 - **Tracing pane no longer auto-focuses input**: The trace ID input field no longer grabs focus when the tracing pane is first activated, matching the behavior of other panes.
+- **SQL pane spinner theming**: Loading spinners in the SQL pane now use the active theme's accent color instead of the default black.
+- **SQL pane premature "no results" message**: Fixed "Query returned no results" appearing while a query was still running; the message now only shows after the query completes.
+- **SQL pane keyboard conflicts with input bar**: The result card no longer consumes keyboard events (tab, arrow keys, etc.) when the SQL input bar has focus.
+- **SQL table overlay keyboard navigation**: The h/l keys and Escape now work correctly in the fullscreen table overlay instead of being consumed by the result card underneath.
 
 ### Added
 
+- **SQL pane auto-connect**: When a SQL pane is opened and Flight SQL connections are configured in Settings, the pane automatically connects to the first endpoint in the list instead of requiring manual connection.
+- **SQL pane expand results button**: Added an expand button in the query result stats bar that opens the fullscreen table overlay for easier browsing of large result sets.
 - **OTLP as a datasource protocol**: Added support for OpenTelemetry Protocol (OTLP) as a datasource backend, letting Enya receive telemetry data directly from OTel SDKs without requiring Grafana stack infrastructure. The agent daemon accepts OTLP JSON payloads at `/v1/traces` and `/v1/logs`, stores them in memory, and serves them via HTTP query endpoints (`/api/otlp/traces/search`, `/api/otlp/traces/{id}`, `/api/otlp/logs/query`, `/api/otlp/labels`, `/api/otlp/health`). The editor can query these endpoints by setting `backend = "otlp"` with an `endpoint` URL in `[logs]` and `[tracing]` workspace config sections. Tracing panes now load traces from configured backends (Tempo or OTLP) when a trace ID is entered.
 - **Tempo endpoint in Settings**: Added a Tempo trace endpoint configuration field to both the Settings overlay and full-page Settings, alongside the existing Prometheus and Loki fields. Also added `TracingConfig` to workspace TOML configuration.
 - **Series filter dropdown for time series charts**: When a chart has 6+ series, a filter icon appears in the legend bar. Clicking it (or pressing `gs`) opens a searchable dropdown popup where users can toggle individual series on/off. Features include fuzzy search filtering, All/None quick toggles, keyboard navigation (arrows + Tab to toggle), and stable color assignment. Hidden series are excluded from both the chart and legend, and filter state persists across data refreshes.
 
 ### Changed
 
+- **SQL pane cell abstraction**: Replaced the monolithic `QueryCell` struct with a proper enum-based `Cell` type system. Cells now use a `CellKind` enum (`Query`, `Info`, `Diff`, `Explain`) carrying only variant-specific data, eliminating meaningless `Option` fields and making the type system enforce valid states at compile time.
+- **Snapshot-friendly SQL cell kinds**: The snapshot format is now cell-kind-aware, so all SQL notebook content — queries, info messages, diff comparisons, and explain plans — round-trips through save/restore. Shared immutable snapshots now display the full notebook workflow in read-only mode, even without a SQL connection. This is a breaking change to the snapshot binary format; previously saved snapshots are not compatible.
+- **Single-result-cell SQL pane**: Replaced the scrolling multi-cell notebook with a single result cell that updates in place when a new query runs. Info and error messages now appear as transient status banners between the result and input bar rather than accumulating as cells. Multi-cell vim navigation (j/k/gg/G) removed; users who need multiple simultaneous results can open additional SQL panes.
 - **Streamlined WASM tutorial**: Removed the on-call and deep-dive tutorial workspaces to simplify the demo. Replaced the Latency time series in the quick-start workspace with a Latency Heatmap.
 - **Hide workspace name in agent mode**: The workspace name segment in the status line is now hidden when agent mode is active, freeing up space for the inline agent input bar.
 - **Neovim tilde markers flush left**: Removed 16px left margin on `~` markers in the empty workspace view so they sit at the very left edge.
@@ -86,6 +95,8 @@ All notable changes to the Enya editor will be documented in this file.
 - **Storage settings category**: New "Storage" section in settings sidebar (native only) showing data locations for configuration (`~/.enya/`), workspaces, cloned repositories, and plugins. Each card displays the directory path with a "Reveal" button to open it in Finder. Full j/k keyboard navigation and Enter/l to reveal the focused item.
 
 ### Fixed
+
+- **SQL pane connection popup**: Three fixes: (1) popup rows used `egui::Frame` which only senses hover — added `ui.interact()` with `Sense::click()` for proper click handling. (2) Popup was positioned using pane width instead of screen coordinates via `Area::fixed_pos`, causing it to render off-screen — now uses `ui.max_rect()` to compute correct screen position. (3) `connect_saved` didn't mark the connection as active during connecting, so the pill stayed on "Not connected" — now sets active immediately with state-aware dot colors (accent=connecting, green=connected, red=failed).
 
 - **Landing page cutoff on WASM**: Fixed text cutting off below keyboard hints at default 100% zoom on WASM. Increased `UNSCALED_CONTENT_HEIGHT` to account for the memorial text line and WASM-only "Download Native App" link, using platform-specific values (720 for WASM, 690 for native).
 

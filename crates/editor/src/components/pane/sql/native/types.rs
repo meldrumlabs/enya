@@ -4,8 +4,6 @@ use enya_datafusion::arrow::array::RecordBatch;
 use enya_datafusion::arrow::datatypes::SchemaRef;
 use enya_datafusion::{ColumnInfo, ExecutionStats, PlanNode, QueryId};
 
-use crate::util::Instant;
-
 use super::connections::ConnectionId;
 
 /// Type of diff being displayed.
@@ -188,45 +186,311 @@ pub(super) enum QueryStatus {
     Cancelled,
 }
 
-/// A single executed query with its results.
-pub(super) struct QueryCell {
-    /// The SQL query that was executed.
-    pub sql: String,
-    /// Query ID for tracking.
+/// Shared metadata for all cell types.
+pub(super) struct CellMeta {
+    /// Unique identifier for this cell.
     pub id: QueryId,
-    /// Current status of the query.
+    /// The SQL query or display text.
+    pub sql: String,
+}
+
+/// Data specific to a query result cell.
+pub(super) struct QueryData {
+    /// Current execution status.
     pub status: QueryStatus,
-    /// When the query started executing.
-    pub started_at: Instant,
-    /// Schema of results (if available).
+    /// Result schema (if available).
     pub schema: Option<SchemaRef>,
-    /// Result batches.
+    /// Result data batches.
     pub batches: Vec<RecordBatch>,
     /// Execution statistics.
     pub stats: Option<ExecutionStats>,
     /// Error message if query failed.
     pub error: Option<String>,
-    /// Whether this is an info/system message (not a user query).
-    pub is_info: bool,
-    /// Diff result when comparing two connections.
+}
+
+/// Data specific to an info/system message cell.
+pub(super) struct InfoData {
+    /// Error message (if this is an error info cell).
+    pub error: Option<String>,
+}
+
+/// Data specific to a diff comparison cell.
+pub(super) struct DiffData {
+    /// Current execution status.
+    pub status: QueryStatus,
+    /// Error message if diff failed.
+    pub error: Option<String>,
+    /// Diff comparison result.
     pub diff_result: Option<DiffQueryResult>,
 }
 
-/// Which content tab is active in an expanded cell.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub(super) enum CellTab {
-    #[default]
-    Table,
-    Plan,
+/// Data specific to an explain plan cell.
+pub(super) struct ExplainData {
+    /// Current execution status.
+    pub status: QueryStatus,
+    /// Error message if explain failed.
+    pub error: Option<String>,
 }
 
-/// Per-cell UI state (stored separately from QueryCell data).
-#[derive(Debug, Clone)]
+/// The kind of cell, carrying variant-specific data.
+#[allow(clippy::large_enum_variant)]
+pub(super) enum CellKind {
+    /// Standard query with tabular results.
+    Query(QueryData),
+    /// Info or error system message.
+    Info(InfoData),
+    /// Diff comparison between two connections.
+    Diff(DiffData),
+    /// Explain/analyze execution plan.
+    Explain(ExplainData),
+}
+
+/// A single cell in the SQL notebook history.
+pub(super) struct Cell {
+    /// Shared metadata.
+    pub meta: CellMeta,
+    /// Cell-specific data.
+    pub kind: CellKind,
+}
+
+impl Cell {
+    /// Create a new query cell in Running state.
+    pub fn query(sql: impl Into<String>, id: QueryId) -> Self {
+        Self {
+            meta: CellMeta {
+                id,
+                sql: sql.into(),
+            },
+            kind: CellKind::Query(QueryData {
+                status: QueryStatus::Running,
+                schema: None,
+                batches: Vec::new(),
+                stats: None,
+                error: None,
+            }),
+        }
+    }
+
+    /// Create a completed query cell (e.g. from snapshot or demo).
+    pub fn query_completed(
+        sql: impl Into<String>,
+        id: QueryId,
+        schema: Option<SchemaRef>,
+        batches: Vec<RecordBatch>,
+        stats: Option<ExecutionStats>,
+        error: Option<String>,
+    ) -> Self {
+        let status = if error.is_some() {
+            QueryStatus::Failed
+        } else {
+            QueryStatus::Completed
+        };
+        Self {
+            meta: CellMeta {
+                id,
+                sql: sql.into(),
+            },
+            kind: CellKind::Query(QueryData {
+                status,
+                schema,
+                batches,
+                stats,
+                error,
+            }),
+        }
+    }
+
+    /// Create an info message cell.
+    pub fn info(message: impl Into<String>) -> Self {
+        Self {
+            meta: CellMeta {
+                id: QueryId::new(),
+                sql: message.into(),
+            },
+            kind: CellKind::Info(InfoData { error: None }),
+        }
+    }
+
+    /// Create an error message cell.
+    pub fn error(message: impl Into<String>) -> Self {
+        let msg = message.into();
+        Self {
+            meta: CellMeta {
+                id: QueryId::new(),
+                sql: String::new(),
+            },
+            kind: CellKind::Info(InfoData { error: Some(msg) }),
+        }
+    }
+
+    /// Create a diff cell in Running state.
+    pub fn diff(sql: impl Into<String>, id: QueryId) -> Self {
+        Self {
+            meta: CellMeta {
+                id,
+                sql: sql.into(),
+            },
+            kind: CellKind::Diff(DiffData {
+                status: QueryStatus::Running,
+                error: None,
+                diff_result: None,
+            }),
+        }
+    }
+
+    /// Create a completed diff cell with result.
+    pub fn diff_completed(
+        sql: impl Into<String>,
+        id: QueryId,
+        diff_result: DiffQueryResult,
+    ) -> Self {
+        Self {
+            meta: CellMeta {
+                id,
+                sql: sql.into(),
+            },
+            kind: CellKind::Diff(DiffData {
+                status: QueryStatus::Completed,
+                error: None,
+                diff_result: Some(diff_result),
+            }),
+        }
+    }
+
+    /// Create an explain cell in Completed state.
+    pub fn explain(sql: impl Into<String>, id: QueryId) -> Self {
+        Self {
+            meta: CellMeta {
+                id,
+                sql: sql.into(),
+            },
+            kind: CellKind::Explain(ExplainData {
+                status: QueryStatus::Completed,
+                error: None,
+            }),
+        }
+    }
+
+    // --- Convenience accessors ---
+
+    /// Cell identifier.
+    pub fn id(&self) -> QueryId {
+        self.meta.id
+    }
+
+    /// The SQL text or display message.
+    pub fn sql(&self) -> &str {
+        &self.meta.sql
+    }
+
+    /// Current execution status.
+    pub fn status(&self) -> QueryStatus {
+        match &self.kind {
+            CellKind::Query(q) => q.status.clone(),
+            CellKind::Info(i) => {
+                if i.error.is_some() {
+                    QueryStatus::Failed
+                } else {
+                    QueryStatus::Completed
+                }
+            }
+            CellKind::Diff(d) => d.status.clone(),
+            CellKind::Explain(e) => e.status.clone(),
+        }
+    }
+
+    /// Error message, if any.
+    pub fn get_error(&self) -> Option<&str> {
+        match &self.kind {
+            CellKind::Query(q) => q.error.as_deref(),
+            CellKind::Info(i) => i.error.as_deref(),
+            CellKind::Diff(d) => d.error.as_deref(),
+            CellKind::Explain(e) => e.error.as_deref(),
+        }
+    }
+
+    /// Result schema (query cells only).
+    pub fn schema(&self) -> Option<&SchemaRef> {
+        match &self.kind {
+            CellKind::Query(q) => q.schema.as_ref(),
+            _ => None,
+        }
+    }
+
+    /// Result data batches (query cells only, empty for others).
+    pub fn batches(&self) -> &[RecordBatch] {
+        match &self.kind {
+            CellKind::Query(q) => &q.batches,
+            _ => &[],
+        }
+    }
+
+    /// Execution statistics (query cells only).
+    pub fn stats(&self) -> Option<&ExecutionStats> {
+        match &self.kind {
+            CellKind::Query(q) => q.stats.as_ref(),
+            _ => None,
+        }
+    }
+
+    /// Diff result (diff cells only).
+    pub fn diff_result(&self) -> Option<&DiffQueryResult> {
+        match &self.kind {
+            CellKind::Diff(d) => d.diff_result.as_ref(),
+            _ => None,
+        }
+    }
+
+    /// Whether this is an info/system message cell.
+    pub fn is_info(&self) -> bool {
+        matches!(self.kind, CellKind::Info(_))
+    }
+
+    /// Whether this cell is navigable (non-info cells).
+    pub fn is_navigable(&self) -> bool {
+        !self.is_info()
+    }
+
+    /// Get mutable access to query data (returns None for non-query cells).
+    pub fn as_query_mut(&mut self) -> Option<&mut QueryData> {
+        match &mut self.kind {
+            CellKind::Query(q) => Some(q),
+            _ => None,
+        }
+    }
+
+    /// Get mutable access to diff data (returns None for non-diff cells).
+    pub fn as_diff_mut(&mut self) -> Option<&mut DiffData> {
+        match &mut self.kind {
+            CellKind::Diff(d) => Some(d),
+            _ => None,
+        }
+    }
+
+    /// Set status across any cell kind that has one.
+    pub fn set_status(&mut self, status: QueryStatus) {
+        match &mut self.kind {
+            CellKind::Query(q) => q.status = status,
+            CellKind::Diff(d) => d.status = status,
+            CellKind::Explain(e) => e.status = status,
+            CellKind::Info(_) => {}
+        }
+    }
+
+    /// Set error across any cell kind.
+    pub fn set_error(&mut self, error: String) {
+        match &mut self.kind {
+            CellKind::Query(q) => q.error = Some(error),
+            CellKind::Diff(d) => d.error = Some(error),
+            CellKind::Explain(e) => e.error = Some(error),
+            CellKind::Info(i) => i.error = Some(error),
+        }
+    }
+}
+
+/// Per-cell UI state.
+#[derive(Debug, Clone, Default)]
 pub(super) struct CellViewState {
-    /// Whether the cell is expanded (showing full results inline).
-    pub expanded: bool,
-    /// Active tab when expanded.
-    pub active_tab: CellTab,
     /// Current page in table view (0-indexed).
     pub table_page: usize,
     /// Column to sort by (None = original order).
@@ -235,14 +499,8 @@ pub(super) struct CellViewState {
     pub sort_ascending: bool,
 }
 
-impl Default for CellViewState {
-    fn default() -> Self {
-        Self {
-            expanded: false,
-            active_tab: CellTab::Table,
-            table_page: 0,
-            sort_column: None,
-            sort_ascending: true,
-        }
-    }
+/// Transient info/error message displayed between the result cell and input bar.
+pub(super) struct StatusMessage {
+    pub text: String,
+    pub is_error: bool,
 }

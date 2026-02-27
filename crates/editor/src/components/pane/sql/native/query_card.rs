@@ -1,8 +1,8 @@
-//! Notebook-style query card rendering.
+//! Query card rendering for the single-cell SQL pane.
 //!
-//! Contains free functions (not `&mut SqlPane` methods) to render each query
-//! as a collapsed or expanded card. Returns `CardAction` enums so the caller
-//! can apply mutations to `SqlPane` after the closure returns.
+//! Contains free functions (not `&mut SqlPane` methods) to render the result
+//! card. Returns `CardAction` enums so the caller can apply mutations to
+//! `SqlPane` after the closure returns.
 
 use egui::{Color32, RichText};
 use enya_datafusion::arrow::array::RecordBatch;
@@ -10,10 +10,10 @@ use enya_datafusion::arrow::datatypes::SchemaRef;
 use enya_datafusion::format_array_value;
 
 use super::plan_view::PlanViewer;
-use super::types::{CellTab, CellViewState, QueryCell, QueryStatus};
+use super::types::{Cell, CellViewState, QueryStatus};
 use crate::components::OverlayColors;
 use crate::components::util::{render_stat_badge, render_stat_badge_with_icon};
-use crate::ui::semantic_icons::{nav, status, time};
+use crate::ui::semantic_icons::{action, nav, status, time};
 use crate::ui::theme::AppTheme;
 use crate::ui::typography;
 
@@ -22,393 +22,57 @@ const ROWS_PER_PAGE: usize = 50;
 
 /// Actions returned by card rendering for the caller to apply.
 pub(super) enum CardAction {
-    /// Select this cell (highlight, enter NAV mode).
-    Select,
-    /// Expand this cell (collapse any other).
-    Expand,
-    /// Collapse this cell.
+    /// Collapse/dismiss the result card (refocus input).
     Collapse,
-    /// Switch to a different tab.
-    SetTab(CellTab),
     /// Copy text to clipboard.
     CopyToClipboard(String),
     /// Share result to agent panel.
     ShareToAgent,
-    /// Delete this cell from history.
+    /// Delete the result cell.
     Delete,
+    /// Open the fullscreen table overlay.
+    ExpandTable,
 }
 
-/// Entry point: renders a query card (collapsed or expanded).
+/// Render the result card (always expanded).
+///
+/// `input_has_focus`: when `true`, the SQL input bar has focus — the card
+/// skips global keyboard shortcuts (vim scroll, x/s/Esc) so they don't
+/// conflict with typing.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn render_query_card(
     ui: &mut egui::Ui,
-    cell: &QueryCell,
+    cell: &Cell,
     cell_idx: usize,
     view_state: &mut CellViewState,
     theme: AppTheme,
     overlay_blocks_input: bool,
     plan_viewer: &mut PlanViewer,
-    is_selected: bool,
-    cell_number: usize,
+    input_has_focus: bool,
 ) -> Vec<CardAction> {
-    if view_state.expanded {
-        render_expanded_card(
-            ui,
-            cell,
-            cell_idx,
-            view_state,
-            theme,
-            overlay_blocks_input,
-            plan_viewer,
-            cell_number,
-        )
-    } else {
-        render_collapsed_card(ui, cell, cell_idx, theme, is_selected, cell_number)
-    }
-}
-
-/// Render a collapsed card: status icon + SQL preview + stats + expand chevron.
-fn render_collapsed_card(
-    ui: &mut egui::Ui,
-    cell: &QueryCell,
-    cell_idx: usize,
-    theme: AppTheme,
-    is_selected: bool,
-    cell_number: usize,
-) -> Vec<CardAction> {
-    let mut actions = Vec::new();
-    let text_primary = theme.text_primary();
-    let text_secondary = theme.text_secondary();
-    let accent = theme.accent_primary();
-    let max_preview_rows = 3;
-    let max_value_len = 16;
-
-    let border_color = if is_selected {
-        accent
-    } else {
-        theme.border_default()
-    };
-    let border_width = if is_selected { 2.0 } else { 1.0 };
-
-    let card_response = egui::Frame::new()
-        .fill(theme.bg_elevated())
-        .stroke(egui::Stroke::new(border_width, border_color))
-        .corner_radius(8.0)
-        .inner_margin(0.0)
-        .show(ui, |ui| {
-            // Header: status icon + SQL preview + stats + chevron
-            egui::Frame::new()
-                .fill(theme.bg_surface())
-                .inner_margin(egui::Margin::symmetric(12, 8))
-                .corner_radius(egui::CornerRadius {
-                    nw: 8,
-                    ne: 8,
-                    sw: 0,
-                    se: 0,
-                })
-                .show(ui, |ui| {
-                    ui.horizontal(|ui| {
-                        // Cell number
-                        ui.label(
-                            RichText::new(format!("[{cell_number}]"))
-                                .color(text_secondary.gamma_multiply(0.4))
-                                .size(10.0)
-                                .monospace(),
-                        );
-                        ui.add_space(4.0);
-
-                        // Status icon
-                        match &cell.status {
-                            QueryStatus::Running => {
-                                ui.spinner();
-                            }
-                            QueryStatus::Completed => {
-                                ui.label(
-                                    RichText::new(status::SUCCESS)
-                                        .color(theme.semantic_success())
-                                        .size(11.0),
-                                );
-                            }
-                            QueryStatus::Failed => {
-                                ui.label(
-                                    RichText::new(status::ERROR)
-                                        .color(theme.semantic_error())
-                                        .size(11.0),
-                                );
-                            }
-                            QueryStatus::Cancelled => {
-                                ui.label(
-                                    RichText::new(status::ERROR)
-                                        .color(text_secondary)
-                                        .size(11.0),
-                                );
-                            }
-                        }
-                        ui.add_space(6.0);
-
-                        // SQL preview (truncated to 1 line)
-                        let sql_oneline = cell.sql.replace('\n', " ");
-                        let sql_display = if sql_oneline.len() > 60 {
-                            format!("{}…", &sql_oneline[..59])
-                        } else {
-                            sql_oneline
-                        };
-                        ui.label(
-                            RichText::new(sql_display)
-                                .color(text_primary)
-                                .size(11.0)
-                                .monospace(),
-                        );
-
-                        // Right side: stats + chevron
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            // Expand chevron
-                            ui.label(
-                                RichText::new(nav::FORWARD)
-                                    .color(text_secondary.gamma_multiply(0.5))
-                                    .size(11.0),
-                            );
-                            ui.add_space(8.0);
-
-                            // Execution time
-                            if let Some(stats) = &cell.stats {
-                                ui.label(
-                                    RichText::new(format!("{}ms", stats.total_time.as_millis()))
-                                        .color(text_secondary)
-                                        .size(10.0),
-                                );
-                                ui.add_space(4.0);
-                            }
-
-                            // Row count
-                            if cell.status == QueryStatus::Completed {
-                                let row_count: usize =
-                                    cell.batches.iter().map(|b| b.num_rows()).sum();
-                                ui.label(
-                                    RichText::new(format!("{row_count} rows"))
-                                        .color(text_secondary)
-                                        .size(10.0),
-                                );
-                            }
-
-                            // Running elapsed time
-                            if cell.status == QueryStatus::Running {
-                                let elapsed = cell.started_at.elapsed().as_secs_f32();
-                                ui.label(
-                                    RichText::new(format!("{elapsed:.1}s"))
-                                        .color(accent)
-                                        .size(10.0),
-                                );
-                                ui.ctx().request_repaint();
-                            }
-                        });
-                    });
-                });
-
-            // Error message if failed
-            if let Some(error) = &cell.error {
-                egui::Frame::new()
-                    .fill(theme.semantic_error().gamma_multiply(0.1))
-                    .inner_margin(egui::Margin::symmetric(12, 8))
-                    .show(ui, |ui| {
-                        let display_error = if error.len() > 120 {
-                            format!("{}...", &error[..120])
-                        } else {
-                            error.clone()
-                        };
-                        ui.label(
-                            RichText::new(display_error)
-                                .color(theme.semantic_error())
-                                .size(11.0)
-                                .monospace(),
-                        );
-                    });
-            }
-
-            // Compact table preview (3 rows)
-            if !cell.batches.is_empty() {
-                if let Some(schema) = &cell.schema {
-                    render_compact_table_preview(
-                        ui,
-                        schema,
-                        &cell.batches,
-                        max_preview_rows,
-                        max_value_len,
-                        text_primary,
-                        text_secondary,
-                    );
-                }
-            }
-
-            // Bottom bar (subtle, no footer needed for collapsed)
-            egui::Frame::new()
-                .fill(theme.bg_surface())
-                .inner_margin(egui::Margin::symmetric(12, 4))
-                .corner_radius(egui::CornerRadius {
-                    nw: 0,
-                    ne: 0,
-                    sw: 8,
-                    se: 8,
-                })
-                .show(ui, |_ui| {
-                    // Intentionally minimal - just closes the card frame
-                });
-        });
-
-    // Click to select, double-click to expand
-    let card_rect = card_response.response.rect;
-    let click_response = ui.interact(
-        card_rect,
-        egui::Id::new(("card_click", cell_idx)),
-        egui::Sense::click(),
-    );
-    if click_response.double_clicked() {
-        actions.push(CardAction::Expand);
-    } else if click_response.clicked() {
-        actions.push(CardAction::Select);
-    }
-    if click_response.hovered() {
-        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-    }
-
-    actions
-}
-
-/// Render a compact table preview (used in collapsed cards).
-fn render_compact_table_preview(
-    ui: &mut egui::Ui,
-    schema: &SchemaRef,
-    batches: &[RecordBatch],
-    max_rows: usize,
-    max_value_len: usize,
-    text_primary: Color32,
-    text_secondary: Color32,
-) {
-    let total_cols = schema.fields().len();
-    let available_width = ui.available_width() - 24.0;
-    let col_spacing = 16.0;
-    let char_width = 6.5;
-    let overflow_indicator_width = 40.0;
-
-    let col_widths: Vec<f32> = schema
-        .fields()
-        .iter()
-        .map(|f| {
-            let name_len = f.name().len().min(max_value_len);
-            (name_len as f32 * char_width).max(40.0)
-        })
-        .collect();
-
-    let mut total_width = 0.0;
-    let mut show_cols = 0;
-    for (i, &width) in col_widths.iter().enumerate() {
-        let needed = if i == 0 { width } else { col_spacing + width };
-        let reserve = if i + 1 < total_cols {
-            overflow_indicator_width
-        } else {
-            0.0
-        };
-        if total_width + needed + reserve <= available_width {
-            total_width += needed;
-            show_cols = i + 1;
-        } else {
-            break;
-        }
-    }
-    show_cols = show_cols.max(1);
-
-    egui::Frame::new()
-        .inner_margin(egui::Margin::symmetric(12, 8))
-        .show(ui, |ui| {
-            // Column headers
-            ui.horizontal(|ui| {
-                for (col_idx, field) in schema.fields().iter().take(show_cols).enumerate() {
-                    if col_idx > 0 {
-                        ui.add_space(col_spacing);
-                    }
-                    let name = field.name();
-                    let display_name = if name.len() > max_value_len {
-                        format!("{}…", &name[..max_value_len - 1])
-                    } else {
-                        name.to_string()
-                    };
-                    ui.label(
-                        RichText::new(display_name)
-                            .color(text_primary)
-                            .size(10.0)
-                            .strong()
-                            .monospace(),
-                    );
-                }
-                if total_cols > show_cols {
-                    ui.add_space(8.0);
-                    ui.label(
-                        RichText::new(format!("+{}", total_cols - show_cols))
-                            .color(text_secondary.gamma_multiply(0.5))
-                            .size(10.0),
-                    );
-                }
-            });
-
-            ui.add_space(2.0);
-
-            // Data rows
-            let mut rows_shown = 0;
-            'outer: for batch in batches {
-                for row_idx in 0..batch.num_rows() {
-                    if rows_shown >= max_rows {
-                        break 'outer;
-                    }
-                    ui.horizontal(|ui| {
-                        for col_idx in 0..batch.num_columns().min(show_cols) {
-                            if col_idx > 0 {
-                                ui.add_space(col_spacing);
-                            }
-                            let col = batch.column(col_idx);
-                            let value = format_array_value(col.as_ref(), row_idx);
-                            let (display_val, color) = if value == "NULL" {
-                                ("null".to_string(), text_secondary.gamma_multiply(0.4))
-                            } else if value.len() > max_value_len {
-                                (format!("{}…", &value[..max_value_len - 1]), text_secondary)
-                            } else {
-                                (value, text_secondary)
-                            };
-                            ui.label(
-                                RichText::new(display_val)
-                                    .color(color)
-                                    .size(10.0)
-                                    .monospace(),
-                            );
-                        }
-                    });
-                    rows_shown += 1;
-                }
-            }
-
-            // "More rows" indicator
-            let total_rows: usize = batches.iter().map(|b| b.num_rows()).sum();
-            if total_rows > max_rows {
-                ui.label(
-                    RichText::new(format!("… {} more", total_rows - max_rows))
-                        .color(text_secondary.gamma_multiply(0.5))
-                        .size(10.0)
-                        .italics(),
-                );
-            }
-        });
+    render_expanded_card(
+        ui,
+        cell,
+        cell_idx,
+        view_state,
+        theme,
+        overlay_blocks_input,
+        plan_viewer,
+        input_has_focus,
+    )
 }
 
 /// Render an expanded card: full SQL + tab bar + inline content + footer.
 #[allow(clippy::too_many_arguments)]
 fn render_expanded_card(
     ui: &mut egui::Ui,
-    cell: &QueryCell,
+    cell: &Cell,
     cell_idx: usize,
     view_state: &mut CellViewState,
     theme: AppTheme,
     overlay_blocks_input: bool,
     plan_viewer: &mut PlanViewer,
-    cell_number: usize,
+    input_has_focus: bool,
 ) -> Vec<CardAction> {
     let mut actions = Vec::new();
     let colors = OverlayColors::new(theme);
@@ -416,13 +80,10 @@ fn render_expanded_card(
     let text_secondary = theme.text_secondary();
     let accent = theme.accent_primary();
 
-    // Surrender focus so vim keys don't leak into the input bar
-    ui.ctx()
-        .memory_mut(|mem| mem.surrender_focus(egui::Id::NULL));
-
-    // Handle keyboard shortcuts
-    if !overlay_blocks_input {
+    // Handle keyboard shortcuts only when input bar doesn't have focus
+    if !overlay_blocks_input && !input_has_focus {
         let mut should_collapse = false;
+        let mut should_delete = false;
         let mut next_page = false;
         let mut prev_page = false;
         let mut goto_last_page = false;
@@ -435,6 +96,9 @@ fn render_expanded_card(
             if i.consume_key(egui::Modifiers::NONE, egui::Key::Escape) {
                 should_collapse = true;
             }
+            if i.consume_key(egui::Modifiers::NONE, egui::Key::X) {
+                should_delete = true;
+            }
             if i.consume_key(egui::Modifiers::COMMAND, egui::Key::C)
                 || i.consume_key(egui::Modifiers::CTRL, egui::Key::C)
             {
@@ -444,8 +108,8 @@ fn render_expanded_card(
                 should_share = true;
             }
 
-            // Vim scrolling (table tab only)
-            if view_state.active_tab == CellTab::Table {
+            // Vim scrolling (query cells only)
+            if matches!(cell.kind, super::types::CellKind::Query(_)) {
                 let step = 50.0;
                 if i.consume_key(egui::Modifiers::NONE, egui::Key::L) {
                     scroll_delta.x += step;
@@ -483,9 +147,12 @@ fn render_expanded_card(
         if should_collapse {
             actions.push(CardAction::Collapse);
         }
+        if should_delete {
+            actions.push(CardAction::Delete);
+        }
         if should_copy {
-            if let Some(schema) = &cell.schema {
-                let tsv = format_results_as_tsv(schema, &cell.batches);
+            if let Some(schema) = cell.schema() {
+                let tsv = format_results_as_tsv(schema, cell.batches());
                 actions.push(CardAction::CopyToClipboard(tsv));
             }
         }
@@ -495,7 +162,7 @@ fn render_expanded_card(
 
         // Apply pagination
         let rows_per_page = ROWS_PER_PAGE;
-        let total_rows: usize = cell.batches.iter().map(|b| b.num_rows()).sum();
+        let total_rows: usize = cell.batches().iter().map(|b| b.num_rows()).sum();
         let total_pages = total_rows.div_ceil(rows_per_page).max(1);
         if next_page && view_state.table_page < total_pages - 1 {
             view_state.table_page += 1;
@@ -563,17 +230,8 @@ fn render_expanded_card(
                 })
                 .show(ui, |ui| {
                     ui.horizontal(|ui| {
-                        // Cell number
-                        ui.label(
-                            RichText::new(format!("[{cell_number}]"))
-                                .color(text_secondary.gamma_multiply(0.4))
-                                .size(10.0)
-                                .monospace(),
-                        );
-                        ui.add_space(4.0);
-
                         // Status icon
-                        match &cell.status {
+                        match cell.status() {
                             QueryStatus::Completed => {
                                 ui.label(
                                     RichText::new(status::SUCCESS)
@@ -589,7 +247,7 @@ fn render_expanded_card(
                                 );
                             }
                             QueryStatus::Running => {
-                                ui.spinner();
+                                ui.add(egui::Spinner::new().color(accent).size(14.0));
                             }
                             QueryStatus::Cancelled => {
                                 ui.label(
@@ -603,14 +261,33 @@ fn render_expanded_card(
 
                         // Full SQL text (multi-line)
                         ui.label(
-                            RichText::new(&cell.sql)
+                            RichText::new(cell.sql())
                                 .color(text_primary)
                                 .size(11.0)
                                 .monospace(),
                         );
 
-                        // Collapse chevron on the right
+                        // Close + collapse on the right
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            // Close button
+                            let close_resp = ui.add(
+                                egui::Label::new(
+                                    RichText::new(action::CLOSE)
+                                        .color(text_secondary.gamma_multiply(0.3))
+                                        .size(11.0),
+                                )
+                                .sense(egui::Sense::click()),
+                            );
+                            if close_resp.clicked() {
+                                actions.push(CardAction::Delete);
+                            }
+                            if close_resp.hovered() {
+                                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                            }
+
+                            ui.add_space(8.0);
+
+                            // Collapse chevron
                             let chevron_resp = ui.add(
                                 egui::Label::new(
                                     RichText::new(nav::COLLAPSE)
@@ -630,13 +307,13 @@ fn render_expanded_card(
                 });
 
             // Error display
-            if let Some(error) = &cell.error {
+            if let Some(error) = cell.get_error() {
                 egui::Frame::new()
                     .fill(theme.semantic_error().gamma_multiply(0.1))
                     .inner_margin(egui::Margin::symmetric(12, 8))
                     .show(ui, |ui| {
                         ui.label(
-                            RichText::new(error.as_str())
+                            RichText::new(error)
                                 .color(theme.semantic_error())
                                 .size(11.0)
                                 .monospace(),
@@ -644,9 +321,12 @@ fn render_expanded_card(
                     });
             }
 
-            // === Tab bar + stats ===
-            if cell.status == QueryStatus::Completed {
-                render_tab_bar(ui, cell, view_state, theme, &mut actions);
+            // === Tab bar + content area ===
+            let is_query = matches!(cell.kind, super::types::CellKind::Query(_));
+            let is_explain = matches!(cell.kind, super::types::CellKind::Explain(_));
+
+            if is_query && cell.status() == QueryStatus::Completed {
+                render_stats_bar(ui, cell, theme, &mut actions);
             }
 
             // Separator
@@ -656,26 +336,26 @@ fn render_expanded_card(
                 egui::Stroke::new(1.0, colors.separator),
             );
 
-            // === Content area ===
-            match view_state.active_tab {
-                CellTab::Table => {
-                    if !cell.batches.is_empty() && cell.schema.is_some() {
-                        render_inline_table(ui, cell, cell_idx, view_state, theme);
-                    } else if cell.batches.is_empty() && cell.error.is_none() {
+            if is_explain {
+                // Explain cells always show the plan directly
+                render_inline_plan(ui, cell, plan_viewer, theme, overlay_blocks_input);
+            } else if is_query {
+                if !cell.batches().is_empty() && cell.schema().is_some() {
+                    render_inline_table(ui, cell, cell_idx, view_state, theme);
+                } else if cell.status() == QueryStatus::Completed
+                    && cell.batches().is_empty()
+                    && cell.get_error().is_none()
+                {
+                    ui.add_space(16.0);
+                    ui.horizontal(|ui| {
                         ui.add_space(16.0);
-                        ui.horizontal(|ui| {
-                            ui.add_space(16.0);
-                            ui.label(
-                                RichText::new("Query returned no rows")
-                                    .color(text_secondary)
-                                    .size(11.0),
-                            );
-                        });
-                        ui.add_space(16.0);
-                    }
-                }
-                CellTab::Plan => {
-                    render_inline_plan(ui, cell, plan_viewer, theme, overlay_blocks_input);
+                        ui.label(
+                            RichText::new("Query returned no rows")
+                                .color(text_secondary)
+                                .size(11.0),
+                        );
+                    });
+                    ui.add_space(16.0);
                 }
             }
 
@@ -686,16 +366,14 @@ fn render_expanded_card(
     actions
 }
 
-/// Render the [Table] [Plan] tab bar with stat badges.
-fn render_tab_bar(
+/// Render the stats bar for query cells.
+fn render_stats_bar(
     ui: &mut egui::Ui,
-    cell: &QueryCell,
-    view_state: &mut CellViewState,
+    cell: &Cell,
     theme: AppTheme,
     actions: &mut Vec<CardAction>,
 ) {
     let colors = OverlayColors::new(theme);
-    let accent = theme.accent_primary();
     let text_secondary = theme.text_secondary();
 
     egui::Frame::new()
@@ -703,63 +381,30 @@ fn render_tab_bar(
         .inner_margin(egui::Margin::symmetric(12, 6))
         .show(ui, |ui| {
             ui.horizontal(|ui| {
-                // Table tab
-                let table_active = view_state.active_tab == CellTab::Table;
-                let table_color = if table_active { accent } else { text_secondary };
-                let table_resp = ui.add(
-                    egui::Label::new(
-                        RichText::new("Table")
-                            .color(table_color)
-                            .size(11.0)
-                            .strong(),
-                    )
-                    .sense(egui::Sense::click()),
-                );
-                if table_resp.clicked() && !table_active {
-                    actions.push(CardAction::SetTab(CellTab::Table));
-                }
-                if table_resp.hovered() {
-                    ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-                }
-
-                // Underline for active tab
-                if table_active {
-                    let rect = table_resp.rect;
-                    ui.painter().hline(
-                        rect.x_range(),
-                        rect.bottom() + 1.0,
-                        egui::Stroke::new(2.0, accent),
-                    );
-                }
-
-                ui.add_space(12.0);
-
-                // Plan tab
-                let plan_active = view_state.active_tab == CellTab::Plan;
-                let plan_color = if plan_active { accent } else { text_secondary };
-                let plan_resp = ui.add(
-                    egui::Label::new(RichText::new("Plan").color(plan_color).size(11.0).strong())
-                        .sense(egui::Sense::click()),
-                );
-                if plan_resp.clicked() && !plan_active {
-                    actions.push(CardAction::SetTab(CellTab::Plan));
-                }
-                if plan_resp.hovered() {
-                    ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-                }
-                if plan_active {
-                    let rect = plan_resp.rect;
-                    ui.painter().hline(
-                        rect.x_range(),
-                        rect.bottom() + 1.0,
-                        egui::Stroke::new(2.0, accent),
-                    );
-                }
-
                 // Stats on the right
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    // Fullscreen button
+                    if !cell.batches().is_empty() {
+                        let expand_resp = ui.add(
+                            egui::Label::new(
+                                RichText::new(nav::FULLSCREEN)
+                                    .color(text_secondary.gamma_multiply(0.5))
+                                    .size(13.0),
+                            )
+                            .sense(egui::Sense::click()),
+                        );
+                        if expand_resp.clicked() {
+                            actions.push(CardAction::ExpandTable);
+                        }
+                        if expand_resp.hovered() {
+                            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                            expand_resp.on_hover_text("Expand results");
+                        }
+                        ui.add_space(8.0);
+                    }
+
                     // Execution time
-                    if let Some(stats) = &cell.stats {
+                    if let Some(stats) = cell.stats() {
                         render_stat_badge_with_icon(
                             ui,
                             time::TIMER,
@@ -770,11 +415,11 @@ fn render_tab_bar(
                     }
 
                     // Row count
-                    let total_rows: usize = cell.batches.iter().map(|b| b.num_rows()).sum();
+                    let total_rows: usize = cell.batches().iter().map(|b| b.num_rows()).sum();
                     render_stat_badge(ui, &format!("{total_rows} rows"), &colors);
 
                     // Column count
-                    if let Some(schema) = &cell.schema {
+                    if let Some(schema) = cell.schema() {
                         ui.add_space(4.0);
                         render_stat_badge(ui, &format!("{} cols", schema.fields().len()), &colors);
                     }
@@ -786,7 +431,7 @@ fn render_tab_bar(
 /// Render the inline table view (full data with sort and pagination).
 fn render_inline_table(
     ui: &mut egui::Ui,
-    cell: &QueryCell,
+    cell: &Cell,
     cell_idx: usize,
     view_state: &mut CellViewState,
     theme: AppTheme,
@@ -795,7 +440,7 @@ fn render_inline_table(
     let bg_surface = theme.bg_surface();
     let rows_per_page = ROWS_PER_PAGE;
 
-    let schema = cell.schema.as_ref().unwrap();
+    let schema = cell.schema().unwrap();
     let num_cols = schema.fields().len();
 
     // Calculate column widths
@@ -821,7 +466,7 @@ fn render_inline_table(
     let sort_asc = view_state.sort_ascending;
     let sorted_row_indices: Vec<(usize, usize)> = {
         let mut indices: Vec<(usize, usize)> = Vec::new();
-        for (batch_idx, batch) in cell.batches.iter().enumerate() {
+        for (batch_idx, batch) in cell.batches().iter().enumerate() {
             for row_idx in 0..batch.num_rows() {
                 indices.push((batch_idx, row_idx));
             }
@@ -829,8 +474,8 @@ fn render_inline_table(
         if let Some(sc) = sort_col {
             if sc < num_cols {
                 indices.sort_by(|a, b| {
-                    let val_a = format_array_value(cell.batches[a.0].column(sc).as_ref(), a.1);
-                    let val_b = format_array_value(cell.batches[b.0].column(sc).as_ref(), b.1);
+                    let val_a = format_array_value(cell.batches()[a.0].column(sc).as_ref(), a.1);
+                    let val_b = format_array_value(cell.batches()[b.0].column(sc).as_ref(), b.1);
                     let ord = compare_cell_values(&val_a, &val_b);
                     if sort_asc { ord } else { ord.reverse() }
                 });
@@ -972,7 +617,7 @@ fn render_inline_table(
                         sorted_row_indices[page_start..page_end].iter().enumerate()
                     {
                         let absolute_row = start_row + display_idx + 1;
-                        let batch = &cell.batches[batch_idx];
+                        let batch = &cell.batches()[batch_idx];
 
                         let row_bg = if display_idx % 2 == 0 {
                             Color32::TRANSPARENT
@@ -1064,7 +709,7 @@ fn render_inline_table(
 /// Render the inline plan view (PlanViewer embedded in the card).
 fn render_inline_plan(
     ui: &mut egui::Ui,
-    _cell: &QueryCell,
+    _cell: &Cell,
     plan_viewer: &mut PlanViewer,
     theme: AppTheme,
     overlay_blocks_input: bool,
@@ -1097,13 +742,13 @@ fn render_inline_plan(
 /// Render the card footer with pagination controls and keyboard hints.
 fn render_card_footer(
     ui: &mut egui::Ui,
-    cell: &QueryCell,
+    cell: &Cell,
     view_state: &CellViewState,
     _theme: AppTheme,
     colors: &OverlayColors,
 ) {
     let rows_per_page = ROWS_PER_PAGE;
-    let total_rows: usize = cell.batches.iter().map(|b| b.num_rows()).sum();
+    let total_rows: usize = cell.batches().iter().map(|b| b.num_rows()).sum();
     let total_pages = total_rows.div_ceil(rows_per_page).max(1);
 
     // Separator
@@ -1121,9 +766,11 @@ fn render_card_footer(
             ui.add_space(12.0);
 
             // Keyboard hints
-            let hints = match view_state.active_tab {
-                CellTab::Table => "hjkl scroll \u{00B7} [/] page \u{00B7} gg/G first/last \u{00B7} \u{2318}C copy \u{00B7} S share \u{00B7} Esc",
-                CellTab::Plan => "j/k nav \u{00B7} h/l fold \u{00B7} \u{2318}C copy \u{00B7} Esc",
+            let is_explain = matches!(cell.kind, super::types::CellKind::Explain(_));
+            let hints = if is_explain {
+                "j/k nav \u{00B7} h/l fold \u{00B7} \u{2318}C copy \u{00B7} x close \u{00B7} Esc"
+            } else {
+                "hjkl scroll \u{00B7} [/] page \u{00B7} gg/G first/last \u{00B7} \u{2318}C copy \u{00B7} S share \u{00B7} x close \u{00B7} Esc"
             };
             ui.label(
                 RichText::new(hints)
@@ -1131,8 +778,8 @@ fn render_card_footer(
                     .font(typography::proportional(typography::XS)),
             );
 
-            // Pagination (table tab only)
-            if view_state.active_tab == CellTab::Table && total_pages > 1 {
+            // Pagination
+            if !is_explain && total_pages > 1 {
                 ui.add_space(12.0);
 
                 // Page indicator
