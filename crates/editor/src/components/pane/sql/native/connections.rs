@@ -203,14 +203,11 @@ pub fn render_connection_popup(
                                 text_secondary.gamma_multiply(0.4)
                             };
 
-                            let row_bg = if conn.active {
-                                accent.gamma_multiply(0.1)
-                            } else {
-                                Color32::TRANSPARENT
-                            };
+                            // Reserve a paint slot for the row background so we can
+                            // paint it behind the text after we know the interaction state.
+                            let bg_idx = ui.painter().add(egui::Shape::Noop);
 
                             let row = egui::Frame::new()
-                                .fill(row_bg)
                                 .corner_radius(4.0)
                                 .inner_margin(egui::Margin::symmetric(8, 6))
                                 .show(ui, |ui| {
@@ -232,7 +229,28 @@ pub fn render_connection_popup(
                                     });
                                 });
 
-                            if row.response.clicked() {
+                            // Frame::show() only senses hover, not clicks. Interact
+                            // with the row rect to make it respond to click events.
+                            let row_response = ui.interact(
+                                row.response.rect,
+                                row.response.id.with("click"),
+                                egui::Sense::click(),
+                            );
+
+                            // Paint hover/active background behind the row text.
+                            let row_bg = if conn.active {
+                                accent.gamma_multiply(0.1)
+                            } else if row_response.hovered() {
+                                theme.bg_surface()
+                            } else {
+                                Color32::TRANSPARENT
+                            };
+                            ui.painter().set(
+                                bg_idx,
+                                egui::Shape::rect_filled(row.response.rect, 4.0, row_bg),
+                            );
+
+                            if row_response.clicked() {
                                 if is_connected {
                                     actions.push(ConnectionAction::SetActive(conn.id));
                                 } else if !is_connecting {
@@ -241,7 +259,7 @@ pub fn render_connection_popup(
                                 actions.push(ConnectionAction::ClosePopup);
                             }
 
-                            row.response.context_menu(|ui| {
+                            row_response.context_menu(|ui| {
                                 if is_connected && ui.button("Disconnect").clicked() {
                                     actions.push(ConnectionAction::Disconnect(conn.id));
                                     ui.close();

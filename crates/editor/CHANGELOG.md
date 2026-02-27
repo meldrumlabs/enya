@@ -87,6 +87,8 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Fixed
 
+- **SQL pane connection popup not clickable**: Fixed the connections dropdown in the SQL pane being unresponsive to clicks. The popup rows used `egui::Frame` which only senses hover, not clicks. Added explicit click interaction via `ui.interact()` on row rects. Also added hover highlight for better discoverability.
+
 - **Landing page cutoff on WASM**: Fixed text cutting off below keyboard hints at default 100% zoom on WASM. Increased `UNSCALED_CONTENT_HEIGHT` to account for the memorial text line and WASM-only "Download Native App" link, using platform-specific values (720 for WASM, 690 for native).
 
 - **Overlay centering with sidebar**: Fixed all overlays (tutorial, fuzzy finder, plugins, settings, command palette, etc.) centering on the full screen instead of the content area when the project sidebar is open. Overlays now center within the area to the right of the sidebar.

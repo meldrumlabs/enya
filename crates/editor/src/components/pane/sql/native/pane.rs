@@ -1870,7 +1870,7 @@ impl SqlPane {
 
                         // Split borrows: history (read), cell_states (write), plan_viewer (write)
                         let has_connections = !self.connections.is_empty();
-                        let is_connected = self.active_connection().map_or(false, |c| {
+                        let is_connected = self.active_connection().is_some_and(|c| {
                             matches!(c.state, ConnectionState::Connected)
                         });
                         let history = &self.history;
