@@ -1084,7 +1084,7 @@ impl UnifiedFinder {
                     let footer_height = 30.0; // Fixed footer height
 
                     // Content area - takes all remaining space minus footer
-                    let content_height = ui.available_height() - footer_height - 16.0; // 16 = spacing + margins
+                    let content_height = (ui.available_height() - footer_height - 16.0).max(1.0); // 16 = spacing + margins
                     clicked_index = self.render_content(
                         ui,
                         &colors,

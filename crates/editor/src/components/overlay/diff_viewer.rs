@@ -297,7 +297,7 @@ impl DiffViewerOverlay {
 
                     ui.horizontal(|ui| {
                         // Left side: Diff content (takes remaining width)
-                        let diff_width = popup_width - file_panel_width - 24.0; // account for margins
+                        let diff_width = (popup_width - file_panel_width - 24.0).max(1.0); // account for margins
                         ui.allocate_ui_with_layout(
                             egui::vec2(diff_width, content_height),
                             egui::Layout::top_down(egui::Align::LEFT),
@@ -706,7 +706,7 @@ impl DiffViewerOverlay {
         let line_num_width = max_line_num.to_string().len().max(3);
 
         // Each side gets half the width minus some padding
-        let side_width = (available_width - 8.0) / 2.0;
+        let side_width = ((available_width - 8.0) / 2.0).max(1.0);
 
         let theme = self.theme;
 

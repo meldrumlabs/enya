@@ -178,6 +178,7 @@ impl ProviderManifest {
     }
 
     /// Replace the global manifest with a freshly fetched one.
+    #[cfg(not(target_arch = "wasm32"))]
     fn update(new_manifest: ProviderManifest) {
         *MANIFEST.write() = new_manifest;
     }

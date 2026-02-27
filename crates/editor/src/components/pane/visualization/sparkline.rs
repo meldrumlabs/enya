@@ -210,7 +210,7 @@ impl SparklineViz {
             // Render the sparkline - scale height with available space
             let available = ui.available_size();
             let height = (available.y - 24.0).clamp(60.0, 400.0);
-            let width = available.x - 16.0;
+            let width = (available.x - 16.0).max(1.0);
 
             let (response, painter) =
                 ui.allocate_painter(egui::vec2(width, height), egui::Sense::hover());

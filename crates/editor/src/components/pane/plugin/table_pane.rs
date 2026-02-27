@@ -121,7 +121,7 @@ impl PluginTablePane {
         ui.add_space(8.0);
 
         // Table content area
-        let table_height = available_size.y - HEADER_HEIGHT - PADDING * 2.5;
+        let table_height = (available_size.y - HEADER_HEIGHT - PADDING * 2.5).max(1.0);
 
         // Reset hover state before rendering
         self.hovered_index = None;

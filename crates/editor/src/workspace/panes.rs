@@ -19,7 +19,7 @@ use crate::components::pane::inline_content::{
     SearchResultItem,
 };
 use crate::components::pane::logs_pane::LogsBackend;
-use crate::components::pane::query_pane::QueryPaneAction;
+
 use crate::components::pane::time_series_chart::{DataPoint, Series};
 use crate::components::util::query_executor::ExecuteParams;
 use crate::components::util::{ActivityItem, ActivityType};
@@ -1461,43 +1461,6 @@ impl Workspace {
         log::debug!("Split panes vertically (horizontal layout)");
     }
 
-    /// Setup the tutorial layout with two panes stacked vertically:
-    /// - "HTTP Requests" on top, "Memory Used" on bottom
-    pub(super) fn setup_tutorial_layout(&mut self) {
-        use crate::components::pane::QueryPane;
-
-        let demo_queries = [
-            (
-                "http_requests_total{method=\"GET\", path=\"/api/users\"}",
-                "HTTP Requests",
-                "",
-            ),
-            ("node_memory_Active_bytes", "Memory Used", "MB"),
-        ];
-
-        let mut pane_ids = Vec::new();
-        for (query, name, unit) in demo_queries {
-            let pane: Box<dyn Component> =
-                Box::new(QueryPane::with_demo_query_named_unit(query, name, unit));
-            let pane_tile = self.viewport_tree.tiles.insert_pane(pane);
-            self.open_charts.insert(query.to_string());
-            pane_ids.push(pane_tile);
-        }
-
-        let root = self
-            .viewport_tree
-            .tiles
-            .insert_vertical_tile(vec![pane_ids[0], pane_ids[1]]);
-
-        // Set as the tree root
-        self.viewport_tree.root = Some(root);
-
-        // Focus the first pane
-        self.behavior.set_focused_tile(Some(pane_ids[0]));
-
-        log::debug!("Setup tutorial layout with 2 panes side by side");
-    }
-
     // ==================== Pane Movement (Ctrl+W H/J/K/L) ====================
 
     /// Move the focused pane to the far left (becomes leftmost vertical split).
@@ -2477,47 +2440,8 @@ impl Workspace {
 
     // ==================== Pane Interaction Polling ====================
 
-    /// Poll all QueryPanes for pending actions (like drilldown clicks).
-    /// Call this after rendering to handle chart interactions.
+    /// Poll panes for pending actions.
     pub fn poll_pane_interactions(&mut self) {
-        // Collect actions first to avoid borrow issues
-        let mut drilldown_actions = Vec::new();
-
-        for tile_id in self.get_pane_tile_ids() {
-            if let Some(Tile::Pane(component)) = self.viewport_tree.tiles.get_mut(tile_id) {
-                if let Some(query_pane) = component.as_any_mut().downcast_mut::<QueryPane>() {
-                    if let Some(action) = query_pane.take_pending_action() {
-                        drilldown_actions.push(action);
-                    }
-                }
-            }
-        }
-
-        // Process collected actions
-        for action in drilldown_actions {
-            match action {
-                QueryPaneAction::DrilldownLogs {
-                    timestamp_secs,
-                    metric_name,
-                } => {
-                    // Convert timestamp to nanoseconds and create a 5-minute window around it
-                    let center_ns = (timestamp_secs * 1_000_000_000.0) as i64;
-                    let window_ns = 5 * 60 * 1_000_000_000_i64; // 5 minutes in nanoseconds
-                    let start_ns = center_ns - window_ns / 2;
-                    let end_ns = center_ns + window_ns / 2;
-
-                    log::info!(
-                        "Opening logs pane for drilldown at {timestamp_secs} (metric: {metric_name})"
-                    );
-
-                    self.add_logs_pane(start_ns, end_ns);
-                }
-                QueryPaneAction::QueryChanged | QueryPaneAction::None => {
-                    // These actions are handled elsewhere or are no-ops
-                }
-            }
-        }
-
         // Poll SQL panes for share-to-agent actions
         self.poll_sql_pane_actions();
     }

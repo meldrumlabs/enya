@@ -226,8 +226,8 @@ impl HeatmapViz {
             let label_space = 60.0; // Space for row labels
             let legend_space = if self.show_legend { 50.0 } else { 0.0 };
 
-            let chart_width = available.x - label_space - legend_space - 16.0;
-            let chart_height = (available.y - 40.0).min(400.0);
+            let chart_width = (available.x - label_space - legend_space - 16.0).max(1.0);
+            let chart_height = (available.y - 40.0).clamp(1.0, 400.0);
 
             let (cols, rows) = self.grid_size;
             if cols == 0 || rows == 0 {

@@ -37,6 +37,8 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Removed
 
+- **Workspace finder overlay**: Removed the workspace finder overlay (`Space+W`) and its entry from the Space leader popup. Workspace switching is available through the project sidebar.
+- **Command palette cleanup**: Removed `:provider`/`:ai`, `:share-live`, `:open-snapshot`, `:refresh`, `:source`, and `:loki` commands. Renamed `:info` to `:version`.
 - **Sections feature**: Removed the collapsible sections system (section headers, section-based navigation, section rendering). Workspaces now always use the flat `egui_tiles` layout. Users can use separate workspaces instead of sections. Removed `SectionConfig`, `SectionLayout`, `SectionState`, `FocusTarget`, `SectionRenderer`, and all related methods.
 - **Health indicator icon from status line**: Removed the online/offline health icon from the far right of the status bar for a cleaner look.
 

@@ -4482,7 +4482,7 @@ impl SqlPane {
                     let input_height = (line_count as f32 * 16.0).clamp(22.0, 120.0);
 
                     let response = ui.add_sized(
-                        egui::vec2(ui.available_width() - 50.0, input_height),
+                        egui::vec2((ui.available_width() - 50.0).max(1.0), input_height),
                         TextEdit::multiline(&mut self.input)
                             .id(input_id)
                             .font(egui::TextStyle::Monospace)
@@ -5125,7 +5125,7 @@ impl SqlPane {
 
                         // Calculate how many columns fit in available width
                         // Available width is ~700px max minus frame margins (~24px)
-                        let available_width = ui.available_width() - 24.0;
+                        let available_width = (ui.available_width() - 24.0).max(1.0);
                         let col_spacing = 16.0; // Space between columns
                         let char_width = 6.5; // Approximate width per monospace char at 10pt
                         let overflow_indicator_width = 40.0; // Space for "+N" indicator

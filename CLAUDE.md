@@ -66,6 +66,25 @@ use web_time::SystemTime;
 use std::time::SystemTime;
 ```
 
+## UI Size Calculations
+
+**Never pass potentially negative sizes to egui layout functions** — this causes panics (`"Negative desired size"`), especially in WASM where recovery is impossible.
+
+When subtracting padding/margins from `ui.available_width()` or `ui.available_height()`, always clamp the result:
+
+```rust
+// ✅ Correct - clamp to prevent negative sizes
+let width = (ui.available_width() - padding).max(1.0);
+let height = (available.y - 40.0).clamp(1.0, 400.0);
+let side_width = ((available_width - 12.0) / 2.0).max(1.0);
+
+// ❌ Wrong - panics when pane is squeezed small!
+let width = ui.available_width() - padding;
+let side_width = (available_width - 12.0) / 2.0;
+```
+
+This applies to any value passed to `ui.add_sized()`, `ui.allocate_painter()`, `ui.allocate_exact_size()`, `ui.allocate_ui_with_layout()`, `ScrollArea::max_height()`, or `ui.set_min_width()`.
+
 ## Custom Theme Support
 
 The editor supports custom themes from Lua plugins. To ensure custom themes are applied everywhere:

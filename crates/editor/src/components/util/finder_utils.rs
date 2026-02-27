@@ -647,7 +647,7 @@ pub fn render_split_header(
     separator_color: Color32,
 ) {
     let available_width = ui.available_width();
-    let side_width = (available_width - 12.0) / 2.0;
+    let side_width = ((available_width - 12.0) / 2.0).max(1.0);
 
     ui.horizontal(|ui| {
         ui.allocate_ui_with_layout(
@@ -694,7 +694,7 @@ pub fn render_split_panels<L, R>(
     R: FnOnce(&mut egui::Ui),
 {
     let available_width = ui.available_width();
-    let side_width = (available_width - 12.0) / 2.0;
+    let side_width = ((available_width - 12.0) / 2.0).max(1.0);
 
     ui.horizontal(|ui| {
         // Left panel

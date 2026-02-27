@@ -23,7 +23,7 @@ use crate::components::{
     SourcePreviewOverlay, SourcePreviewResult, SqlPane, StylePicker, StylePickerResult,
     TimeRangePicker, TimeRangePickerResult, TimeRangeToolbar, TracingPane, TutorialAction,
     TutorialOverlay, ViewportFilter, ViewportFilterResult, WhichKey, WorkspaceCreator,
-    WorkspaceCreatorResult, WorkspaceFinder, WorkspaceFinderResult,
+    WorkspaceCreatorResult,
 };
 use crate::ui::settings_screen::EditorFont;
 use crate::ui::theme::AppTheme;
@@ -139,16 +139,10 @@ pub enum WorkspaceAction {
     ShareWorkspace,
     /// Share a single pane as URL (snapshot if data loaded, config-only otherwise)
     SharePane(usize),
-    /// Share workspace as config-only URL (no embedded data)
-    ShareLiveWorkspace,
-    /// Share a single pane as config-only URL (no embedded data)
-    ShareLivePane(usize),
     /// Share selected panes as URL (snapshot if data loaded, config-only otherwise)
     ShareSelectedPanes(Vec<usize>),
     /// Upload snapshot to blob server (workspace + data + conversation + optional title)
     UploadSnapshot(Option<String>),
-    /// Open a snapshot by ID from blob server
-    OpenSnapshot(String),
     /// Focus the project sidebar (vim h at left edge)
     FocusProjectSidebar,
     /// Toggle project sidebar visibility (Space+b)
@@ -198,8 +192,6 @@ pub struct Workspace {
     pending_chart: Option<String>,
     /// Time range toolbar
     time_range_toolbar: TimeRangeToolbar,
-    /// Workspace finder modal (for loading saved workspaces)
-    workspace_finder: WorkspaceFinder,
     /// Command palette (neovim-style `:` commands)
     command_palette: CommandPalette,
     /// Buffer editor modal (for editing queries)
@@ -254,8 +246,6 @@ pub struct Workspace {
     diagnostics_pane: DiagnosticsPane,
     /// Whether the diagnostics overlay is visible
     diagnostics_visible: bool,
-    /// Flag to open workspace finder (set by keyboard, handled in show with app_state)
-    pending_open_workspace_finder: bool,
     /// Flag to open style picker (set by command, handled in show with app_state)
     pending_open_style_picker: bool,
     /// Flag to open settings page (set by command, handled in show)
@@ -408,7 +398,6 @@ impl Workspace {
             open_charts: FxHashSet::default(),
             pending_chart: None,
             time_range_toolbar: TimeRangeToolbar::new(),
-            workspace_finder: WorkspaceFinder::new(),
             command_palette: CommandPalette::new(),
             buffer_editor: BufferEditor::new(),
             editing_tile_id: None,
@@ -436,7 +425,6 @@ impl Workspace {
             multi_edit_overlay: MultiEditOverlay::new(),
             diagnostics_pane: DiagnosticsPane::new(),
             diagnostics_visible: false,
-            pending_open_workspace_finder: false,
             pending_open_style_picker: false,
             pending_open_settings: false,
             cached_flight_sql_connections: Vec::new(),
@@ -576,25 +564,6 @@ impl Workspace {
         self.render_theme
     }
 
-    /// Get the workspace directory path for workspace TOML files.
-    ///
-    /// Looks for `.enya/workspaces` in the current directory first,
-    /// then falls back to `$HOME/.enya/workspaces`.
-    #[cfg(not(target_arch = "wasm32"))]
-    fn workspace_dir() -> std::path::PathBuf {
-        let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
-        let enya_dir = cwd.join(".enya").join("workspaces");
-        if enya_dir.exists() {
-            return enya_dir;
-        }
-
-        // Fallback to home directory
-        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-        std::path::PathBuf::from(&home)
-            .join(".enya")
-            .join("workspaces")
-    }
-
     #[profiling::function]
     pub fn show(
         &mut self,
@@ -635,7 +604,6 @@ impl Workspace {
         {
             let modal_open = self.style_picker.is_open()
                 || self.time_range_picker.is_open()
-                || self.workspace_finder.is_open()
                 || self.unified_finder.is_open()
                 || self.command_palette.is_open()
                 || self.buffer_editor.is_open()
@@ -841,12 +809,6 @@ impl Workspace {
             }
         }
 
-        // Handle pending workspace finder open (needs app_state for workspace list)
-        if self.pending_open_workspace_finder {
-            self.pending_open_workspace_finder = false;
-            self.open_workspace_finder(app_state, crate::app::EnyaApp::list_available_workspaces());
-        }
-
         // Handle pending style picker open (needs app_state for current theme and font)
         if self.pending_open_style_picker {
             self.pending_open_style_picker = false;
@@ -878,7 +840,6 @@ impl Workspace {
         // Check if any overlay is open that should block keyboard input
         let overlay_blocks_input = self.style_picker.is_open()
             || self.time_range_picker.is_open()
-            || self.workspace_finder.is_open()
             || self.unified_finder.is_open()
             || self.command_palette.is_open()
             || self.which_key.is_open();
@@ -1276,21 +1237,6 @@ impl Workspace {
             }
         }
 
-        // Show workspace finder modal (rendered on top of everything)
-        self.workspace_finder.set_theme(self.theme());
-        // Set workspace directory for file opener (native only)
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            let workspace_dir = Self::workspace_dir();
-            self.workspace_finder.set_workspace_dir(Some(workspace_dir));
-        }
-        match self.workspace_finder.show(ctx) {
-            WorkspaceFinderResult::Selected(name) => {
-                return WorkspaceAction::LoadWorkspace(name);
-            }
-            WorkspaceFinderResult::Closed | WorkspaceFinderResult::None => {}
-        }
-
         // Show style picker modal (unified theme + font picker)
         match self
             .style_picker
@@ -1641,7 +1587,6 @@ impl Workspace {
         // This prevents the landing page from consuming keyboard input meant for modals
         let modal_open = native_promo_open
             || self.style_picker.is_open()
-            || self.workspace_finder.is_open()
             || self.command_palette.is_open()
             || self.which_key.is_open()
             || self.plugins_overlay.is_open();
@@ -1656,12 +1601,12 @@ impl Workspace {
         // Handle landing page actions
         match landing_action {
             LandingPageAction::OpenTutorial => {
-                // Hide landing page and setup tutorial layout
-                // Layout: HTTP Requests | Requests by Endpoint (side by side at top)
-                //         CPU Usage
-                //         Memory Used
+                // Hide landing page and load the quick-start workspace
                 self.show_landing = false;
-                self.setup_tutorial_layout();
+                if let Ok(config) = WorkspaceConfig::from_toml(GOLDEN_SIGNALS_TOML) {
+                    self.load_workspace_config(&config);
+                    self.loaded_name = Some("quick-start".to_string());
+                }
                 self.tutorial_overlay.open();
                 ctx.request_repaint();
             }
@@ -1690,21 +1635,6 @@ impl Workspace {
                 self.native_promo_overlay.open_force();
             }
             LandingPageAction::None => {}
-        }
-
-        // Show workspace finder modal (rendered on top of everything)
-        self.workspace_finder.set_theme(self.theme());
-        // Set workspace directory for file opener (native only)
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            let workspace_dir = Self::workspace_dir();
-            self.workspace_finder.set_workspace_dir(Some(workspace_dir));
-        }
-        match self.workspace_finder.show(ctx) {
-            WorkspaceFinderResult::Selected(name) => {
-                return WorkspaceAction::LoadWorkspace(name);
-            }
-            WorkspaceFinderResult::Closed | WorkspaceFinderResult::None => {}
         }
 
         // Show style picker modal (unified theme + font picker)
@@ -1961,48 +1891,13 @@ impl Workspace {
                 flight_sql_endpoint: None,
             },
             CommandResult::TakeScreenshot(path) => WorkspaceAction::TakeScreenshot(path),
-            CommandResult::LoadWorkspace(name) => WorkspaceAction::LoadWorkspace(name),
             CommandResult::ShareWorkspace => WorkspaceAction::ShareWorkspace,
-            CommandResult::ShareLiveWorkspace => WorkspaceAction::ShareLiveWorkspace,
             CommandResult::UploadSnapshot(title) => WorkspaceAction::UploadSnapshot(title),
-            CommandResult::OpenSnapshot(id) => WorkspaceAction::OpenSnapshot(id),
-            CommandResult::SetProvider(provider_name) => {
-                use crate::components::util::AiProvider;
-                if let Some(provider) = AiProvider::parse(&provider_name) {
-                    self.agent_panel.set_provider(provider);
-                    log::info!("Set AI provider to: {}", provider.display_name());
-                } else {
-                    log::warn!("Unknown AI provider: {provider_name}. Use 'claude' or 'codex'.");
-                }
-                WorkspaceAction::None
-            }
-            CommandResult::SetRefresh(interval_str) => {
-                let interval = RefreshInterval::parse(&interval_str);
-                self.set_refresh_interval(interval);
-                if interval == RefreshInterval::Off {
-                    WorkspaceAction::Notify {
-                        level: "info".to_string(),
-                        message: "Auto-refresh disabled".to_string(),
-                    }
-                } else {
-                    WorkspaceAction::Notify {
-                        level: "info".to_string(),
-                        message: format!("Auto-refresh set to {}", interval.label()),
-                    }
-                }
-            }
             CommandResult::OpenLogs => {
                 // Use a default time range of the last hour for the logs pane
                 let now_ns = crate::util::now_unix_secs() * 1_000_000_000;
                 let one_hour_ns = 3600 * 1_000_000_000;
                 self.add_logs_pane(now_ns - one_hour_ns, now_ns);
-                WorkspaceAction::None
-            }
-            CommandResult::OpenLoki(url) => {
-                // Connect to a real Loki server
-                let now_ns = crate::util::now_unix_secs() * 1_000_000_000;
-                let one_hour_ns = 3600 * 1_000_000_000;
-                self.add_loki_pane(now_ns - one_hour_ns, now_ns, url);
                 WorkspaceAction::None
             }
             CommandResult::OpenTerminal => {

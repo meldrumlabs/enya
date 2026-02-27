@@ -1309,7 +1309,7 @@ impl AgentPanel {
         self.render_divider(ui);
 
         // Chat area (scrollable) with scroll shadows
-        let available_height = ui.available_height() - 90.0; // Reserve space for input
+        let available_height = (ui.available_height() - 90.0).max(1.0); // Reserve space for input
         let scroll_output = ScrollArea::vertical()
             .id_salt("agent_chat_scroll")
             .max_height(available_height)
@@ -1667,7 +1667,7 @@ impl AgentPanel {
                     let input_height = (line_count as f32 * 16.0).clamp(22.0, 120.0);
 
                     let response = ui.add_sized(
-                        Vec2::new(ui.available_width() - 50.0, input_height),
+                        Vec2::new((ui.available_width() - 50.0).max(1.0), input_height),
                         TextEdit::multiline(&mut self.input_text)
                             .id(input_id)
                             .hint_text(
