@@ -20,6 +20,12 @@ fn main() {
     // Redirect `log` message to `console.log` and friends:
     eframe::WebLogger::init(log::LevelFilter::Debug).ok();
 
+    // Block mobile browsers before loading the full app
+    if is_mobile() {
+        show_mobile_message();
+        return;
+    }
+
     let web_options = eframe::WebOptions::default();
 
     // On WASM, AsyncRuntime uses wasm-bindgen-futures (no external runtime needed)
@@ -62,4 +68,63 @@ fn main() {
             }
         }
     });
+}
+
+/// Detect mobile browsers via user-agent string or narrow viewport.
+#[cfg(target_arch = "wasm32")]
+fn is_mobile() -> bool {
+    let Some(window) = web_sys::window() else {
+        return false;
+    };
+
+    // Check user-agent for mobile indicators
+    let has_mobile_ua = window
+        .navigator()
+        .user_agent()
+        .ok()
+        .map(|ua| {
+            let ua = ua.to_lowercase();
+            ua.contains("mobi") || ua.contains("android")
+        })
+        .unwrap_or(false);
+
+    // Check viewport width (< 768px is typically a phone)
+    let is_narrow = window
+        .inner_width()
+        .ok()
+        .and_then(|w| w.as_f64())
+        .map(|w| w < 768.0)
+        .unwrap_or(false);
+
+    has_mobile_ua || is_narrow
+}
+
+/// Replace the loading screen with a mobile-friendly message.
+#[cfg(target_arch = "wasm32")]
+fn show_mobile_message() {
+    let Some(window) = web_sys::window() else {
+        return;
+    };
+    let Some(document) = window.document() else {
+        return;
+    };
+
+    // Hide the canvas so only the message is visible
+    if let Some(canvas) = document.get_element_by_id("the_canvas_id") {
+        let _ = canvas.set_attribute("style", "display:none");
+    }
+
+    // Replace the loading indicator with a friendly message
+    if let Some(loading) = document.get_element_by_id("loading") {
+        loading.set_inner_html(
+            r#"<p style="font-size:16px">
+                <picture>
+                    <source srcset="logo.png" media="(prefers-color-scheme: dark)">
+                    <img src="logo.png" alt="Enya" width="50%">
+                </picture>
+            </p>
+            <p class="mobile-message">Desktop browser required</p>
+            <p class="mobile-message-sub">Enya needs a keyboard and a larger screen to work properly.</p>"#,
+        );
+    }
 }
