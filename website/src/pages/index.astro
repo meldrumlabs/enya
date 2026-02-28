@@ -263,6 +263,10 @@ async fn main() -> Result<()> {
 		text-align: left;
 	}
 
+	[data-site-theme="light"] .header {
+		background-color: rgba(251, 251, 252, 0.85);
+	}
+
 	[data-site-theme="light"] .mobile-menu {
 		box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
 	}
@@ -355,7 +359,10 @@ async fn main() -> Result<()> {
 		width: 100%;
 		max-width: 100%;
 		padding: 1rem 1.5rem;
-		background-color: var(--obsidian-base);
+		background-color: rgba(8, 8, 10, 0.85);
+		backdrop-filter: blur(12px);
+		-webkit-backdrop-filter: blur(12px);
+		border-bottom: 1px solid var(--obsidian-border-subtle);
 		overflow: visible;
 	}
 
@@ -554,7 +561,7 @@ async fn main() -> Result<()> {
 		flex-direction: column;
 		justify-content: center;
 		align-items: center;
-		padding-top: 6rem;
+		padding-top: 4.5rem;
 		padding-bottom: 2rem;
 		max-width: 80%;
 		margin: 0 auto;
@@ -569,7 +576,7 @@ async fn main() -> Result<()> {
 	}
 
 	.hero-logo {
-		max-width: 350px;
+		max-width: 250px;
 		width: 100%;
 		height: auto;
 		display: block;
@@ -763,9 +770,9 @@ async fn main() -> Result<()> {
 		font-size: 1rem;
 		padding: 1rem 2rem;
 		text-decoration: none;
-		border: 2px solid var(--obsidian-border-default);
-		color: var(--obsidian-text-primary);
-		background-color: var(--obsidian-surface);
+		border: 2px solid var(--obsidian-accent);
+		color: var(--obsidian-accent);
+		background-color: transparent;
 		transition: all 0.2s ease;
 		letter-spacing: 0.05em;
 		text-transform: lowercase;
@@ -776,9 +783,9 @@ async fn main() -> Result<()> {
 	}
 
 	.hero-button-secondary:hover {
-		border-color: var(--obsidian-accent);
-		color: var(--obsidian-accent);
-		background-color: var(--obsidian-hover);
+		border-color: var(--obsidian-accent-hover);
+		color: var(--obsidian-accent-hover);
+		background-color: var(--obsidian-accent-muted);
 	}
 
 	.hero-links {
