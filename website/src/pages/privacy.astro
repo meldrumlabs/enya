@@ -76,7 +76,9 @@ import ThemeProvider from '../components/ThemeProvider.astro';
 			<footer class="footer">
 				<div class="footer-bottom">
 					<div class="copyright-wrapper">
-						© 2026 <a href="https://meldrumlabs.com" target="_blank" rel="noopener noreferrer">Meldrum Labs</a> AB · MIT License
+						© 2026 <a href="https://meldrumlabs.com" target="_blank" rel="noopener noreferrer">Meldrum Labs</a> AB · MIT License · <a href="/privacy">Privacy</a>
+						<br/>
+						<span class="trademark-notice">Apache Arrow and Apache DataFusion are trademarks of the Apache Software Foundation.</span>
 					</div>
 				</div>
 			</footer>
@@ -471,6 +473,13 @@ import ThemeProvider from '../components/ThemeProvider.astro';
 	.copyright-wrapper a:hover {
 		color: var(--obsidian-accent);
 		border-bottom-color: var(--obsidian-accent);
+	}
+
+	.trademark-notice {
+		font-size: 0.7rem;
+		color: var(--obsidian-text-tertiary);
+		display: inline-block;
+		margin-top: 0.5rem;
 	}
 
 	@media (max-width: 768px) {
