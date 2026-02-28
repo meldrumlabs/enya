@@ -20,10 +20,9 @@ use crate::components::{
     LeaderPopup, LogsPane, MultiBufferMode, MultiBufferState, MultiEditOverlay, MultiEditResult,
     PluginChartPane, PluginGaugePane, PluginStatPane, PluginTablePane, PluginsOverlay,
     PluginsOverlayResult, QueryExecutor, QueryLanguage, QueryPane, QueryState, QuickCommand,
-    SourcePreviewOverlay, SourcePreviewResult, SqlPane, StylePicker, StylePickerResult,
-    TimeRangePicker, TimeRangePickerResult, TimeRangeToolbar, TracingPane, TutorialAction,
-    TutorialOverlay, ViewportFilter, ViewportFilterResult, WhichKey, WorkspaceCreator,
-    WorkspaceCreatorResult,
+    SourcePreviewOverlay, SourcePreviewResult, SqlPane, TimeRangePicker, TimeRangePickerResult,
+    TimeRangeToolbar, TracingPane, TutorialOverlay, ViewportFilter, ViewportFilterResult, WhichKey,
+    WorkspaceCreator, WorkspaceCreatorResult,
 };
 use crate::ui::settings_screen::EditorFont;
 use crate::ui::theme::AppTheme;
@@ -218,8 +217,6 @@ pub struct Workspace {
     which_key: WhichKey,
     /// Leader popup (dynamic Space+X command hints, like which-key.nvim)
     leader_popup: LeaderPopup,
-    /// Style picker overlay (unified theme + font selection)
-    style_picker: StylePicker,
     /// Time range picker overlay (custom time range selection)
     time_range_picker: TimeRangePicker,
     /// Tutorial overlay (interactive walkthrough)
@@ -246,8 +243,6 @@ pub struct Workspace {
     diagnostics_pane: DiagnosticsPane,
     /// Whether the diagnostics overlay is visible
     diagnostics_visible: bool,
-    /// Flag to open style picker (set by command, handled in show with app_state)
-    pending_open_style_picker: bool,
     /// Flag to open settings page (set by command, handled in show)
     pending_open_settings: bool,
     /// Cached Flight SQL connection definitions from settings (for syncing to new SQL panes)
@@ -414,7 +409,6 @@ impl Workspace {
             about_overlay: AboutOverlay::new(),
             which_key: WhichKey::new(),
             leader_popup: LeaderPopup::new(),
-            style_picker: StylePicker::new(),
             time_range_picker: TimeRangePicker::new(),
             tutorial_overlay: TutorialOverlay::new(),
             plugins_overlay: PluginsOverlay::new(),
@@ -428,7 +422,6 @@ impl Workspace {
             multi_edit_overlay: MultiEditOverlay::new(),
             diagnostics_pane: DiagnosticsPane::new(),
             diagnostics_visible: false,
-            pending_open_style_picker: false,
             pending_open_settings: false,
             cached_flight_sql_connections: Vec::new(),
             pending_open_time_range_picker: false,
@@ -607,8 +600,7 @@ impl Workspace {
         // This prevents terminal from capturing j/k/h/l keys meant for overlays
         #[cfg(not(target_arch = "wasm32"))]
         {
-            let modal_open = self.style_picker.is_open()
-                || self.time_range_picker.is_open()
+            let modal_open = self.time_range_picker.is_open()
                 || self.unified_finder.is_open()
                 || self.command_palette.is_open()
                 || self.buffer_editor.is_open()
@@ -816,16 +808,6 @@ impl Workspace {
             }
         }
 
-        // Handle pending style picker open (needs app_state for current theme and font)
-        if self.pending_open_style_picker {
-            self.pending_open_style_picker = false;
-            self.style_picker.open_with_custom(
-                app_state.settings.theme,
-                app_state.custom_theme(),
-                app_state.settings.font,
-            );
-        }
-
         // Handle pending settings page open
         if self.pending_open_settings {
             self.pending_open_settings = false;
@@ -845,8 +827,7 @@ impl Workspace {
         }
 
         // Check if any overlay is open that should block keyboard input
-        let overlay_blocks_input = self.style_picker.is_open()
-            || self.time_range_picker.is_open()
+        let overlay_blocks_input = self.time_range_picker.is_open()
             || self.unified_finder.is_open()
             || self.command_palette.is_open()
             || self.which_key.is_open();
@@ -1217,7 +1198,6 @@ impl Workspace {
         }
 
         // Show diff viewer overlay modal
-        // NOTE: This is rendered BEFORE style_picker and command_palette so they appear on top
         {
             self.diff_viewer.set_theme(self.theme());
             // Set repo root for file opener (native only)
@@ -1229,9 +1209,7 @@ impl Workspace {
             );
             // Disable keyboard when another overlay is on top
             self.diff_viewer.set_keyboard_disabled(
-                self.style_picker.is_open()
-                    || self.time_range_picker.is_open()
-                    || self.command_palette.is_open(),
+                self.time_range_picker.is_open() || self.command_palette.is_open(),
             );
             match self.diff_viewer.show(ctx) {
                 DiffViewerResult::Error(msg) => {
@@ -1242,32 +1220,6 @@ impl Workspace {
                 }
                 DiffViewerResult::Closed | DiffViewerResult::None => {}
             }
-        }
-
-        // Show style picker modal (unified theme + font picker)
-        match self
-            .style_picker
-            .show(ctx, self.theme(), app_state.settings.font)
-        {
-            StylePickerResult::ThemeSelected(theme) => return WorkspaceAction::SetTheme(theme),
-            StylePickerResult::CustomThemeSelected(name) => {
-                return WorkspaceAction::SetCustomTheme(name);
-            }
-            StylePickerResult::Cancelled(original_theme, original_custom, original_font) => {
-                // If there was a custom theme, restore it; otherwise restore builtin theme
-                if let Some(custom_name) = original_custom {
-                    return WorkspaceAction::SetCustomThemeAndFont(custom_name, original_font);
-                } else {
-                    return WorkspaceAction::SetThemeAndFont(original_theme, original_font);
-                }
-            }
-            StylePickerResult::ThemePreview(theme) => return WorkspaceAction::SetTheme(theme),
-            StylePickerResult::CustomThemePreview(name) => {
-                return WorkspaceAction::SetCustomTheme(name);
-            }
-            StylePickerResult::FontSelected(font) => return WorkspaceAction::SetFont(font),
-            StylePickerResult::FontPreview(font) => return WorkspaceAction::SetFont(font),
-            StylePickerResult::None => {}
         }
 
         // Show time range picker modal
@@ -1374,9 +1326,7 @@ impl Workspace {
 
         // Show tutorial overlay modal
         self.tutorial_overlay.set_theme(self.theme());
-        if self.tutorial_overlay.show(ctx) == TutorialAction::OpenStylePicker {
-            self.pending_open_style_picker = true;
-        }
+        self.tutorial_overlay.show(ctx);
 
         // Show plugins overlay modal
         self.plugins_overlay.set_theme(self.theme());
@@ -1468,7 +1418,7 @@ impl Workspace {
             SourcePreviewResult::None => {}
         }
 
-        // Note: diff_viewer is now rendered earlier (before style_picker) to ensure proper z-order
+        // Note: diff_viewer is now rendered earlier to ensure proper z-order
 
         // Note: Agent panel is now rendered in the layout section (show_inside)
         // to participate in layout flow like the channels panel
@@ -1578,9 +1528,7 @@ impl Workspace {
         // prevent native_promo from consuming keyboard events meant for that overlay
         #[cfg(target_arch = "wasm32")]
         let native_promo_open = {
-            let other_modal_open = self.style_picker.is_open()
-                || self.plugins_overlay.is_open()
-                || self.which_key.is_open();
+            let other_modal_open = self.plugins_overlay.is_open() || self.which_key.is_open();
             self.native_promo_overlay.set_theme(self.theme());
             if !other_modal_open {
                 self.native_promo_overlay.show(ctx);
@@ -1593,7 +1541,6 @@ impl Workspace {
         // Disable landing page keyboard when any modal overlay is open
         // This prevents the landing page from consuming keyboard input meant for modals
         let modal_open = native_promo_open
-            || self.style_picker.is_open()
             || self.command_palette.is_open()
             || self.which_key.is_open()
             || self.plugins_overlay.is_open();
@@ -1651,32 +1598,6 @@ impl Workspace {
                 self.native_promo_overlay.open_force();
             }
             LandingPageAction::None => {}
-        }
-
-        // Show style picker modal (unified theme + font picker)
-        match self
-            .style_picker
-            .show(ctx, self.theme(), app_state.settings.font)
-        {
-            StylePickerResult::ThemeSelected(theme) => return WorkspaceAction::SetTheme(theme),
-            StylePickerResult::CustomThemeSelected(name) => {
-                return WorkspaceAction::SetCustomTheme(name);
-            }
-            StylePickerResult::Cancelled(original_theme, original_custom, original_font) => {
-                // If there was a custom theme, restore it; otherwise restore builtin theme
-                if let Some(custom_name) = original_custom {
-                    return WorkspaceAction::SetCustomThemeAndFont(custom_name, original_font);
-                } else {
-                    return WorkspaceAction::SetThemeAndFont(original_theme, original_font);
-                }
-            }
-            StylePickerResult::ThemePreview(theme) => return WorkspaceAction::SetTheme(theme),
-            StylePickerResult::CustomThemePreview(name) => {
-                return WorkspaceAction::SetCustomTheme(name);
-            }
-            StylePickerResult::FontSelected(font) => return WorkspaceAction::SetFont(font),
-            StylePickerResult::FontPreview(font) => return WorkspaceAction::SetFont(font),
-            StylePickerResult::None => {}
         }
 
         // Show time range picker modal
@@ -1754,9 +1675,7 @@ impl Workspace {
 
         // Show tutorial overlay modal
         self.tutorial_overlay.set_theme(self.theme());
-        if self.tutorial_overlay.show(ctx) == TutorialAction::OpenStylePicker {
-            self.pending_open_style_picker = true;
-        }
+        self.tutorial_overlay.show(ctx);
 
         // Show plugins overlay modal
         self.plugins_overlay.set_theme(self.theme());
@@ -1883,11 +1802,6 @@ impl Workspace {
         ctx: &egui::Context,
     ) -> WorkspaceAction {
         match result {
-            CommandResult::OpenStylePicker => {
-                // Style picker needs current theme and font - flag it to open on next show()
-                self.pending_open_style_picker = true;
-                WorkspaceAction::None
-            }
             CommandResult::ShowInfo => {
                 self.info_overlay.open();
                 WorkspaceAction::None
@@ -2105,15 +2019,6 @@ impl Workspace {
     /// Set the plugin currently being installed
     pub fn set_installing_plugin(&mut self, name: Option<String>) {
         self.plugins_overlay.set_installing_plugin(name);
-    }
-
-    /// Set custom themes from plugins for the style picker.
-    /// Each tuple is (name, display_name, resolved colors).
-    pub fn set_custom_themes(
-        &mut self,
-        themes: Vec<(String, String, crate::ui::active_theme::ActiveThemeColors)>,
-    ) {
-        self.style_picker.set_custom_themes(themes);
     }
 
     /// Toggle zen mode (distraction-free view)

@@ -292,20 +292,9 @@ impl EnyaApp {
 
         // Collect custom themes from plugins
         let mut custom_themes = CustomThemeStore::new();
-        let custom_theme_list: Vec<(String, String, crate::ui::ActiveThemeColors)> =
-            plugin_registry
-                .all_themes()
-                .into_iter()
-                .map(|t| {
-                    custom_themes.register(t.clone());
-                    // Resolve the theme to get colors for the style picker preview
-                    let resolved =
-                        crate::ui::custom_theme::ResolvedCustomTheme::from_definition(&t);
-                    let colors = crate::ui::ActiveThemeColors::from_custom(&resolved);
-                    (t.name, t.display_name, colors)
-                })
-                .collect();
-        workspace.set_custom_themes(custom_theme_list);
+        for t in plugin_registry.all_themes() {
+            custom_themes.register(t);
+        }
 
         // Collect and register custom table pane types from plugins
         for config in plugin_registry.all_custom_table_panes() {

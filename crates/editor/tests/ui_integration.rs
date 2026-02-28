@@ -311,23 +311,20 @@ mod keyboard_logic_tests {
             false, // viewport_filter
             false, // tutorial_overlay
             false, // source_preview
-            false, // style_picker
             false, // codebase_finder
         );
         assert!(!blocked, "Should not be blocked by default");
         assert!(reason.is_empty());
 
         // Unified finder open - blocked
-        let (blocked, reason) = check_navigation_blocked(
-            true, false, false, false, false, false, false, false, false, false,
-        );
+        let (blocked, reason) =
+            check_navigation_blocked(true, false, false, false, false, false, false, false, false);
         assert!(blocked, "Should be blocked when unified finder is open");
         assert_eq!(reason, "unified_finder");
 
         // Command palette open - blocked
-        let (blocked, reason) = check_navigation_blocked(
-            false, true, false, false, false, false, false, false, false, false,
-        );
+        let (blocked, reason) =
+            check_navigation_blocked(false, true, false, false, false, false, false, false, false);
         assert!(blocked, "Should be blocked when command palette is open");
         assert_eq!(reason, "command_palette");
     }
@@ -560,64 +557,6 @@ mod viewport_filter_tests {
         // No applied pattern initially
         assert!(filter.applied_pattern().is_empty());
     }
-}
-
-/// Test module for StylePicker overlay component.
-///
-/// The StylePicker allows users to choose themes and fonts with live preview.
-/// It has two panels (Theme and Font) that can be navigated with Tab.
-mod style_picker_tests {
-    use enya_editor::components::StylePicker;
-    use enya_editor::ui::settings_screen::EditorFont;
-    use enya_editor::ui::theme::AppTheme;
-
-    /// Test that StylePicker starts in closed state
-    #[test]
-    fn test_style_picker_initially_closed() {
-        let picker = StylePicker::new();
-        assert!(!picker.is_open());
-    }
-
-    /// Test that StylePicker opens with theme panel focused by default
-    #[test]
-    fn test_style_picker_opens_to_theme_panel() {
-        let mut picker = StylePicker::new();
-
-        picker.open(AppTheme::default(), EditorFont::default());
-        assert!(picker.is_open());
-
-        picker.close();
-        assert!(!picker.is_open());
-    }
-
-    /// Test that StylePicker can open directly to font panel
-    #[test]
-    fn test_style_picker_open_font_panel() {
-        let mut picker = StylePicker::new();
-
-        picker.open_font(AppTheme::default(), EditorFont::default());
-        assert!(picker.is_open());
-
-        picker.close();
-        assert!(!picker.is_open());
-    }
-
-    /// Test that StylePicker can open directly to theme panel
-    #[test]
-    fn test_style_picker_open_theme_panel() {
-        let mut picker = StylePicker::new();
-
-        picker.open_theme(AppTheme::default(), EditorFont::default());
-        assert!(picker.is_open());
-
-        picker.close();
-        assert!(!picker.is_open());
-    }
-
-    // Note: Harness rendering tests for StylePicker are skipped because the
-    // component requires custom fonts (departure_mono, etc.) that aren't
-    // available in the test harness. The state logic tests above cover
-    // the core functionality.
 }
 
 /// Test module for UnifiedFinder overlay component.

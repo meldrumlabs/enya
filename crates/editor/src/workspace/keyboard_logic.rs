@@ -237,7 +237,6 @@ pub fn check_navigation_blocked(
     viewport_filter_open: bool,
     tutorial_overlay_open: bool,
     source_preview_open: bool,
-    style_picker_open: bool,
     codebase_finder_open: bool,
 ) -> (bool, &'static str) {
     if unified_finder_open {
@@ -263,9 +262,6 @@ pub fn check_navigation_blocked(
     }
     if source_preview_open {
         return (true, "source_preview");
-    }
-    if style_picker_open {
-        return (true, "style_picker");
     }
     if codebase_finder_open {
         return (true, "codebase_finder");
@@ -702,7 +698,7 @@ mod tests {
     #[test]
     fn test_no_modals_open_not_blocked() {
         let (blocked, reason) = check_navigation_blocked(
-            false, false, false, false, false, false, false, false, false, false,
+            false, false, false, false, false, false, false, false, false,
         );
         assert!(!blocked);
         assert_eq!(reason, "");
@@ -710,90 +706,72 @@ mod tests {
 
     #[test]
     fn test_unified_finder_blocks() {
-        let (blocked, reason) = check_navigation_blocked(
-            true, false, false, false, false, false, false, false, false, false,
-        );
+        let (blocked, reason) =
+            check_navigation_blocked(true, false, false, false, false, false, false, false, false);
         assert!(blocked);
         assert_eq!(reason, "unified_finder");
     }
 
     #[test]
     fn test_command_palette_blocks() {
-        let (blocked, reason) = check_navigation_blocked(
-            false, true, false, false, false, false, false, false, false, false,
-        );
+        let (blocked, reason) =
+            check_navigation_blocked(false, true, false, false, false, false, false, false, false);
         assert!(blocked);
         assert_eq!(reason, "command_palette");
     }
 
     #[test]
     fn test_buffer_editor_blocks() {
-        let (blocked, reason) = check_navigation_blocked(
-            false, false, true, false, false, false, false, false, false, false,
-        );
+        let (blocked, reason) =
+            check_navigation_blocked(false, false, true, false, false, false, false, false, false);
         assert!(blocked);
         assert_eq!(reason, "buffer_editor");
     }
 
     #[test]
     fn test_multi_edit_overlay_blocks() {
-        let (blocked, reason) = check_navigation_blocked(
-            false, false, false, true, false, false, false, false, false, false,
-        );
+        let (blocked, reason) =
+            check_navigation_blocked(false, false, false, true, false, false, false, false, false);
         assert!(blocked);
         assert_eq!(reason, "multi_edit_overlay");
     }
 
     #[test]
     fn test_which_key_blocks() {
-        let (blocked, reason) = check_navigation_blocked(
-            false, false, false, false, true, false, false, false, false, false,
-        );
+        let (blocked, reason) =
+            check_navigation_blocked(false, false, false, false, true, false, false, false, false);
         assert!(blocked);
         assert_eq!(reason, "which_key");
     }
 
     #[test]
     fn test_viewport_filter_blocks() {
-        let (blocked, reason) = check_navigation_blocked(
-            false, false, false, false, false, true, false, false, false, false,
-        );
+        let (blocked, reason) =
+            check_navigation_blocked(false, false, false, false, false, true, false, false, false);
         assert!(blocked);
         assert_eq!(reason, "viewport_filter");
     }
 
     #[test]
     fn test_tutorial_overlay_blocks() {
-        let (blocked, reason) = check_navigation_blocked(
-            false, false, false, false, false, false, true, false, false, false,
-        );
+        let (blocked, reason) =
+            check_navigation_blocked(false, false, false, false, false, false, true, false, false);
         assert!(blocked);
         assert_eq!(reason, "tutorial_overlay");
     }
 
     #[test]
     fn test_source_preview_blocks() {
-        let (blocked, reason) = check_navigation_blocked(
-            false, false, false, false, false, false, false, true, false, false,
-        );
+        let (blocked, reason) =
+            check_navigation_blocked(false, false, false, false, false, false, false, true, false);
         assert!(blocked);
         assert_eq!(reason, "source_preview");
     }
 
     #[test]
-    fn test_style_picker_blocks() {
-        let (blocked, reason) = check_navigation_blocked(
-            false, false, false, false, false, false, false, false, true, false,
-        );
-        assert!(blocked);
-        assert_eq!(reason, "style_picker");
-    }
-
-    #[test]
     fn test_codebase_finder_blocks() {
-        let (blocked, reason) = check_navigation_blocked(
-            false, false, false, false, false, false, false, false, false, true,
-        );
+        let (blocked, reason) =
+            check_navigation_blocked(false, false, false, false, false, false, false, false, true);
         assert!(blocked);
         assert_eq!(reason, "codebase_finder");
     }
@@ -801,9 +779,8 @@ mod tests {
     #[test]
     fn test_first_blocker_takes_precedence() {
         // When multiple modals are open, first one wins
-        let (blocked, reason) = check_navigation_blocked(
-            true, true, false, false, false, false, false, false, false, false,
-        );
+        let (blocked, reason) =
+            check_navigation_blocked(true, true, false, false, false, false, false, false, false);
         assert!(blocked);
         assert_eq!(reason, "unified_finder");
     }
@@ -840,7 +817,7 @@ mod tests {
         // This test documents the expected state after all overlays close:
         // navigation should not be blocked.
         let (blocked, _) = check_navigation_blocked(
-            false, false, false, false, false, false, false, false, false, false,
+            false, false, false, false, false, false, false, false, false,
         );
         assert!(
             !blocked,

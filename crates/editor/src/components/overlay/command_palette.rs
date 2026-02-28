@@ -84,8 +84,6 @@ pub enum CommandKind {
 pub enum CommandResult {
     /// Command executed successfully
     Success,
-    /// Open style picker (unified theme + font picker)
-    OpenStylePicker,
     /// Show info overlay with build info
     ShowInfo,
     /// Horizontal split
@@ -132,12 +130,6 @@ pub enum CommandResult {
 
 /// Built-in commands (always available)
 const BASE_COMMANDS: &[PaletteCommand] = &[
-    PaletteCommand {
-        name: "style",
-        aliases: &["st", "theme", "t"],
-        description: "Open style picker (theme + font)",
-        kind: CommandKind::NoArgs,
-    },
     PaletteCommand {
         name: "version",
         aliases: &[],
@@ -516,7 +508,6 @@ impl CommandPalette {
     /// Execute a specific command with arguments
     fn execute(&self, cmd: &PaletteCommand, args: &[&str]) -> CommandResult {
         match cmd.name {
-            "style" => CommandResult::OpenStylePicker,
             "version" => CommandResult::ShowInfo,
             "split" => {
                 if args.is_empty() {

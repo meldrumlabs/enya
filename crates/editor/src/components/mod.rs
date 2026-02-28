@@ -31,9 +31,9 @@ pub use overlay::{
     DiagnosticsPane, DiagnosticsPaneAction, DynamicCommand, EditExcerpt, EditorContext,
     InfoOverlay, LeaderKey, LeaderPopup, MessageRole, MultiEditOverlay, MultiEditResult,
     PluginDisplayInfo, PluginSource, PluginsOverlay, PluginsOverlayResult, SourcePreviewOverlay,
-    SourcePreviewResult, StylePicker, StylePickerResult, StyleTab, TimeRangePicker,
-    TimeRangePickerResult, TutorialAction, TutorialOverlay, ViewportFilter, ViewportFilterResult,
-    WhichKey, WorkspaceCreator, WorkspaceCreatorResult, parse_commands, strip_command_blocks,
+    SourcePreviewResult, StyleTab, TimeRangePicker, TimeRangePickerResult, TutorialOverlay,
+    ViewportFilter, ViewportFilterResult, WhichKey, WorkspaceCreator, WorkspaceCreatorResult,
+    parse_commands, strip_command_blocks,
 };
 
 // Re-export from project_sidebar
