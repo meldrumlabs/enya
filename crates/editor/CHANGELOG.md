@@ -4,6 +4,10 @@ All notable changes to the Enya editor will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- **GitHub sign-in is desktop only**: Disabled GitHub OAuth sign-in on WASM since the OAuth App only supports one callback URL (`127.0.0.1` for native). The Connect button now shows "Desktop only" on the web editor.
+
 ### Fixed
 
 - **macOS auto-update**: The "Restart" button in the update banner now downloads the signed DMG, mounts it, copies the full `.app` bundle using `ditto` (preserving code signatures and notarization), atomically swaps it into place, and restarts. Previously the asset matcher searched for architecture substrings absent from the `Enya.dmg` filename, so macOS users always fell back to "Download" (opening the browser). Stale `.app.old` bundles from previous updates are cleaned up on startup.

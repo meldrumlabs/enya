@@ -1019,37 +1019,51 @@ impl SettingsPage {
                                 );
                             });
 
-                            // Push button to the right
+                            // Push button/label to the right
                             ui.with_layout(
                                 egui::Layout::right_to_left(egui::Align::Center),
                                 |ui| {
-                                    let btn_height = 28.0;
-                                    let btn_width = 80.0;
-                                    let (rect, response) = ui.allocate_exact_size(
-                                        Vec2::new(btn_width, btn_height),
-                                        egui::Sense::click(),
-                                    );
+                                    #[cfg(not(target_arch = "wasm32"))]
+                                    {
+                                        let btn_height = 28.0;
+                                        let btn_width = 80.0;
+                                        let (rect, response) = ui.allocate_exact_size(
+                                            Vec2::new(btn_width, btn_height),
+                                            egui::Sense::click(),
+                                        );
 
-                                    let btn_fill = if response.hovered() {
-                                        accent.gamma_multiply(1.15)
-                                    } else {
-                                        accent
-                                    };
-                                    ui.painter().rect_filled(rect, 6.0, btn_fill);
+                                        let btn_fill = if response.hovered() {
+                                            accent.gamma_multiply(1.15)
+                                        } else {
+                                            accent
+                                        };
+                                        ui.painter().rect_filled(rect, 6.0, btn_fill);
 
-                                    ui.painter().text(
-                                        rect.center(),
-                                        egui::Align2::CENTER_CENTER,
-                                        "Connect",
-                                        typography::proportional(typography::XS),
-                                        Color32::WHITE,
-                                    );
+                                        ui.painter().text(
+                                            rect.center(),
+                                            egui::Align2::CENTER_CENTER,
+                                            "Connect",
+                                            typography::proportional(typography::XS),
+                                            Color32::WHITE,
+                                        );
 
-                                    if response.hovered() {
-                                        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                                        if response.hovered() {
+                                            ui.ctx()
+                                                .set_cursor_icon(egui::CursorIcon::PointingHand);
+                                        }
+                                        if response.clicked() || kb_action {
+                                            *result = SettingsPageResult::GitHubSignIn;
+                                        }
                                     }
-                                    if response.clicked() || kb_action {
-                                        *result = SettingsPageResult::GitHubSignIn;
+
+                                    #[cfg(target_arch = "wasm32")]
+                                    {
+                                        let _ = (accent, kb_action, result);
+                                        ui.label(
+                                            RichText::new("Desktop only")
+                                                .color(text_tertiary.gamma_multiply(0.6))
+                                                .font(typography::proportional(typography::XS)),
+                                        );
                                     }
                                 },
                             );
