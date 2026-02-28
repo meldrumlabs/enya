@@ -1641,7 +1641,7 @@ impl Workspace {
             LandingPageAction::CreateProject => {
                 return WorkspaceAction::CreateProject;
             }
-            LandingPageAction::NewWorkspace => {
+            LandingPageAction::Dismiss => {
                 self.show_landing = false;
                 ctx.request_repaint();
             }
