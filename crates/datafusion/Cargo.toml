@@ -7,6 +7,11 @@ publish = false
 license.workspace = true
 description = "DataFusion integration for SQL query execution via Flight SQL"
 
+[features]
+default = []
+s3 = ["datafusion-app/s3"]
+deltalake = ["datafusion-app/deltalake"]
+
 [dependencies]
 # DataFusion - minimal features for SQL execution
 datafusion = { version = "51", default-features = false, features = [
@@ -16,6 +21,10 @@ datafusion = { version = "51", default-features = false, features = [
     "string_expressions",
     "nested_expressions",
 ] }
+
+# DFT session builder and extensions (S3, Delta Lake, etc.)
+# functions-parquet is required: datafusion-app unconditionally references it in local.rs
+datafusion-app = { git = "https://github.com/datafusion-contrib/datafusion-dft", rev = "cddb4d8", default-features = false, features = ["functions-parquet"] }
 
 # Arrow - minimal features (csv/json for file format support)
 arrow = { version = "57", default-features = false, features = [

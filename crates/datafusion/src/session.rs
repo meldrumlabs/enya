@@ -3,7 +3,9 @@
 //! The [`Session`] provides a high-level interface for SQL query execution,
 //! table registration, and catalog management.
 
+use datafusion::execution::context::SessionState;
 use datafusion::prelude::*;
+use datafusion_app::extensions::DftSessionStateBuilder;
 use parking_lot::RwLock;
 use tokio::sync::mpsc;
 
@@ -62,11 +64,51 @@ impl Session {
 
     /// Create a new session with custom configuration.
     pub fn with_config(config: Config) -> Self {
-        let df_config = datafusion::prelude::SessionConfig::new()
-            .with_target_partitions(config.target_partitions);
+        let exec_config = to_execution_config(&config);
 
-        let ctx = SessionContext::new_with_config(df_config);
+        let state = DftSessionStateBuilder::try_new(Some(exec_config))
+            .and_then(|b| Ok(b.build()?))
+            .expect("failed to build DataFusion session state");
 
+        let ctx = SessionContext::new_with_state(state);
+
+        Self {
+            ctx,
+            catalog: RwLock::new(Catalog::new()),
+            executor_handle: None,
+        }
+    }
+
+    /// Create a session with dft extensions (S3, Delta Lake, etc.) enabled.
+    ///
+    /// This is async because extension registration (e.g. connecting to S3)
+    /// may perform IO.
+    pub async fn with_extensions(config: Config) -> crate::Result<Self> {
+        let exec_config = to_execution_config(&config);
+
+        let state = DftSessionStateBuilder::try_new(Some(exec_config))
+            .map_err(|e| Error::SessionBuilder(e.to_string()))?
+            .with_extensions()
+            .await
+            .map_err(|e| Error::SessionBuilder(e.to_string()))?
+            .build()
+            .map_err(Error::Execution)?;
+
+        let ctx = SessionContext::new_with_state(state);
+
+        Ok(Self {
+            ctx,
+            catalog: RwLock::new(Catalog::new()),
+            executor_handle: None,
+        })
+    }
+
+    /// Create a session from a pre-built [`SessionState`].
+    ///
+    /// Use this for advanced configuration via [`DftSessionStateBuilder`]
+    /// or DataFusion's [`SessionStateBuilder`](datafusion::execution::session_state::SessionStateBuilder).
+    pub fn with_session_state(state: SessionState) -> Self {
+        let ctx = SessionContext::new_with_state(state);
         Self {
             ctx,
             catalog: RwLock::new(Catalog::new()),
@@ -245,6 +287,21 @@ impl Session {
 impl Default for Session {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// Convert our [`Config`] to a [`datafusion_app::config::ExecutionConfig`].
+#[allow(clippy::disallowed_types)]
+fn to_execution_config(config: &Config) -> datafusion_app::config::ExecutionConfig {
+    let mut df = std::collections::HashMap::new();
+    df.insert(
+        "datafusion.execution.target_partitions".to_string(),
+        config.target_partitions.to_string(),
+    );
+
+    datafusion_app::config::ExecutionConfig {
+        datafusion: Some(df),
+        ..Default::default()
     }
 }
 

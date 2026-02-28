@@ -52,6 +52,10 @@ pub enum Error {
     #[error("session not initialized")]
     NotInitialized,
 
+    /// Session builder/extension error.
+    #[error("session builder error: {0}")]
+    SessionBuilder(String),
+
     /// Flight SQL connection error.
     #[error("flight connection to '{endpoint}' failed: {message}")]
     FlightConnection { endpoint: String, message: String },
