@@ -148,8 +148,7 @@ impl NativePromoOverlay {
         }
 
         // Calculate popup dimensions
-        let screen_rect = ctx.available_rect();
-        let popup_width = (screen_rect.width() * 0.5).clamp(500.0, 620.0);
+        let popup_width = crate::util::overlay_width(ctx, 0.50, 500.0, 620.0);
         let content_width = popup_width - 48.0; // 24px padding on each side
 
         // Extract colors from theme

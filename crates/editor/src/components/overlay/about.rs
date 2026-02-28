@@ -68,8 +68,7 @@ impl AboutOverlay {
         });
 
         // Calculate popup dimensions
-        let screen_rect = ctx.available_rect();
-        let popup_width = (screen_rect.width() * 0.4).clamp(400.0, 600.0);
+        let popup_width = crate::util::overlay_width(ctx, 0.40, 400.0, 600.0);
 
         egui::Area::new(egui::Id::new("about_overlay_popup"))
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])

@@ -351,8 +351,7 @@ impl SettingsOverlay {
         }
 
         // Calculate popup dimensions — consistent size across all tabs
-        let screen_rect = ctx.available_rect();
-        let popup_width = (screen_rect.width() * 0.55).clamp(620.0, 740.0);
+        let popup_width = crate::util::overlay_width(ctx, 0.55, 620.0, 740.0);
 
         // Backdrop to block mouse events from reaching the landing page
         draw_backdrop(ctx, self.theme, "settings");

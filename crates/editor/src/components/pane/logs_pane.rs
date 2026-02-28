@@ -727,8 +727,9 @@ impl LogsPane {
                         })
                         .inner_margin(egui::Margin::same(6))
                         .show(ui, |ui| {
-                            ui.set_min_width(300.0);
-                            ui.set_max_width(400.0);
+                            let avail = ui.available_width();
+                            ui.set_min_width(300.0_f32.min(avail - 16.0).max(150.0));
+                            ui.set_max_width(400.0_f32.min(avail - 16.0));
                             ui.spacing_mut().item_spacing.y = 2.0;
 
                             // Header

@@ -1867,8 +1867,6 @@ impl SqlPane {
             return;
         }
 
-        let screen_rect = ui.ctx().available_rect();
-
         // Handle Esc to close (before drawing anything) — skip if a workspace overlay is open
         if !self.overlay_blocks_input
             && ui
@@ -1880,17 +1878,21 @@ impl SqlPane {
         }
 
         // Draw dimmed backdrop
-        ui.painter()
-            .rect_filled(screen_rect, 0.0, Color32::from_black_alpha(180));
+        ui.painter().rect_filled(
+            ui.ctx().available_rect(),
+            0.0,
+            Color32::from_black_alpha(180),
+        );
 
-        // Calculate popup dimensions - consistent with diff viewer and other overlays
-        let popup_width = (screen_rect.width() * 0.85).clamp(700.0, 1400.0);
-        let popup_height = (screen_rect.height() * 0.85).clamp(500.0, 900.0);
+        // Calculate popup dimensions - responsive, sidebar-aware
+        let popup_width = crate::util::overlay_width(ui.ctx(), 0.85, 700.0, 1400.0);
+        let popup_height = crate::util::overlay_height(ui.ctx(), 0.85, 500.0, 900.0);
 
         // Render overlay content in a centered Area
         egui::Area::new(egui::Id::new("result_overlay"))
             .order(egui::Order::Foreground)
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .constrain_to(crate::util::overlay_content_rect(ui.ctx()))
             .show(ui.ctx(), |ui| {
                 let overlay_style = OverlayStyle::frosted_glass(self.theme);
 

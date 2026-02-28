@@ -201,10 +201,8 @@ impl MultiEditOverlay {
         draw_backdrop(ctx, self.theme, "multi_edit");
 
         // Main modal panel - wider to accommodate query excerpts
-        #[allow(deprecated)]
-        let screen_rect = ctx.screen_rect();
-        let popup_width = (screen_rect.width() * 0.8).clamp(600.0, 1100.0);
-        let max_excerpts_height = (screen_rect.height() * 0.5).min(500.0);
+        let popup_width = crate::util::overlay_width(ctx, 0.80, 600.0, 1100.0);
+        let max_excerpts_height = crate::util::overlay_max_height(ctx, 0.50, 500.0);
 
         egui::Area::new(egui::Id::new("multi_edit_panel"))
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])

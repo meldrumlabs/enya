@@ -22,10 +22,10 @@ use crate::util::Instant;
 pub struct FloatingPaneId(pub u64);
 
 /// Minimum size for floating panes.
-const MIN_FLOATING_SIZE: Vec2 = Vec2::new(300.0, 200.0);
+const MIN_FLOATING_SIZE: Vec2 = Vec2::new(250.0, 180.0);
 
 /// Default size for new floating panes.
-const DEFAULT_FLOATING_SIZE: Vec2 = Vec2::new(500.0, 350.0);
+pub(super) const DEFAULT_FLOATING_SIZE: Vec2 = Vec2::new(450.0, 320.0);
 
 /// Height of the title bar.
 const TITLE_BAR_HEIGHT: f32 = 32.0;

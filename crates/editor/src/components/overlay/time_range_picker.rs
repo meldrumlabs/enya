@@ -312,8 +312,7 @@ impl TimeRangePicker {
                 || parse_duration_query(&self.query).is_some());
 
         // Calculate popup dimensions
-        let screen_rect = ctx.available_rect();
-        let popup_width = (screen_rect.width() * 0.45).clamp(420.0, 520.0);
+        let popup_width = crate::util::overlay_width(ctx, 0.45, 420.0, 520.0);
 
         egui::Area::new(egui::Id::new("time_range_picker_overlay"))
             .anchor(egui::Align2::CENTER_CENTER, [0.0, -50.0])
