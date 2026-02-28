@@ -11,6 +11,7 @@ target_ra
 target_wasm
 
 .enya/
+.context/
 
 # Environment files (may contain secrets)
 .env

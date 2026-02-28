@@ -6,6 +6,7 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Changed
 
+- **Skip landing page for returning users**: When the user has any projects, the app now auto-restores the last workspace on startup instead of showing the landing page. The landing page only appears for first-time users with no projects.
 - **Streamlined tutorial**: Reduced from 24 to 15 steps (web). Removed advanced pane management steps (Move Panes, Merge Into Tabs, Floating Panes, Visual Multi-Select, Workspace Undo). Merged time navigation into one step and AI Agent Setup into Ask the AI Agent. Added a "Project Sidebar" step (`Space+b`) and expanded "Find Anything" with prefix-based fuzzy search (`@` metrics, `!` alerts, `#` commits). Colorscheme step now uses `ct` (cycle themes) and `:settings` instead of the style picker.
 
 ### Removed
@@ -85,7 +86,7 @@ All notable changes to the Enya editor will be documented in this file.
 - **Project creation wizard**: "Create project" now opens a multi-step wizard (project name, workspace name, connection endpoint, git repository) to set up a new project with its first workspace. The sidebar "+" button on project headers creates empty workspaces directly without a wizard.
 
 - **Snapshot naming**: The `:snapshot` command now accepts an optional name (e.g. `:snapshot P99 latency spike`) which becomes the workspace name embedded in the blob. When a recipient opens the snapshot, the name is displayed in the status bar next to the SNAPSHOT badge.
-- **Geist Mono font**: Added Geist Mono by Vercel as a new font option in the editor settings (SIL Open Font License v1.1). Set as the new default editor font.
+- **Geist Mono font**: Added Geist Mono as a new font option in the editor settings (SIL Open Font License v1.1). Set as the new default editor font.
 - **Stockholm theme**: New light theme with cool Nordic-inspired tones — crisp white backgrounds, blue-gray borders, and steel blue (#4A6FA5) accent. Designed to pair with Geist Mono and the Stockholm design identity.
 - **Copenhagen theme**: New light theme with warm Danish hygge tones — warm white backgrounds, natural warm-gray borders, and muted sage green (#6B8F71) accent. Designed for premium observability with cozy readability.
 - **Void theme**: New OLED-black dark theme with electric violet (#7C3AED) accent. True black backgrounds for OLED displays with a cyberpunk aesthetic.
