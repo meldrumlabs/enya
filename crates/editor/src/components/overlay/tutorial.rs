@@ -19,8 +19,6 @@ pub enum TutorialAction {
     None,
     /// User requested to close the tutorial
     Close,
-    /// User requested to open the style picker
-    OpenStylePicker,
 }
 
 /// A single step in the tutorial
@@ -120,9 +118,9 @@ impl TutorialOverlay {
             },
             TutorialStep {
                 title: "Colorscheme",
-                instruction: "Select your preferred theme and font.",
-                key_hint: "s",
-                tip: Some("Press s to open the style picker, or → to skip"),
+                instruction: "Cycle through built-in themes or open Settings to pick your preferred theme and font.",
+                key_hint: "ct",
+                tip: Some("ct=cycle themes, :settings to customize font and theme"),
                 icon: semantic_icons::nav::SETTINGS,
                 category: StepCategory::Welcome,
             },
@@ -136,43 +134,11 @@ impl TutorialOverlay {
                 category: StepCategory::Navigation,
             },
             TutorialStep {
-                title: "Move Panes",
-                instruction: "Rearrange your layout by moving panes in any direction.",
-                key_hint: "Ctrl+W h/j/k/l",
-                tip: Some("Ctrl+W then h/j/k/l to swap pane position"),
-                icon: semantic_icons::nav::EXPAND_ALL,
-                category: StepCategory::Navigation,
-            },
-            TutorialStep {
-                title: "Merge Into Tabs",
-                instruction: "Combine panes into a tabbed group for a cleaner workspace. Merge any pane into its neighbor as a tab — great for comparing related metrics without splitting screen space.",
-                key_hint: "Ctrl+W t h/j/k/l",
-                tip: Some("Ctrl+W t then h/j/k/l=merge focused pane as tab in that direction"),
-                icon: semantic_icons::nav::EXPAND_ALL,
-                category: StepCategory::Navigation,
-            },
-            TutorialStep {
                 title: "Split Panes",
                 instruction: "Create new panes by splitting horizontally or vertically. Great for comparing metrics side by side.",
                 key_hint: ":split / :vsplit",
                 tip: Some("Shortcuts: :sp, :vs, :hsplit"),
                 icon: semantic_icons::nav::PANES,
-                category: StepCategory::Navigation,
-            },
-            TutorialStep {
-                title: "Floating Panes",
-                instruction: "Detach any pane into a floating window for side-by-side investigation. Float panes hover above the layout.",
-                key_hint: "gf",
-                tip: Some("gf=float pane, :dock=return all to layout, :float arrange=grid"),
-                icon: semantic_icons::nav::PANES,
-                category: StepCategory::Navigation,
-            },
-            TutorialStep {
-                title: "Visual Multi-Select",
-                instruction: "Select multiple panes at once to perform batch operations. Press 'e' to multi-edit queries across all selected panes (e.g., change env=\"prod\" to env=\"staging\").",
-                key_hint: "Ctrl+V, then e",
-                tip: Some("h/j/k/l to extend selection, e to multi-edit, x to close"),
-                icon: semantic_icons::mode::VISUAL,
                 category: StepCategory::Navigation,
             },
             TutorialStep {
@@ -210,18 +176,12 @@ impl TutorialOverlay {
             },
             // === Time Navigation ===
             TutorialStep {
-                title: "Time Range Controls",
-                instruction: "Navigate through time with vim-style motions. Jump to start/end of data, zoom in/out, or reset to default range.",
-                key_hint: "gg / gG / , / . / 0",
-                tip: Some("gg=jump to start, gG=jump to end, ,=zoom out, .=zoom in, 0=reset"),
-                icon: semantic_icons::time::CLOCK,
-                category: StepCategory::Time,
-            },
-            TutorialStep {
-                title: "Quick Time Presets",
-                instruction: "Instantly set common time ranges with two-key shortcuts. Perfect for quick investigations.",
-                key_hint: "t1 / th / td",
-                tip: Some("t5=5m, t1=15m, t3=30m, th=1h, t6=6h, td=24h, tw=7d"),
+                title: "Time Navigation",
+                instruction: "Navigate through time with vim-style motions. Jump to start/end, zoom in/out, or use presets for common ranges.",
+                key_hint: "gg / , / . / t1 / td",
+                tip: Some(
+                    "gg=start, gG=end, ,=zoom out, .=zoom in, 0=reset, t1=15m, th=1h, td=24h, tw=7d",
+                ),
                 icon: semantic_icons::time::CLOCK,
                 category: StepCategory::Time,
             },
@@ -234,22 +194,21 @@ impl TutorialOverlay {
                 icon: semantic_icons::action::CHART,
                 category: StepCategory::Git,
             },
-            // === Search ===
+            // === Workspace & Search ===
             TutorialStep {
-                title: "Find Anything",
-                instruction: "Use the unified fuzzy finder to search metrics, workspaces, and more. Browse with live preview.",
-                key_hint: "Space+f",
-                tip: Some("Space+f=find anything, Space+w=workspaces, Space+h=home"),
-                icon: semantic_icons::action::CHART,
+                title: "Project Sidebar",
+                instruction: "Browse your workspaces and projects in the sidebar. Navigate with j/k, press Enter to load a workspace, and use project headers to organize related dashboards.",
+                key_hint: "Space+b",
+                tip: Some("Space+b=toggle sidebar, [=focus sidebar, x=close"),
+                icon: semantic_icons::nav::COMPASS,
                 category: StepCategory::Workspace,
             },
-            // === Workspace & View ===
             TutorialStep {
-                title: "Workspace Undo",
-                instruction: "Made a mistake? Undo workspace operations like closing, floating, or docking panes. Up to 50 actions remembered.",
-                key_hint: "u",
-                tip: Some("Works for close, float, and dock operations"),
-                icon: semantic_icons::action::EDIT,
+                title: "Find Anything",
+                instruction: "Open the fuzzy finder to search across metrics, alerts, and commits. Use prefixes to narrow results: @ for metrics, ! for alerts, # for commits. Press Tab to cycle filter modes.",
+                key_hint: "Space+f",
+                tip: Some("@cpu=find metrics, !critical=find alerts, #deploy=find commits"),
+                icon: semantic_icons::action::SEARCH,
                 category: StepCategory::Workspace,
             },
             TutorialStep {
@@ -273,18 +232,10 @@ impl TutorialOverlay {
         // Native-only features
         if !is_wasm {
             steps.push(TutorialStep {
-                title: "AI Agent Setup",
-                instruction: "The AI agent requires an API key. Set one of these environment variables before launching Enya:\n\n  ANTHROPIC_API_KEY  (for Claude)\n  OPENAI_API_KEY       (for Codex)\n\nYou also need Node.js installed (for npx).",
-                key_hint: ":provider",
-                tip: Some(":provider to switch between Claude and Codex"),
-                icon: semantic_icons::action::SETTINGS,
-                category: StepCategory::Advanced,
-            });
-            steps.push(TutorialStep {
                 title: "Ask the AI Agent",
                 instruction: "Get help from the AI assistant. Ask questions about your metrics, request dashboard changes, or investigate anomalies. Use @metric to reference metrics in your prompt.",
                 key_hint: "aa",
-                tip: Some("aa=quick ask, Space+a=panel, aw/ae/ay=what/explain/why"),
+                tip: Some("Set ANTHROPIC_API_KEY or OPENAI_API_KEY first. aa=ask, Space+a=panel"),
                 icon: semantic_icons::action::BRAIN,
                 category: StepCategory::Advanced,
             });
@@ -374,9 +325,6 @@ impl TutorialOverlay {
         }
     }
 
-    /// The index of the "Customize Your Editor" step
-    const CUSTOMIZE_STEP_INDEX: usize = 1;
-
     /// Show the overlay. Returns an action if one was requested.
     #[profiling::function]
     pub fn show(&mut self, ctx: &egui::Context) -> TutorialAction {
@@ -431,16 +379,9 @@ impl TutorialOverlay {
             });
         } else {
             // Handle main tutorial input
-            let current_step = self.current_step;
             ctx.input_mut(|i| {
                 if i.consume_key(egui::Modifiers::NONE, Key::Escape) {
                     action = TutorialAction::Close;
-                }
-                // 's' to open style picker on the customize step
-                if current_step == Self::CUSTOMIZE_STEP_INDEX
-                    && i.consume_key(egui::Modifiers::NONE, Key::S)
-                {
-                    action = TutorialAction::OpenStylePicker;
                 }
                 // 'g' to open step picker
                 if i.consume_key(egui::Modifiers::NONE, Key::G) {

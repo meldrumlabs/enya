@@ -41,7 +41,7 @@ impl Workspace {
         //   2. ctx.memory_mut(|mem| mem.surrender_focus(egui::Id::NULL))  - clears global focus
         //
         // If only widget-level focus is cleared, this check still returns early and vim keys
-        // won't work until the user clicks elsewhere. See chat_view.rs and style_picker.rs
+        // won't work until the user clicks elsewhere. See chat_view.rs
         // for examples of the correct pattern.
         if ctx.memory(|mem| mem.focused().is_some()) {
             return None;
@@ -62,7 +62,6 @@ impl Workspace {
             || self.tutorial_overlay.is_open()
             || self.plugins_overlay.is_open()
             || self.source_preview.is_open()
-            || self.style_picker.is_open()
             || codebase_finder_open
         // Note: agent_panel.is_open() intentionally NOT checked here.
         // The agent panel can be open while viewport has focus (agent_panel_focused is checked separately).

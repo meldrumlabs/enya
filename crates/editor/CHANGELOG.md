@@ -7,6 +7,11 @@ All notable changes to the Enya editor will be documented in this file.
 ### Changed
 
 - **Skip landing page for returning users**: When the user has any projects, the app now auto-restores the last workspace on startup instead of showing the landing page. The landing page only appears for first-time users with no projects.
+- **Streamlined tutorial**: Reduced from 24 to 15 steps (web). Removed advanced pane management steps (Move Panes, Merge Into Tabs, Floating Panes, Visual Multi-Select, Workspace Undo). Merged time navigation into one step and AI Agent Setup into Ask the AI Agent. Added a "Project Sidebar" step (`Space+b`) and expanded "Find Anything" with prefix-based fuzzy search (`@` metrics, `!` alerts, `#` commits). Colorscheme step now uses `ct` (cycle themes) and `:settings` instead of the style picker.
+
+### Removed
+
+- **Style picker overlay**: Removed the standalone style picker overlay (`:style` command) since the Settings page already provides the same theme and font selection UI. Use `:settings` or `ct` to change themes.
 - **GitHub sign-in is desktop only**: Disabled GitHub OAuth sign-in on WASM since the OAuth App only supports one callback URL (`127.0.0.1` for native). The Connect button now shows "Desktop only" on the web editor.
 
 ### Fixed
