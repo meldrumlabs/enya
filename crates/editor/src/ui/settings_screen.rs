@@ -9,7 +9,7 @@ pub enum EditorFont {
     JetBrainsMono,
     /// Iosevka - narrow, highly customizable monospace font
     Iosevka,
-    /// Geist Mono - modern monospace by Vercel
+    /// Geist Mono - modern, clean monospace font
     #[default]
     GeistMono,
 }
@@ -55,7 +55,7 @@ impl EditorFont {
             Self::DepartureMono => "Distinctive retro-style monospace",
             Self::JetBrainsMono => "Developer-focused, great for code",
             Self::Iosevka => "Narrow, highly customizable",
-            Self::GeistMono => "Modern, clean monospace by Vercel",
+            Self::GeistMono => "Modern, clean monospace font",
         }
     }
 }
