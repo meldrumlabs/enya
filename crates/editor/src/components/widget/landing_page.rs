@@ -322,7 +322,7 @@ impl LandingPage {
                 // Mobile: show a warning that the editor requires desktop
                 let warning_color = self.theme.semantic_warning();
                 let wasm_text = format!(
-                    "{}  Enya is designed for desktop",
+                    "{}  Enya only works on Desktop",
                     semantic_icons::status::WARNING
                 );
                 let visible_wasm = self.typewriter(&wasm_text, wasm_start);

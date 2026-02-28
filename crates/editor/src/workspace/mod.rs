@@ -1608,17 +1608,10 @@ impl Workspace {
         // Handle landing page actions
         // On mobile, block actions that navigate into the editor
         #[cfg(target_arch = "wasm32")]
-        if self.is_mobile
-            && matches!(
-                landing_action,
-                LandingPageAction::OpenTutorial
-                    | LandingPageAction::NewWorkspace
-                    | LandingPageAction::CreateProject
-            )
-        {
+        if self.is_mobile && landing_action != LandingPageAction::None {
             return WorkspaceAction::Notify {
                 level: "info".to_string(),
-                message: "Enya is designed for desktop".to_string(),
+                message: "Enya only works on Desktop".to_string(),
             };
         }
 
