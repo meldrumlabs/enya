@@ -203,7 +203,7 @@ impl NotificationManager {
 
         let margin = 16.0;
         let top_padding = 48.0; // Extra padding from top to avoid being cut off
-        let notification_width = 320.0;
+        let notification_width = (ctx.available_rect().width() - margin * 2.0).min(320.0);
         let spacing = 8.0;
         let theme = self.theme;
 

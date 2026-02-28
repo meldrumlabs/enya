@@ -26,16 +26,23 @@ fn main() {
     let async_runtime = enya_editor::AsyncRuntime::new();
 
     wasm_bindgen_futures::spawn_local(async move {
-        let document = web_sys::window()
-            .expect("No window")
-            .document()
-            .expect("No document");
+        let Some(window) = web_sys::window() else {
+            log::error!("No window object available");
+            return;
+        };
+        let Some(document) = window.document() else {
+            log::error!("No document object available");
+            return;
+        };
 
-        let canvas = document
-            .get_element_by_id("the_canvas_id")
-            .expect("Failed to find the_canvas_id")
-            .dyn_into::<web_sys::HtmlCanvasElement>()
-            .expect("the_canvas_id was not a HtmlCanvasElement");
+        let Some(canvas) = document.get_element_by_id("the_canvas_id") else {
+            log::error!("Failed to find the_canvas_id element");
+            return;
+        };
+        let Ok(canvas) = canvas.dyn_into::<web_sys::HtmlCanvasElement>() else {
+            log::error!("the_canvas_id was not a HtmlCanvasElement");
+            return;
+        };
 
         let start_result = eframe::WebRunner::new()
             .start(

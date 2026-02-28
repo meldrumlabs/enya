@@ -177,8 +177,8 @@ impl LeaderKeyState {
         self.is_active(self.last_y_press)
     }
 
-    /// Check if 'cv' sequence is ready (after 'c' was pressed within timeout).
-    pub fn is_cv_ready(&self) -> bool {
+    /// Check if 'c' leader key is active (for cv, ct sequences).
+    pub fn is_c_active(&self) -> bool {
         self.is_active(self.last_c_press)
     }
 
@@ -462,16 +462,16 @@ mod tests {
     }
 
     #[test]
-    fn test_is_cv_ready_when_just_pressed() {
+    fn test_is_c_active_when_just_pressed() {
         let mut state = LeaderKeyState::new();
         state.press_c();
-        assert!(state.is_cv_ready());
+        assert!(state.is_c_active());
     }
 
     #[test]
-    fn test_is_cv_ready_when_not_pressed() {
+    fn test_is_c_active_when_not_pressed() {
         let state = LeaderKeyState::new();
-        assert!(!state.is_cv_ready());
+        assert!(!state.is_c_active());
     }
 
     #[test]
@@ -507,7 +507,7 @@ mod tests {
         state.press_y();
 
         assert!(state.is_yy_active());
-        assert!(!state.is_cv_ready());
+        assert!(!state.is_c_active());
         assert!(!state.is_space_active());
         assert!(!state.is_t_active());
 
@@ -818,7 +818,7 @@ mod tests {
 
         // All should be active
         assert!(state.is_yy_active());
-        assert!(state.is_cv_ready());
+        assert!(state.is_c_active());
         assert!(state.is_space_active());
         assert!(state.is_t_active());
         assert!(state.is_g_active());
@@ -873,7 +873,7 @@ mod tests {
 
         // All should be inactive
         assert!(!state.is_yy_active());
-        assert!(!state.is_cv_ready());
+        assert!(!state.is_c_active());
         assert!(!state.is_space_active());
         assert!(!state.is_t_active());
         assert!(!state.is_g_active());

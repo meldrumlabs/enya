@@ -132,6 +132,10 @@ impl WhichKey {
                         key: "cv",
                         description: "Cycle viz type",
                     },
+                    Keybinding {
+                        key: "ct",
+                        description: "Cycle theme",
+                    },
                 ],
             },
             KeybindingGroup {

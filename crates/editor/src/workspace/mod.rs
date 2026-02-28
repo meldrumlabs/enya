@@ -307,6 +307,9 @@ pub struct Workspace {
     /// Native app promo overlay (WASM only)
     #[cfg(target_arch = "wasm32")]
     native_promo_overlay: NativePromoOverlay,
+    /// Whether the user is on a mobile browser (WASM only)
+    #[cfg(target_arch = "wasm32")]
+    is_mobile: bool,
     /// Unified finder (Telescope-style fuzzy finder)
     unified_finder: UnifiedFinder,
     /// Annotation editor overlay
@@ -464,6 +467,8 @@ impl Workspace {
             pending_load_workspace: None,
             #[cfg(target_arch = "wasm32")]
             native_promo_overlay: NativePromoOverlay::new(),
+            #[cfg(target_arch = "wasm32")]
+            is_mobile: Self::detect_mobile(),
             unified_finder: UnifiedFinder::new(),
             annotation_editor: AnnotationEditor::new(),
             // Floating panes
@@ -800,6 +805,8 @@ impl Workspace {
         // Update component themes
         self.time_range_toolbar.set_theme(self.theme());
         self.landing_page.set_theme(self.theme());
+        #[cfg(target_arch = "wasm32")]
+        self.landing_page.set_mobile(self.is_mobile);
 
         // Handle adding a pending chart to the viewport
         if let Some(metric_name) = self.pending_chart.take() {
@@ -1599,6 +1606,15 @@ impl Workspace {
         });
 
         // Handle landing page actions
+        // On mobile, block actions that navigate into the editor
+        #[cfg(target_arch = "wasm32")]
+        if self.is_mobile && landing_action != LandingPageAction::None {
+            return WorkspaceAction::Notify {
+                level: "info".to_string(),
+                message: "Enya only works on Desktop".to_string(),
+            };
+        }
+
         match landing_action {
             LandingPageAction::OpenTutorial => {
                 // Hide landing page and load the quick-start workspace
@@ -2165,6 +2181,33 @@ impl Workspace {
     /// Check if the landing page is currently being displayed
     pub fn is_landing_page(&self) -> bool {
         self.show_landing && self.open_charts.is_empty()
+    }
+
+    /// Detect mobile browsers via user-agent string or narrow viewport.
+    #[cfg(target_arch = "wasm32")]
+    fn detect_mobile() -> bool {
+        let Some(window) = web_sys::window() else {
+            return false;
+        };
+
+        let has_mobile_ua = window
+            .navigator()
+            .user_agent()
+            .ok()
+            .map(|ua| {
+                let ua = ua.to_lowercase();
+                ua.contains("mobi") || ua.contains("android")
+            })
+            .unwrap_or(false);
+
+        let is_narrow = window
+            .inner_width()
+            .ok()
+            .and_then(|w| w.as_f64())
+            .map(|w| w < 768.0)
+            .unwrap_or(false);
+
+        has_mobile_ua || is_narrow
     }
 
     /// Check if the command palette is currently open
