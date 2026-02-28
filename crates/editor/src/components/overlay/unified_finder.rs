@@ -1005,15 +1005,12 @@ impl UnifiedFinder {
             ctx.request_repaint_after(std::time::Duration::from_millis(SEARCH_DEBOUNCE_MS));
         }
 
-        // Calculate dimensions - fixed large size for consistent appearance
-        let screen_rect = ctx.available_rect();
-        // Large fixed width (80% of screen, clamped)
-        let total_width = (screen_rect.width() * 0.80).clamp(800.0, 1200.0);
+        // Calculate dimensions - responsive to screen size
+        let total_width = crate::util::overlay_width(ctx, 0.80, 800.0, 1200.0);
         let base_column_width = total_width / 2.0;
         let list_width = base_column_width;
         let preview_width = base_column_width;
-        // Large fixed height (70% of screen, clamped)
-        let popup_max_height = (screen_rect.height() * 0.70).clamp(500.0, 700.0);
+        let popup_max_height = crate::util::overlay_height(ctx, 0.70, 500.0, 700.0);
 
         // Extract colors from theme (Custom variant handles plugin colors internally)
         let overlay_style = OverlayStyle::frosted_glass(self.theme);

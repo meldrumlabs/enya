@@ -87,6 +87,37 @@ pub fn overlay_content_rect(ctx: &egui::Context) -> egui::Rect {
     rect
 }
 
+/// Compute responsive overlay width that fits any screen size.
+///
+/// Uses [`overlay_content_rect`] so the result accounts for the sidebar.
+/// `preferred_min` is the minimum on large screens but automatically reduces
+/// on small screens (e.g. WASM at 1.5× zoom on a laptop) so the overlay
+/// never exceeds 95% of the available content width.
+pub fn overlay_width(ctx: &egui::Context, fraction: f32, preferred_min: f32, max: f32) -> f32 {
+    let available = overlay_content_rect(ctx).width();
+    let effective_min = preferred_min.min(available * 0.95).max(200.0);
+    (available * fraction).clamp(effective_min, max)
+}
+
+/// Compute responsive overlay height that fits any screen size.
+///
+/// `preferred_min` is the minimum on large screens but automatically reduces
+/// on small screens so the overlay never exceeds 90% of the available height.
+pub fn overlay_height(ctx: &egui::Context, fraction: f32, preferred_min: f32, max: f32) -> f32 {
+    let available = overlay_content_rect(ctx).height();
+    let effective_min = preferred_min.min(available * 0.90).max(100.0);
+    (available * fraction).clamp(effective_min, max)
+}
+
+/// Compute overlay height with only a max cap (no minimum).
+///
+/// For overlays that use the `(fraction * available).min(max)` pattern where
+/// height has no lower bound.
+pub fn overlay_max_height(ctx: &egui::Context, fraction: f32, max: f32) -> f32 {
+    let available = overlay_content_rect(ctx).height();
+    (available * fraction).min(max)
+}
+
 pub fn png_to_icon_data(png_bytes: &[u8]) -> egui::IconData {
     let image = image::load_from_memory(png_bytes).unwrap();
     let size = [image.width() as usize, image.height() as usize];
@@ -95,5 +126,66 @@ pub fn png_to_icon_data(png_bytes: &[u8]) -> egui::IconData {
         width: size[0] as u32,
         height: size[1] as u32,
         rgba,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    // Test the overlay sizing math directly (without egui context).
+    fn compute_width(available: f32, fraction: f32, preferred_min: f32, max: f32) -> f32 {
+        let effective_min = preferred_min.min(available * 0.95).max(200.0);
+        (available * fraction).clamp(effective_min, max)
+    }
+
+    fn compute_height(available: f32, fraction: f32, preferred_min: f32, max: f32) -> f32 {
+        let effective_min = preferred_min.min(available * 0.90).max(100.0);
+        (available * fraction).clamp(effective_min, max)
+    }
+
+    #[test]
+    fn large_screen_uses_max_cap() {
+        // 1920px wide, UnifiedFinder: fraction * available exceeds max
+        let w = compute_width(1920.0, 0.80, 800.0, 1200.0);
+        assert_eq!(w, 1200.0);
+    }
+
+    #[test]
+    fn medium_screen_uses_fraction() {
+        // 1100px content area, fraction result is between min and max
+        let w = compute_width(1100.0, 0.80, 800.0, 1200.0);
+        assert_eq!(w, 880.0);
+    }
+
+    #[test]
+    fn small_wasm_screen_reduces_min() {
+        // 712px content area (13" MacBook WASM with sidebar open)
+        let w = compute_width(712.0, 0.80, 800.0, 1200.0);
+        // effective_min = 800.min(712*0.95) = 676.4
+        // fraction = 712 * 0.80 = 569.6 → clamped up to 676.4
+        assert!((w - 676.4).abs() < 0.1);
+        assert!(w < 712.0, "overlay must fit within available space");
+    }
+
+    #[test]
+    fn very_small_screen_uses_floor() {
+        let w = compute_width(150.0, 0.80, 800.0, 1200.0);
+        // effective_min = 800.min(142.5).max(200) = 200
+        assert_eq!(w, 200.0);
+    }
+
+    #[test]
+    fn height_responsive_on_small_screen() {
+        // 400px available height, overlay wants min 500
+        let h = compute_height(400.0, 0.70, 500.0, 700.0);
+        // effective_min = 500.min(360).max(100) = 360
+        // fraction = 280 → clamped up to 360
+        assert_eq!(h, 360.0);
+    }
+
+    #[test]
+    fn height_large_screen() {
+        let h = compute_height(1000.0, 0.70, 500.0, 700.0);
+        // fraction = 700, clamped to max 700
+        assert_eq!(h, 700.0);
     }
 }

@@ -551,9 +551,8 @@ impl DiagnosticsPane {
         }
 
         // Calculate popup dimensions (match metrics/workspace finder sizes)
-        let screen_rect = ctx.available_rect();
-        let popup_width = (screen_rect.width() * 0.70).clamp(600.0, 850.0);
-        let popup_max_height = (screen_rect.height() * 0.75).min(650.0);
+        let popup_width = crate::util::overlay_width(ctx, 0.70, 600.0, 850.0);
+        let popup_max_height = crate::util::overlay_max_height(ctx, 0.75, 650.0);
 
         let (errors, warnings, infos, hints) = self.count_by_level();
 

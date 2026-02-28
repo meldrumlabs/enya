@@ -2,6 +2,7 @@
 //!
 //! Inspired by the neovim which-key.nvim plugin, this component displays
 //! available keyboard shortcuts in a floating popup when the user presses `?`.
+//! Uses a tabbed layout to keep the overlay compact on smaller screens.
 
 use egui::{Color32, Key, RichText};
 
@@ -31,6 +32,16 @@ pub struct KeybindingGroup {
     pub bindings: Vec<Keybinding>,
 }
 
+/// A tab containing one or more keybinding groups
+struct Tab {
+    /// Display label for the tab
+    label: &'static str,
+    /// Icon for the tab
+    icon: &'static str,
+    /// Indices into the groups vec
+    group_indices: Vec<usize>,
+}
+
 /// A modal overlay that displays available keybindings in a which-key style
 pub struct WhichKey {
     /// Whether the overlay is open
@@ -41,6 +52,10 @@ pub struct WhichKey {
     theme: AppTheme,
     /// Keybinding groups
     groups: Vec<KeybindingGroup>,
+    /// Tab definitions (indices into groups)
+    tabs: Vec<Tab>,
+    /// Currently active tab index
+    active_tab: usize,
 }
 
 impl Default for WhichKey {
@@ -51,17 +66,22 @@ impl Default for WhichKey {
 
 impl WhichKey {
     pub fn new() -> Self {
+        let groups = Self::build_keybindings();
+        let tabs = Self::build_tabs();
         Self {
             is_open: false,
             just_opened: false,
             theme: AppTheme::default(),
-            groups: Self::build_keybindings(),
+            groups,
+            tabs,
+            active_tab: 0,
         }
     }
 
     /// Build the default keybinding groups
     fn build_keybindings() -> Vec<KeybindingGroup> {
         vec![
+            // 0: Navigation
             KeybindingGroup {
                 name: "Navigation",
                 icon: semantic_icons::nav::COMPASS,
@@ -76,6 +96,7 @@ impl WhichKey {
                     },
                 ],
             },
+            // 1: Panes
             KeybindingGroup {
                 name: "Panes",
                 icon: semantic_icons::nav::PANES,
@@ -102,6 +123,7 @@ impl WhichKey {
                     },
                 ],
             },
+            // 2: Window
             KeybindingGroup {
                 name: "Window",
                 icon: semantic_icons::nav::EXPAND_ALL,
@@ -116,6 +138,7 @@ impl WhichKey {
                     },
                 ],
             },
+            // 3: Editor
             KeybindingGroup {
                 name: "Editor",
                 icon: semantic_icons::action::EDIT,
@@ -138,6 +161,7 @@ impl WhichKey {
                     },
                 ],
             },
+            // 4: Search
             KeybindingGroup {
                 name: "Search",
                 icon: semantic_icons::action::SEARCH,
@@ -160,6 +184,7 @@ impl WhichKey {
                     },
                 ],
             },
+            // 5: Go To
             KeybindingGroup {
                 name: "Go To",
                 icon: semantic_icons::action::LINK,
@@ -186,6 +211,7 @@ impl WhichKey {
                     },
                 ],
             },
+            // 6: Time Range
             KeybindingGroup {
                 name: "Time Range",
                 icon: semantic_icons::time::CLOCK,
@@ -208,6 +234,7 @@ impl WhichKey {
                     },
                 ],
             },
+            // 7: Agent
             KeybindingGroup {
                 name: "Agent",
                 icon: semantic_icons::action::BRAIN,
@@ -226,6 +253,7 @@ impl WhichKey {
                     },
                 ],
             },
+            // 8: Help
             KeybindingGroup {
                 name: "Help",
                 icon: semantic_icons::status::INFO,
@@ -233,6 +261,32 @@ impl WhichKey {
                     key: "?",
                     description: "This help",
                 }],
+            },
+        ]
+    }
+
+    /// Build tab definitions that group related keybinding groups together
+    fn build_tabs() -> Vec<Tab> {
+        vec![
+            Tab {
+                label: "Navigate",
+                icon: semantic_icons::nav::COMPASS,
+                group_indices: vec![0, 1, 2], // Navigation, Panes, Window
+            },
+            Tab {
+                label: "Edit",
+                icon: semantic_icons::action::EDIT,
+                group_indices: vec![3, 4], // Editor, Search
+            },
+            Tab {
+                label: "Go To",
+                icon: semantic_icons::action::LINK,
+                group_indices: vec![5, 6], // Go To, Time Range
+            },
+            Tab {
+                label: "Agent",
+                icon: semantic_icons::action::BRAIN,
+                group_indices: vec![7, 8], // Agent, Help
             },
         ]
     }
@@ -266,103 +320,185 @@ impl WhichKey {
         }
 
         let mut should_close = false;
+        let tab_count = self.tabs.len();
 
         // Skip input handling on the first frame after opening
         // This prevents the same key press that opened us from closing us
         if self.just_opened {
             self.just_opened = false;
         } else {
-            // Handle keyboard input - close on Escape or ?
-            // Use consume_key to prevent the key from being processed multiple times
             ctx.input_mut(|i| {
                 if i.consume_key(egui::Modifiers::NONE, Key::Escape) {
                     should_close = true;
                 }
-                // Check for ? (Shift+/) - consume it to toggle off
+                // ? (Shift+/) to toggle off
                 if i.consume_key(egui::Modifiers::SHIFT, Key::Slash) {
                     should_close = true;
+                }
+                // Tab navigation: l/Right = next, h/Left = prev
+                if i.consume_key(egui::Modifiers::NONE, Key::L)
+                    || i.consume_key(egui::Modifiers::NONE, Key::ArrowRight)
+                    || i.consume_key(egui::Modifiers::NONE, Key::Tab)
+                {
+                    self.active_tab = (self.active_tab + 1) % tab_count;
+                }
+                if i.consume_key(egui::Modifiers::NONE, Key::H)
+                    || i.consume_key(egui::Modifiers::NONE, Key::ArrowLeft)
+                {
+                    self.active_tab = (self.active_tab + tab_count - 1) % tab_count;
+                }
+                // Number keys for direct tab access
+                if i.consume_key(egui::Modifiers::NONE, Key::Num1) {
+                    self.active_tab = 0;
+                }
+                if i.consume_key(egui::Modifiers::NONE, Key::Num2) && tab_count > 1 {
+                    self.active_tab = 1;
+                }
+                if i.consume_key(egui::Modifiers::NONE, Key::Num3) && tab_count > 2 {
+                    self.active_tab = 2;
+                }
+                if i.consume_key(egui::Modifiers::NONE, Key::Num4) && tab_count > 3 {
+                    self.active_tab = 3;
                 }
             });
         }
 
-        // Calculate popup dimensions - wide for 3-column layout
-        let screen_rect = ctx.available_rect();
-        let popup_width = (screen_rect.width() * 0.8).clamp(700.0, 1000.0);
-        let popup_max_height = (screen_rect.height() * 0.6).clamp(300.0, 450.0);
+        let content_rect = crate::util::overlay_content_rect(ctx);
+        let popup_width = crate::util::overlay_width(ctx, 0.70, 480.0, 700.0);
+        // Fixed row count so every tab renders at the same height.
+        // The largest tabs (Navigate, Go To) have 9 bindings → 5 rows in 2 columns.
+        const GRID_ROWS: usize = 5;
 
         egui::Area::new(egui::Id::new("which_key_popup"))
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-            .constrain_to(crate::util::overlay_content_rect(ctx))
+            .constrain_to(content_rect)
             .order(egui::Order::Foreground)
             .show(ctx, |ui| {
-                // Extract colors from theme (handles both builtin and custom themes)
                 let overlay_style = OverlayStyle::frosted_glass(self.theme);
                 let separator_color = self.theme.border_subtle();
                 let text_col = self.theme.text_primary();
                 let muted_text = self.theme.text_tertiary();
                 let key_bg = self.theme.bg_elevated();
                 let accent_color = self.theme.accent_primary();
+                let bg_surface = self.theme.bg_surface();
 
                 overlay_style.frame().show(ui, |ui| {
                     ui.set_width(popup_width);
-                    ui.set_max_height(popup_max_height);
 
-                    // Header section
-                    ui.add_space(12.0);
+                    // Header
+                    ui.add_space(10.0);
                     ui.horizontal(|ui| {
                         ui.add_space(16.0);
                         ui.label(
                             RichText::new(semantic_icons::keyboard::KEYBOARD)
                                 .color(muted_text)
-                                .size(20.0),
+                                .size(16.0),
                         );
-                        ui.add_space(8.0);
+                        ui.add_space(6.0);
                         ui.label(
                             RichText::new("Keyboard Shortcuts")
                                 .color(text_col)
-                                .size(18.0)
+                                .size(14.0)
                                 .strong(),
                         );
                     });
-                    ui.add_space(12.0);
+                    ui.add_space(8.0);
 
-                    // Separator below header
+                    // Tab bar
+                    ui.horizontal(|ui| {
+                        ui.add_space(12.0);
+                        let tab_labels: Vec<(&str, &str)> =
+                            self.tabs.iter().map(|t| (t.icon, t.label)).collect();
+                        for (i, (icon, label)) in tab_labels.iter().enumerate() {
+                            let is_active = i == self.active_tab;
+                            let btn_text = if is_active {
+                                RichText::new(format!("{icon} {label}"))
+                                    .color(accent_color)
+                                    .size(typography::MD)
+                                    .strong()
+                            } else {
+                                RichText::new(format!("{icon} {label}"))
+                                    .color(muted_text)
+                                    .size(typography::MD)
+                            };
+
+                            let btn = egui::Button::new(btn_text)
+                                .fill(if is_active {
+                                    bg_surface
+                                } else {
+                                    Color32::TRANSPARENT
+                                })
+                                .stroke(if is_active {
+                                    egui::Stroke::new(1.0, separator_color)
+                                } else {
+                                    egui::Stroke::NONE
+                                })
+                                .corner_radius(4.0);
+
+                            if ui.add(btn).clicked() {
+                                self.active_tab = i;
+                            }
+                        }
+                    });
+                    ui.add_space(6.0);
+
+                    // Separator
                     ui.painter().hline(
                         ui.available_rect_before_wrap().x_range(),
                         ui.cursor().top(),
                         egui::Stroke::new(1.0, separator_color),
                     );
-                    ui.add_space(16.0);
+                    ui.add_space(10.0);
 
-                    // Content area with keybinding groups in a 2-column layout
-                    ui.horizontal(|ui| {
-                        ui.add_space(16.0);
-                        ui.vertical(|ui| {
-                            ui.set_width(popup_width - 32.0);
+                    // Content: flat 2-column grid with fixed row count
+                    if let Some(tab) = self.tabs.get(self.active_tab) {
+                        let bindings: Vec<&Keybinding> = tab
+                            .group_indices
+                            .iter()
+                            .filter_map(|&idx| self.groups.get(idx))
+                            .flat_map(|g| g.bindings.iter())
+                            .collect();
 
-                            // Split groups into three columns for compact layout
-                            let groups = &self.groups;
-                            let col_size = groups.len().div_ceil(3);
+                        let col_size = GRID_ROWS;
 
-                            ui.columns(3, |columns| {
-                                for (i, group) in groups.iter().enumerate() {
-                                    let col = i / col_size;
-                                    let col = col.min(2); // Ensure we don't overflow
-                                    Self::render_group(
-                                        &mut columns[col],
-                                        group,
-                                        accent_color,
-                                        muted_text,
-                                        key_bg,
-                                        text_col,
-                                    );
-                                    columns[col].add_space(12.0);
+                        ui.horizontal(|ui| {
+                            ui.add_space(16.0);
+                            ui.columns(2, |cols| {
+                                for row in 0..GRID_ROWS {
+                                    // Left column
+                                    if let Some(b) = bindings.get(row) {
+                                        Self::render_binding(
+                                            &mut cols[0],
+                                            b,
+                                            muted_text,
+                                            key_bg,
+                                            text_col,
+                                        );
+                                    } else {
+                                        // Empty row placeholder for consistent height
+                                        cols[0]
+                                            .allocate_space(egui::vec2(1.0, typography::MD + 6.0));
+                                    }
+
+                                    // Right column
+                                    if let Some(b) = bindings.get(row + col_size) {
+                                        Self::render_binding(
+                                            &mut cols[1],
+                                            b,
+                                            muted_text,
+                                            key_bg,
+                                            text_col,
+                                        );
+                                    } else {
+                                        cols[1]
+                                            .allocate_space(egui::vec2(1.0, typography::MD + 6.0));
+                                    }
                                 }
                             });
                         });
-                    });
+                    }
 
-                    ui.add_space(8.0);
+                    ui.add_space(10.0);
 
                     // Separator above footer
                     ui.painter().hline(
@@ -370,84 +506,50 @@ impl WhichKey {
                         ui.cursor().top(),
                         egui::Stroke::new(1.0, separator_color),
                     );
-                    ui.add_space(8.0);
+                    ui.add_space(6.0);
 
-                    // Footer with keyboard hints
+                    // Footer
                     ui.horizontal(|ui| {
                         ui.add_space(16.0);
+                        render_key_badge(ui, "h/l", key_bg, accent_color);
                         ui.label(
-                            RichText::new("Press ")
+                            RichText::new(" switch tab  ")
                                 .color(muted_text)
-                                .font(typography::proportional(typography::MD)),
+                                .font(typography::proportional(typography::SM)),
                         );
                         render_key_badge(ui, "Esc", key_bg, accent_color);
                         ui.label(
-                            RichText::new(" or ")
+                            RichText::new(" close")
                                 .color(muted_text)
-                                .font(typography::proportional(typography::MD)),
-                        );
-                        render_key_badge(ui, "?", key_bg, accent_color);
-                        ui.label(
-                            RichText::new(" to close")
-                                .color(muted_text)
-                                .font(typography::proportional(typography::MD)),
+                                .font(typography::proportional(typography::SM)),
                         );
                     });
-                    ui.add_space(12.0);
+                    ui.add_space(8.0);
                 });
             });
 
         if should_close {
-            // Clear egui focus so vim keys work immediately after closing
             ctx.memory_mut(|mem| mem.surrender_focus(egui::Id::NULL));
             self.close();
         }
     }
 
-    /// Render a group of keybindings
-    fn render_group(
+    /// Render a single key → description row
+    fn render_binding(
         ui: &mut egui::Ui,
-        group: &KeybindingGroup,
-        accent_color: Color32,
+        binding: &Keybinding,
         muted_text: Color32,
         key_bg: Color32,
         text_col: Color32,
     ) {
-        // Group header with icon
         ui.horizontal(|ui| {
+            render_key_badge(ui, binding.key, key_bg, text_col);
+            ui.add_space(6.0);
             ui.label(
-                RichText::new(group.icon)
-                    .color(accent_color)
-                    .size(typography::LG),
-            );
-            ui.add_space(4.0);
-            ui.label(
-                RichText::new(group.name)
-                    .color(accent_color)
-                    .size(typography::MD)
-                    .strong(),
+                RichText::new(binding.description)
+                    .color(muted_text)
+                    .font(typography::proportional(typography::MD)),
             );
         });
-        ui.add_space(4.0);
-
-        // Keybindings
-        for binding in &group.bindings {
-            ui.horizontal(|ui| {
-                ui.add_space(16.0); // Indent under group header
-
-                // Key badge
-                render_key_badge(ui, binding.key, key_bg, text_col);
-
-                ui.add_space(6.0);
-
-                // Description
-                ui.label(
-                    RichText::new(binding.description)
-                        .color(muted_text)
-                        .font(typography::proportional(typography::MD)),
-                );
-            });
-            ui.add_space(1.0);
-        }
     }
 }

@@ -674,9 +674,7 @@ impl BufferEditor {
         draw_backdrop(ctx, self.theme, "buffer_editor");
 
         // Main editor popup
-        #[allow(deprecated)]
-        let screen_rect = ctx.screen_rect();
-        let popup_width = (screen_rect.width() * 0.7).clamp(500.0, 900.0);
+        let popup_width = crate::util::overlay_width(ctx, 0.70, 500.0, 900.0);
 
         egui::Area::new(egui::Id::new("buffer_editor_popup"))
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])

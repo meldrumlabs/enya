@@ -574,9 +574,8 @@ impl HttpHandler {
         draw_backdrop(ctx, self.theme, "source_preview");
 
         // Calculate popup dimensions
-        let screen_rect = ctx.available_rect();
-        let popup_width = (screen_rect.width() * 0.7).clamp(500.0, 900.0);
-        let popup_max_height = (screen_rect.height() * 0.7).clamp(300.0, 600.0);
+        let popup_width = crate::util::overlay_width(ctx, 0.70, 500.0, 900.0);
+        let popup_max_height = crate::util::overlay_height(ctx, 0.70, 300.0, 600.0);
 
         egui::Area::new(egui::Id::new("source_preview_popup"))
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])

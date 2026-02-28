@@ -542,9 +542,8 @@ impl PluginsOverlay {
         }
 
         // Calculate popup dimensions
-        let screen_rect = ctx.available_rect();
-        let popup_width = (screen_rect.width() * 0.6).clamp(500.0, 800.0);
-        let popup_max_height = (screen_rect.height() * 0.7).min(600.0);
+        let popup_width = crate::util::overlay_width(ctx, 0.60, 500.0, 800.0);
+        let popup_max_height = crate::util::overlay_max_height(ctx, 0.70, 600.0);
 
         // Pre-calculate colors for closure access (Custom variant handles plugin colors internally)
         let overlay_style = OverlayStyle::frosted_glass(self.theme);
@@ -1037,9 +1036,10 @@ impl PluginsOverlay {
                 self.pending_open_file_opener = false;
                 if let Some(ref plugin_dir) = self.plugin_directory {
                     // Position near center of screen (popup will appear below this point)
+                    let content_rect = crate::util::overlay_content_rect(ctx);
                     let popup_pos = egui::pos2(
-                        screen_rect.center().x - 100.0,
-                        screen_rect.center().y - 50.0,
+                        content_rect.center().x - 100.0,
+                        content_rect.center().y - 50.0,
                     );
                     self.file_opener.open(popup_pos, plugin_dir.clone());
                 }

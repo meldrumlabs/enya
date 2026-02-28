@@ -252,7 +252,7 @@ impl Workspace {
         let pos = if let Some([x, y]) = position {
             egui::pos2(x, y)
         } else {
-            egui::pos2(100.0 + offset, 100.0 + offset)
+            egui::pos2(60.0 + offset, 60.0 + offset)
         };
 
         self.floating_panes.add_pane(pane, pos);
@@ -2564,8 +2564,8 @@ impl Workspace {
             } else {
                 // Default position and size
                 (
-                    egui::pos2(100.0 + offset, 100.0 + offset),
-                    egui::vec2(500.0, 350.0),
+                    egui::pos2(60.0 + offset, 60.0 + offset),
+                    super::floating::DEFAULT_FLOATING_SIZE,
                 )
             };
 

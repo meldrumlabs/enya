@@ -245,8 +245,7 @@ impl WorkspaceCreator {
         }
 
         // Calculate popup dimensions - match Tutorial overlay sizing
-        let screen_rect = ctx.available_rect();
-        let popup_width = (screen_rect.width() * 0.5).clamp(500.0, 650.0);
+        let popup_width = crate::util::overlay_width(ctx, 0.50, 500.0, 650.0);
 
         egui::Area::new(egui::Id::new("workspace_creator_overlay"))
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])

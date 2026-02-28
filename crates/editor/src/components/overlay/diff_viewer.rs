@@ -264,9 +264,8 @@ impl DiffViewerOverlay {
         draw_backdrop(ctx, self.theme, "diff_viewer");
 
         // Calculate popup dimensions - larger to accommodate side panel
-        let screen_rect = ctx.available_rect();
-        let popup_width = (screen_rect.width() * 0.85).clamp(700.0, 1400.0);
-        let popup_max_height = (screen_rect.height() * 0.85).clamp(500.0, 900.0);
+        let popup_width = crate::util::overlay_width(ctx, 0.85, 700.0, 1400.0);
+        let popup_max_height = crate::util::overlay_height(ctx, 0.85, 500.0, 900.0);
 
         // File panel width
         let file_panel_width = 240.0;

@@ -217,14 +217,16 @@ impl CodebaseFinder {
             .constrain_to(crate::util::overlay_content_rect(ctx))
             .show(ctx, |ui| {
                 // Background dimming
-                #[allow(deprecated)]
-                let content_rect = ui.ctx().input(|i| i.screen_rect());
-                ui.painter()
-                    .rect_filled(content_rect, 0.0, Color32::from_black_alpha(180));
+                let content_rect = crate::util::overlay_content_rect(ui.ctx());
+                ui.painter().rect_filled(
+                    ui.ctx().available_rect(),
+                    0.0,
+                    Color32::from_black_alpha(180),
+                );
 
                 // Main container
-                let width = 700.0_f32.min(content_rect.width() - 40.0);
-                let height = 500.0_f32.min(content_rect.height() - 100.0);
+                let width = 700.0_f32.min(content_rect.width() - 40.0).max(200.0);
+                let height = 500.0_f32.min(content_rect.height() - 100.0).max(100.0);
 
                 egui::Frame::new()
                     .fill(bg_color)

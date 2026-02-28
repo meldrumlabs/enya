@@ -545,7 +545,7 @@ impl SettingsPage {
         let separator = self.theme.border_subtle();
 
         // Full-page layout with sidebar + content
-        let sidebar_width = 220.0;
+        let sidebar_width = 220.0_f32.min(ui.available_width() * 0.25).max(140.0);
 
         // Sidebar panel
         egui::SidePanel::left("settings_sidebar")
@@ -768,14 +768,14 @@ impl SettingsPage {
         text_tertiary: Color32,
         result: &mut SettingsPageResult,
     ) {
-        // Theme & Font needs more width for side-by-side panels
-        let max_content_width = match self.active_category {
-            SettingsCategory::ThemeFont => 800.0,
-            _ => 640.0,
-        };
-
         // Center the content horizontally while preserving full vertical space
         let available = ui.available_rect_before_wrap();
+
+        // Theme & Font needs more width for side-by-side panels
+        let max_content_width = match self.active_category {
+            SettingsCategory::ThemeFont => 800.0_f32.min(available.width() - 64.0),
+            _ => 640.0_f32.min(available.width() - 64.0),
+        };
         let side_margin = ((available.width() - max_content_width) / 2.0).max(32.0);
         let content_rect = egui::Rect::from_min_max(
             egui::pos2(available.min.x + side_margin, available.min.y),
@@ -2941,7 +2941,7 @@ impl SettingsPage {
         let anim_glow = self.panel_switch_anim * 0.3;
         let content_width = ui.available_width();
         let panel_width = ((content_width - 24.0) / 2.0).min(400.0);
-        let panel_height = 400.0;
+        let panel_height = 400.0_f32.min(ui.available_height() - 60.0).max(200.0);
 
         // Side-by-side panels
         ui.horizontal(|ui| {

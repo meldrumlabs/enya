@@ -424,8 +424,7 @@ impl TutorialOverlay {
         }
 
         // Calculate popup dimensions - narrower but taller for readability
-        let screen_rect = ctx.available_rect();
-        let popup_width = (screen_rect.width() * 0.5).clamp(500.0, 650.0);
+        let popup_width = crate::util::overlay_width(ctx, 0.50, 500.0, 650.0);
 
         // Extract colors from theme (Custom variant handles plugin colors internally)
         let overlay_style = OverlayStyle::frosted_glass(self.theme);
@@ -674,9 +673,8 @@ impl TutorialOverlay {
 
     /// Render the step picker overlay
     fn render_step_picker(&self, ctx: &egui::Context) {
-        let screen_rect = ctx.available_rect();
-        let popup_width = (screen_rect.width() * 0.6).clamp(550.0, 750.0);
-        let popup_height = (screen_rect.height() * 0.7).clamp(400.0, 600.0);
+        let popup_width = crate::util::overlay_width(ctx, 0.60, 550.0, 750.0);
+        let popup_height = crate::util::overlay_height(ctx, 0.70, 400.0, 600.0);
 
         let overlay_style = OverlayStyle::frosted_glass(self.theme);
         let muted_text = self.theme.text_primary().gamma_multiply(0.6);

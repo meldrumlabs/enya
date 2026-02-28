@@ -640,8 +640,7 @@ impl CommandPalette {
         let bg_elevated = self.theme.bg_elevated();
 
         // Render the palette
-        let screen_rect = ctx.available_rect();
-        let popup_width = (screen_rect.width() * 0.5).clamp(350.0, 600.0);
+        let popup_width = crate::util::overlay_width(ctx, 0.50, 350.0, 600.0);
 
         // Position: centered vertically when opened from landing page, otherwise near top
         let (anchor, offset) = if self.centered {

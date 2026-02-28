@@ -598,20 +598,19 @@ impl<T: FinderItem> Finder<T> {
             should_close = true;
         }
 
-        // Calculate popup dimensions
-        let screen_rect = ctx.available_rect();
+        // Calculate popup dimensions (sidebar-aware via overlay_content_rect)
         let list_width = if self.config.show_preview {
-            (screen_rect.width() * 0.35).clamp(300.0, 425.0)
+            crate::util::overlay_width(ctx, 0.35, 300.0, 425.0)
         } else {
-            (screen_rect.width() * 0.70).clamp(600.0, 850.0)
+            crate::util::overlay_width(ctx, 0.70, 600.0, 850.0)
         };
         let preview_width = if self.config.show_preview {
-            (screen_rect.width() * 0.35).clamp(300.0, 425.0)
+            crate::util::overlay_width(ctx, 0.35, 300.0, 425.0)
         } else {
             0.0
         };
         let total_width = list_width + preview_width;
-        let popup_max_height = (screen_rect.height() * 0.65).min(550.0);
+        let popup_max_height = crate::util::overlay_max_height(ctx, 0.65, 550.0);
 
         // Get the currently selected result for preview
         let selected_result_for_preview = if !self.results.is_empty() {
