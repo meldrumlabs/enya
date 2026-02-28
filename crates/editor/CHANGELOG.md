@@ -6,6 +6,7 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Changed
 
+- **Skip landing page for returning users**: When the user has any projects, the app now auto-restores the last workspace on startup instead of showing the landing page. The landing page only appears for first-time users with no projects.
 - **GitHub sign-in is desktop only**: Disabled GitHub OAuth sign-in on WASM since the OAuth App only supports one callback URL (`127.0.0.1` for native). The Connect button now shows "Desktop only" on the web editor.
 
 ### Fixed
