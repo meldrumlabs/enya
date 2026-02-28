@@ -9,7 +9,7 @@ use arrow::array::{
     TimestampSecondArray, UInt8Array, UInt16Array, UInt32Array, UInt64Array,
 };
 use arrow::datatypes::SchemaRef;
-use datafusion::scalar::ScalarValue;
+
 use rustc_hash::FxHashMap;
 
 pub use crate::error::QueryId;
@@ -567,44 +567,6 @@ pub enum TableSource {
     Memory,
     /// View (SQL query).
     View { sql: String },
-}
-
-/// Profile data for a column.
-#[derive(Debug, Clone)]
-pub struct ColumnProfile {
-    /// Column name.
-    pub name: String,
-    /// Data type.
-    pub data_type: String,
-    /// Number of null values.
-    pub null_count: usize,
-    /// Percentage of nulls.
-    pub null_percent: f64,
-    /// Number of distinct values (approximate).
-    pub distinct_count: Option<usize>,
-    /// Minimum value.
-    pub min: Option<ScalarValue>,
-    /// Maximum value.
-    pub max: Option<ScalarValue>,
-    /// Mean (for numeric types).
-    pub mean: Option<f64>,
-    /// Standard deviation (for numeric types).
-    pub std_dev: Option<f64>,
-    /// Top N most frequent values.
-    pub top_values: Vec<(ScalarValue, usize)>,
-}
-
-/// Profile data for a table.
-#[derive(Debug, Clone)]
-pub struct TableProfile {
-    /// Table name.
-    pub table_name: String,
-    /// Total row count.
-    pub row_count: usize,
-    /// Column profiles.
-    pub columns: Vec<ColumnProfile>,
-    /// Time taken to profile.
-    pub profile_time: Duration,
 }
 
 /// Events streamed during query execution.

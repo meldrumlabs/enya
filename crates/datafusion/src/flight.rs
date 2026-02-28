@@ -81,9 +81,6 @@ pub struct FlightClient {
     client: FlightSqlServiceClient<Channel>,
     /// The endpoint URL.
     endpoint: String,
-    /// Connection configuration.
-    #[allow(dead_code)] // Will be used for reconnection logic
-    config: FlightConfig,
 }
 
 impl FlightClient {
@@ -138,7 +135,6 @@ impl FlightClient {
         Ok(Self {
             client,
             endpoint: endpoint.to_string(),
-            config,
         })
     }
 

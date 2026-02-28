@@ -49,6 +49,9 @@ pub use plan::{
 pub use session::{Config, Session};
 pub use types::*;
 
+// Re-export DftSessionStateBuilder for advanced session configuration
+pub use datafusion_app::extensions::DftSessionStateBuilder;
+
 // Re-export arrow types needed by consumers
 pub use arrow;
 
