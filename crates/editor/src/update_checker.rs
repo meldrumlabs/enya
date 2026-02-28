@@ -206,12 +206,43 @@ impl UpdateChecker {
         });
     }
 
+    /// Download a URL to a local file path.
+    async fn download_to_file(
+        client: &reqwest::Client,
+        url: &str,
+        dest: &std::path::Path,
+    ) -> Result<(), String> {
+        use std::io::Write;
+
+        log::info!("Downloading update from {url}");
+        let response = client
+            .get(url)
+            .header("User-Agent", "enya-editor")
+            .send()
+            .await
+            .map_err(|e| format!("Download failed: {e}"))?;
+
+        if !response.status().is_success() {
+            return Err(format!("Download HTTP {}", response.status()));
+        }
+
+        let bytes = response
+            .bytes()
+            .await
+            .map_err(|e| format!("Failed to read download: {e}"))?;
+
+        let mut file =
+            std::fs::File::create(dest).map_err(|e| format!("Failed to create temp file: {e}"))?;
+        file.write_all(&bytes)
+            .map_err(|e| format!("Failed to write temp file: {e}"))?;
+
+        Ok(())
+    }
+
     /// Perform the update download and installation.
     ///
-    /// On macOS: downloads the DMG, mounts it, copies the signed `.app` bundle
-    /// using `ditto` (preserving code signatures), and atomically swaps it into place.
-    ///
-    /// On other platforms: downloads the binary and replaces the current executable.
+    /// Downloads the DMG, mounts it, copies the signed `.app` bundle using `ditto`
+    /// (preserving code signatures), and atomically swaps it into place.
     #[cfg(target_os = "macos")]
     async fn perform_download(client: &reqwest::Client, url: &str) -> Result<(), String> {
         let app_bundle = find_app_bundle()
@@ -232,31 +263,7 @@ impl UpdateChecker {
         let dmg_path = std::env::temp_dir().join("Enya-update.dmg");
         let mount_point = std::env::temp_dir().join("enya-update-mount");
 
-        // Download the DMG
-        log::info!("Downloading update from {url}");
-        let response = client
-            .get(url)
-            .header("User-Agent", "enya-editor")
-            .send()
-            .await
-            .map_err(|e| format!("Download failed: {e}"))?;
-
-        if !response.status().is_success() {
-            return Err(format!("Download HTTP {}", response.status()));
-        }
-
-        let bytes = response
-            .bytes()
-            .await
-            .map_err(|e| format!("Failed to read download: {e}"))?;
-
-        {
-            use std::io::Write;
-            let mut file = std::fs::File::create(&dmg_path)
-                .map_err(|e| format!("Failed to create DMG temp file: {e}"))?;
-            file.write_all(&bytes)
-                .map_err(|e| format!("Failed to write DMG: {e}"))?;
-        }
+        Self::download_to_file(client, url, &dmg_path).await?;
 
         // Mount the DMG (nobrowse = no Finder sidebar, readonly = safe)
         log::info!("Mounting DMG");
@@ -335,36 +342,11 @@ impl UpdateChecker {
     /// Perform the actual binary download and replacement (non-macOS).
     #[cfg(not(target_os = "macos"))]
     async fn perform_download(client: &reqwest::Client, url: &str) -> Result<(), String> {
-        use std::io::Write;
-
         let current_exe =
             std::env::current_exe().map_err(|e| format!("Failed to get current exe: {e}"))?;
 
-        // Download the new binary
-        let response = client
-            .get(url)
-            .header("Accept", "application/octet-stream")
-            .header("User-Agent", "enya-editor")
-            .send()
-            .await
-            .map_err(|e| format!("Download failed: {e}"))?;
-
-        if !response.status().is_success() {
-            return Err(format!("Download HTTP {}", response.status()));
-        }
-
-        let bytes = response
-            .bytes()
-            .await
-            .map_err(|e| format!("Failed to read download: {e}"))?;
-
-        // Write to a temp file next to the current exe
         let temp_path = current_exe.with_extension("update");
-        let mut file = std::fs::File::create(&temp_path)
-            .map_err(|e| format!("Failed to create temp file: {e}"))?;
-        file.write_all(&bytes)
-            .map_err(|e| format!("Failed to write temp file: {e}"))?;
-        drop(file);
+        Self::download_to_file(client, url, &temp_path).await?;
 
         // Make the temp file executable (Unix)
         #[cfg(unix)]
