@@ -993,10 +993,11 @@ impl EnyaApp {
         }
 
         // Auto-restore last workspace if user has projects (skip landing page)
-        if self.workspace.is_landing_page() && !self.state.settings.projects.is_empty() {
-            if let Some(last) = self.state.settings.recent_workspaces.first() {
-                self.load_workspace(&last.name.clone());
-            }
+        if self.workspace.is_landing_page()
+            && !self.state.settings.projects.is_empty()
+            && !self.state.settings.recent_workspaces.is_empty()
+        {
+            self.load_workspace(&self.state.settings.recent_workspaces[0].name.clone());
         }
 
         // Project sidebar visibility — hidden on landing page and in zen mode
