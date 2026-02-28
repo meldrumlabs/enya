@@ -384,25 +384,33 @@ impl UpdateChecker {
     #[cfg(target_os = "macos")]
     pub fn cleanup_old_bundle() {
         if let Some(bundle) = find_app_bundle() {
-            if let Some(parent) = bundle.parent() {
-                let bundle_name = bundle
-                    .file_name()
-                    .map(|n| n.to_string_lossy().to_string())
-                    .unwrap_or_else(|| "Enya.app".to_string());
-                let old_path = parent.join(format!("{bundle_name}.old"));
-                if old_path.exists() {
-                    log::info!("Removing leftover bundle from previous update: {old_path:?}");
-                    if let Err(e) = std::fs::remove_dir_all(&old_path) {
-                        log::warn!("Failed to remove old bundle {old_path:?}: {e}");
-                    }
-                }
-                // Also clean up any failed staging
-                let staged_path = parent.join(".Enya-staged.app");
-                if staged_path.exists() {
-                    log::info!("Removing leftover staged bundle: {staged_path:?}");
-                    let _ = std::fs::remove_dir_all(&staged_path);
-                }
+            Self::cleanup_update_artifacts(&bundle);
+        }
+    }
+
+    /// Remove stale `.old` and `.Enya-staged.app` directories next to the given bundle.
+    #[cfg(target_os = "macos")]
+    fn cleanup_update_artifacts(app_bundle: &std::path::Path) {
+        let Some(parent) = app_bundle.parent() else {
+            return;
+        };
+        let bundle_name = app_bundle
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| "Enya.app".to_string());
+
+        let old_path = parent.join(format!("{bundle_name}.old"));
+        if old_path.exists() {
+            log::info!("Removing leftover bundle from previous update: {old_path:?}");
+            if let Err(e) = std::fs::remove_dir_all(&old_path) {
+                log::warn!("Failed to remove old bundle {old_path:?}: {e}");
             }
+        }
+
+        let staged_path = parent.join(".Enya-staged.app");
+        if staged_path.exists() {
+            log::info!("Removing leftover staged bundle: {staged_path:?}");
+            let _ = std::fs::remove_dir_all(&staged_path);
         }
     }
 
@@ -608,5 +616,41 @@ mod tests {
         // Running from `cargo test`, not inside a .app bundle
         let result = find_app_bundle();
         assert!(result.is_none());
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn test_cleanup_update_artifacts() {
+        let tmp = tempfile::tempdir().unwrap();
+        let fake_bundle = tmp.path().join("Enya.app");
+        let old_bundle = tmp.path().join("Enya.app.old");
+        let staged_bundle = tmp.path().join(".Enya-staged.app");
+
+        // Create the fake bundle and leftover artifacts
+        std::fs::create_dir_all(fake_bundle.join("Contents/MacOS")).unwrap();
+        std::fs::create_dir_all(old_bundle.join("Contents/MacOS")).unwrap();
+        std::fs::create_dir_all(staged_bundle.join("Contents/MacOS")).unwrap();
+
+        assert!(old_bundle.exists());
+        assert!(staged_bundle.exists());
+
+        UpdateChecker::cleanup_update_artifacts(&fake_bundle);
+
+        assert!(!old_bundle.exists(), "old bundle should be removed");
+        assert!(!staged_bundle.exists(), "staged bundle should be removed");
+        assert!(fake_bundle.exists(), "current bundle should be untouched");
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn test_cleanup_noop_when_no_artifacts() {
+        let tmp = tempfile::tempdir().unwrap();
+        let fake_bundle = tmp.path().join("Enya.app");
+        std::fs::create_dir_all(fake_bundle.join("Contents/MacOS")).unwrap();
+
+        // Should not panic when there's nothing to clean up
+        UpdateChecker::cleanup_update_artifacts(&fake_bundle);
+
+        assert!(fake_bundle.exists());
     }
 }
