@@ -4,6 +4,10 @@ All notable changes to the Enya editor will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- **GitHub sign-in is desktop only**: Disabled GitHub OAuth sign-in on WASM since the OAuth App only supports one callback URL (`127.0.0.1` for native). The Connect button now shows "Desktop only" on the web editor.
+
 ### Fixed
 
 - **Tracing pane no longer auto-focuses input**: The trace ID input field no longer grabs focus when the tracing pane is first activated, matching the behavior of other panes.
