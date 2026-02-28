@@ -23,14 +23,14 @@ pub enum LandingPageAction {
     OpenPlugins,
     /// Create a new project in the sidebar
     CreateProject,
-    /// Dismiss the landing page and show the empty workspace
-    NewWorkspace,
+    /// Dismiss the landing page and return to the workspace
+    Dismiss,
     /// Show native app info (WASM only)
     ShowNativeAppInfo,
 }
 
 /// Number of menu items in the landing page
-const NUM_MENU_ITEMS: usize = 6;
+const NUM_MENU_ITEMS: usize = 5;
 
 /// Animation timing (in seconds)
 mod animation {
@@ -196,16 +196,16 @@ impl LandingPage {
         let available_height = ui.available_height();
 
         // Calculate the unscaled content height to determine required scale
-        // Header: logo(160) + spacing(12) + tagline(~17) + spacing(8) + version(~15) = ~212
+        // Header: logo(160) + spacing(16) + tagline(~22) + spacing(8) + version(~16) = ~222
         //   WASM adds: spacing(8) + native_app_link(~15) = +23
-        // Header spacing: 32
-        // Menu: 6 items * (48 + 8) = 336
-        // Footer spacing: 16
-        // Footer: hints(~16) + spacing(12) + credits(~15) + spacing(4) + memorial(~14) = ~61
+        // Header spacing: 36
+        // Menu: 5 items * (48 + 8) = 280
+        // Footer spacing: 20
+        // Footer: hints(~17) + spacing(12) + credits(~16) + spacing(4) + memorial(~15) = ~64
         // Margins: 32 (frame) + some padding
-        // Total unscaled: ~689 (non-WASM), ~712 (WASM)
+        // Total unscaled: ~686 (non-WASM), ~709 (WASM)
         #[cfg(target_arch = "wasm32")]
-        const UNSCALED_CONTENT_HEIGHT: f32 = 720.0;
+        const UNSCALED_CONTENT_HEIGHT: f32 = 710.0;
         #[cfg(not(target_arch = "wasm32"))]
         const UNSCALED_CONTENT_HEIGHT: f32 = 690.0;
 
@@ -214,8 +214,8 @@ impl LandingPage {
         let scale = (target_height / UNSCALED_CONTENT_HEIGHT).clamp(0.5, 1.0);
 
         // Scaled spacing values
-        let header_spacing = 32.0 * scale;
-        let footer_spacing = 16.0 * scale;
+        let header_spacing = 36.0 * scale;
+        let footer_spacing = 20.0 * scale;
 
         // Actual content height after scaling
         let content_height = UNSCALED_CONTENT_HEIGHT * scale;
@@ -278,7 +278,7 @@ impl LandingPage {
             ui.allocate_space(Vec2::splat(logo_size));
         }
 
-        ui.add_space(12.0 * scale);
+        ui.add_space(16.0 * scale);
 
         // Tagline with typewriter + cursor
         let tagline = "A Builder's Best Friend";
@@ -291,7 +291,7 @@ impl LandingPage {
         };
         ui.label(
             RichText::new(format!("{visible_tagline}{tagline_cursor}"))
-                .size(typography::LG * scale)
+                .size(typography::XL * scale)
                 .color(muted_color),
         );
 
@@ -308,7 +308,7 @@ impl LandingPage {
         };
         ui.label(
             RichText::new(format!("{visible_version}{version_cursor}"))
-                .size(typography::SM * scale)
+                .size(typography::MD * scale)
                 .color(muted_color.gamma_multiply(0.7)),
         );
 
@@ -395,9 +395,6 @@ impl LandingPage {
                 "n",
                 || LandingPageAction::CreateProject,
             ),
-            (semantic_icons::nav::FORWARD, "Get started", "e", || {
-                LandingPageAction::NewWorkspace
-            }),
             (semantic_icons::diagnostic::HINT, "Tutorial", "t", || {
                 LandingPageAction::OpenTutorial
             }),
@@ -557,7 +554,7 @@ impl LandingPage {
         };
         ui.label(
             RichText::new(format!("{visible_hints}{hints_cursor}"))
-                .size(typography::MD * scale)
+                .size(typography::LG * scale)
                 .color(muted_color.gamma_multiply(0.7)),
         );
 
@@ -574,7 +571,7 @@ impl LandingPage {
         };
         ui.label(
             RichText::new(format!("{visible_credits}{credits_cursor}"))
-                .size(typography::SM * scale)
+                .size(typography::MD * scale)
                 .color(muted_color.gamma_multiply(0.5)),
         );
 
@@ -591,7 +588,7 @@ impl LandingPage {
         };
         ui.label(
             RichText::new(format!("{visible_memorial}{memorial_cursor}"))
-                .size(typography::XS * scale)
+                .size(typography::SM * scale)
                 .color(muted_color.gamma_multiply(0.35)),
         );
     }
@@ -611,15 +608,15 @@ impl LandingPage {
         let mut action = LandingPageAction::None;
 
         ctx.input_mut(|input| {
-            // n - Create project
-            if input.consume_key(egui::Modifiers::NONE, egui::Key::N) {
-                action = LandingPageAction::CreateProject;
+            // Escape - Dismiss landing page (return to workspace)
+            if input.consume_key(egui::Modifiers::NONE, egui::Key::Escape) {
+                action = LandingPageAction::Dismiss;
                 return;
             }
 
-            // e - Get started (open editor)
-            if input.consume_key(egui::Modifiers::NONE, egui::Key::E) {
-                action = LandingPageAction::NewWorkspace;
+            // n - Create project
+            if input.consume_key(egui::Modifiers::NONE, egui::Key::N) {
+                action = LandingPageAction::CreateProject;
                 return;
             }
 
@@ -684,11 +681,10 @@ impl LandingPage {
             if input.consume_key(egui::Modifiers::NONE, egui::Key::Enter) {
                 action = match self.selected_index {
                     0 => LandingPageAction::CreateProject,
-                    1 => LandingPageAction::NewWorkspace,
-                    2 => LandingPageAction::OpenTutorial,
-                    3 => LandingPageAction::OpenSettings,
-                    4 => LandingPageAction::OpenPlugins,
-                    5 => LandingPageAction::ShowAbout,
+                    1 => LandingPageAction::OpenTutorial,
+                    2 => LandingPageAction::OpenSettings,
+                    3 => LandingPageAction::OpenPlugins,
+                    4 => LandingPageAction::ShowAbout,
                     _ => LandingPageAction::None,
                 };
             }

@@ -125,6 +125,9 @@ pub struct EnyaApp {
     // Delay plugin installation by one frame to allow spinner to render
     #[cfg(not(target_arch = "wasm32"))]
     install_plugin_ready: bool,
+
+    // Whether we've already attempted to auto-restore the last workspace on startup
+    checked_auto_restore: bool,
 }
 
 impl EnyaApp {
@@ -424,6 +427,7 @@ impl EnyaApp {
             install_plugin_ready: false,
             #[cfg(not(target_arch = "wasm32"))]
             startup_workspace: None,
+            checked_auto_restore: false,
         }
     }
 
@@ -978,6 +982,24 @@ impl EnyaApp {
             } else if let Some(snapshot_id) = Self::get_url_snapshot_param() {
                 // Blob snapshot: async fetch from server, then decode and load
                 self.fetch_snapshot(ctx, &snapshot_id);
+            }
+        }
+
+        // Auto-restore last workspace on startup if user has created their own projects
+        // (skip landing page). The built-in "Tutorial" project doesn't count.
+        if !self.checked_auto_restore {
+            self.checked_auto_restore = true;
+            let has_user_projects = self
+                .state
+                .settings
+                .projects
+                .iter()
+                .any(|p| p.name != "Tutorial");
+            if self.workspace.is_landing_page()
+                && has_user_projects
+                && !self.state.settings.recent_workspaces.is_empty()
+            {
+                self.load_workspace(&self.state.settings.recent_workspaces[0].name.clone());
             }
         }
 
