@@ -97,7 +97,7 @@ import ThemeProvider from '../components/ThemeProvider.astro';
 			<footer class="footer">
 				<div class="footer-bottom">
 					<div class="copyright-wrapper">
-						© 2025 Meldrum Labs AB · MIT License
+						© 2026 Meldrum Labs AB · MIT License
 					</div>
 				</div>
 			</footer>
@@ -478,12 +478,18 @@ import ThemeProvider from '../components/ThemeProvider.astro';
 		}
 
 		.downloads-grid {
-			grid-template-columns: 1fr;
+			grid-template-columns: repeat(2, 1fr);
 			gap: 1rem;
 		}
 
 		.download-card {
 			padding: 2rem 1.5rem;
+		}
+	}
+
+	@media (max-width: 480px) {
+		.downloads-grid {
+			grid-template-columns: 1fr;
 		}
 	}
 

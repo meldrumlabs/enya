@@ -87,7 +87,7 @@ async fn main() -> Result<()> {
                     </div>
                 </div>
 			</main>
-			<section class="demo-section">
+			<section class="demo-section" data-animate>
 				<div class="demo-content">
 					<div class="demo-toggle" role="radiogroup" aria-label="Demo mode">
 						<button class="demo-toggle-option active" id="toggle-human" role="radio" aria-checked="true" data-mode="human">human</button>
@@ -102,7 +102,7 @@ async fn main() -> Result<()> {
 					</div>
 				</div>
 			</section>
-			<section class="features-section">
+			<section class="features-section" data-animate>
 				<div class="features-content">
 					<h2 class="features-title">What is Enya?</h2>
 					<p class="features-tagline">Neovim meets Grafana, reimagined for human and agent collaboration.</p>
@@ -134,38 +134,38 @@ async fn main() -> Result<()> {
 									</ul>
 				</div>
 			</section>
-			<section class="faq-section">
+			<section class="faq-section" data-animate>
 				<div class="faq-content">
 					<h2 class="faq-title">FAQ</h2>
 					<div class="faq-list">
 						<details class="faq-item">
-							<summary class="faq-question">Where do I start?</summary>
+							<summary class="faq-question">Where do I start?<svg class="faq-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg></summary>
 							<p class="faq-answer">Start with the built-in tutorial in the <a href="/editor">browser</a>, or <a href="/download">download</a> the native app for the full experience.</p>
 						</details>
 						<details class="faq-item">
-							<summary class="faq-question">Which tools does Enya support?</summary>
+							<summary class="faq-question">Which tools does Enya support?<svg class="faq-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg></summary>
 							<div class="faq-answer">Enya supports multiple open-source tools and can be extended with plugins.<br/><br/><span class="backend-label">Metrics</span> Prometheus<br/><span class="backend-label">Logs</span> Loki<br/><span class="backend-label">Traces</span> Tempo<br/><span class="backend-label">SQL</span> Apache DataFusion (Arrow Flight)<br/><span class="backend-label">Terminal</span> Ghostty<br/><span class="backend-label">Custom</span> Create your own tools with Lua plugins</div>
 						</details>
 						<details class="faq-item">
-							<summary class="faq-question">Can I connect my own AI?</summary>
+							<summary class="faq-question">Can I connect my own AI?<svg class="faq-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg></summary>
 							<p class="faq-answer">Yes. Enya works with Claude Code, Codex, and other agents via the Agent Client Protocol (ACP).</p>
 						</details>
 						<details class="faq-item">
-							<summary class="faq-question">Is Enya free?</summary>
+							<summary class="faq-question">Is Enya free?<svg class="faq-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg></summary>
 							<p class="faq-answer">Yes. Enya is free for individual builders and <a href="https://github.com/meldrumlabs/enya" target="_blank" rel="noopener noreferrer">open source</a> under the MIT License.</p>
 						</details>
 						<details class="faq-item">
-							<summary class="faq-question">What about data privacy?</summary>
+							<summary class="faq-question">What about data privacy?<svg class="faq-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg></summary>
 							<div class="faq-answer">Enya is local-first — your data stays on your machine by default.<br/><br/>Snapshots are an opt-in feature that lets you share a workspace via a link. Snapshots are stored on Cloudflare R2 hosted by Meldrum Labs and requires GitHub sign-in. A minimum set of fields are stored to enable a per-user quota of 50 MB. Snapshots auto-expire after 7 days and anyone with the link will be able to view it.<br/><br/>Read more in our <a href="/privacy">privacy policy</a>.</div>
 						</details>
 						<details class="faq-item">
-							<summary class="faq-question">Which features are native only?</summary>
+							<summary class="faq-question">Which features are native only?<svg class="faq-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg></summary>
 							<p class="faq-answer">Codebase indexing, AI agents, and plugins require the native app. The browser version is ideal for sharing workspaces and plots with users who don't have the native app installed.</p>
 						</details>
 					</div>
 				</div>
 			</section>
-			<section class="open-source-section">
+			<section class="open-source-section" data-animate>
 				<div class="open-source-content">
 					<h2 class="open-source-title">By Builders, For Builders.</h2>
 					<p class="open-source-text">Enya is developed by <a href="https://meldrumlabs.com" target="_blank" rel="noopener noreferrer">Meldrum Labs</a> and community, licensed under MIT.</p>
@@ -313,6 +313,30 @@ async fn main() -> Result<()> {
 	*::before,
 	*::after {
 		box-sizing: border-box;
+	}
+
+	/* Scroll fade-in animation */
+	[data-animate] {
+		opacity: 0;
+		transform: translateY(20px);
+		transition: opacity 0.5s ease, transform 0.5s ease;
+	}
+
+	[data-animate].visible {
+		opacity: 1;
+		transform: translateY(0);
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		[data-animate] {
+			opacity: 1;
+			transform: none;
+			transition: none;
+		}
+	}
+
+	html {
+		scroll-behavior: smooth;
 	}
 
 	html,
@@ -771,6 +795,14 @@ async fn main() -> Result<()> {
 			inset 0 1px 0 rgba(255, 255, 255, 0.2);
 	}
 
+	.hero-button-primary:active {
+		transform: translateY(0);
+		box-shadow:
+			0 1px 0 0 #047857,
+			0 2px 8px var(--obsidian-accent-glow),
+			inset 0 1px 0 rgba(255, 255, 255, 0.1);
+	}
+
 	.download-icon-btn {
 		flex-shrink: 0;
 	}
@@ -890,7 +922,7 @@ async fn main() -> Result<()> {
 		object-fit: cover;
 		border-radius: 0.5rem;
 		border: 1px solid var(--obsidian-border-default);
-		box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+		box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3), 0 0 30px rgba(16, 185, 129, 0.15);
 		transition: opacity 0.3s ease;
 	}
 
@@ -1280,15 +1312,14 @@ async fn main() -> Result<()> {
 		display: none;
 	}
 
-	.faq-question::after {
-		content: '+';
+	.faq-chevron {
+		flex-shrink: 0;
 		color: var(--obsidian-text-tertiary);
-		font-size: 1.25rem;
 		transition: transform 0.2s ease;
 	}
 
-	.faq-item[open] .faq-question::after {
-		content: '−';
+	.faq-item[open] .faq-chevron {
+		transform: rotate(180deg);
 	}
 
 	.faq-answer {
@@ -1332,11 +1363,31 @@ async fn main() -> Result<()> {
 		.faq-answer {
 			font-size: 0.8rem;
 		}
+
+		.backend-label {
+			display: block;
+			width: auto;
+			margin-bottom: 0.25rem;
+		}
 	}
 </style>
 
 <script>
 	document.addEventListener('DOMContentLoaded', () => {
+		// Scroll fade-in animation
+		const animatedSections = document.querySelectorAll('[data-animate]');
+		if (animatedSections.length > 0) {
+			const observer = new IntersectionObserver((entries) => {
+				entries.forEach(entry => {
+					if (entry.isIntersecting) {
+						entry.target.classList.add('visible');
+						observer.unobserve(entry.target);
+					}
+				});
+			}, { threshold: 0.1 });
+			animatedSections.forEach(section => observer.observe(section));
+		}
+
 		// OS Detection for Download Button
 		const downloadButton = document.getElementById('download-button');
 		const osNameSpan = document.getElementById('os-name');
