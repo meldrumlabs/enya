@@ -206,7 +206,134 @@ impl UpdateChecker {
         });
     }
 
-    /// Perform the actual binary download and replacement.
+    /// Perform the update download and installation.
+    ///
+    /// On macOS: downloads the DMG, mounts it, copies the signed `.app` bundle
+    /// using `ditto` (preserving code signatures), and atomically swaps it into place.
+    ///
+    /// On other platforms: downloads the binary and replaces the current executable.
+    #[cfg(target_os = "macos")]
+    async fn perform_download(client: &reqwest::Client, url: &str) -> Result<(), String> {
+        let app_bundle = find_app_bundle()
+            .ok_or("Not running from a .app bundle; cannot perform in-place update")?;
+
+        let app_dir = app_bundle
+            .parent()
+            .ok_or("Cannot determine app parent directory")?;
+
+        let app_name = app_bundle
+            .file_name()
+            .ok_or("Cannot determine app bundle name")?
+            .to_string_lossy();
+
+        // Stage in the same directory to guarantee same-filesystem atomic rename
+        let staged_path = app_dir.join(".Enya-staged.app");
+        let old_path = app_dir.join(format!("{app_name}.old"));
+        let dmg_path = std::env::temp_dir().join("Enya-update.dmg");
+        let mount_point = std::env::temp_dir().join("enya-update-mount");
+
+        // Download the DMG
+        log::info!("Downloading update from {url}");
+        let response = client
+            .get(url)
+            .header("User-Agent", "enya-editor")
+            .send()
+            .await
+            .map_err(|e| format!("Download failed: {e}"))?;
+
+        if !response.status().is_success() {
+            return Err(format!("Download HTTP {}", response.status()));
+        }
+
+        let bytes = response
+            .bytes()
+            .await
+            .map_err(|e| format!("Failed to read download: {e}"))?;
+
+        {
+            use std::io::Write;
+            let mut file = std::fs::File::create(&dmg_path)
+                .map_err(|e| format!("Failed to create DMG temp file: {e}"))?;
+            file.write_all(&bytes)
+                .map_err(|e| format!("Failed to write DMG: {e}"))?;
+        }
+
+        // Mount the DMG (nobrowse = no Finder sidebar, readonly = safe)
+        log::info!("Mounting DMG");
+        // Detach any stale mount from a previous failed attempt
+        let _ = tokio::process::Command::new("hdiutil")
+            .arg("detach")
+            .arg(&mount_point)
+            .output()
+            .await;
+        let _ = std::fs::create_dir_all(&mount_point);
+
+        let mount_output = tokio::process::Command::new("hdiutil")
+            .arg("attach")
+            .arg("-nobrowse")
+            .arg("-readonly")
+            .arg("-mountpoint")
+            .arg(&mount_point)
+            .arg(&dmg_path)
+            .output()
+            .await
+            .map_err(|e| format!("hdiutil attach failed: {e}"))?;
+
+        if !mount_output.status.success() {
+            let _ = std::fs::remove_file(&dmg_path);
+            let stderr = String::from_utf8_lossy(&mount_output.stderr);
+            return Err(format!("hdiutil attach failed: {stderr}"));
+        }
+
+        // Copy Enya.app from DMG using ditto (preserves code signatures + xattrs)
+        log::info!("Copying app bundle from DMG");
+        let source_app = mount_point.join("Enya.app");
+        let _ = std::fs::remove_dir_all(&staged_path);
+
+        let ditto_output = tokio::process::Command::new("ditto")
+            .arg(&source_app)
+            .arg(&staged_path)
+            .output()
+            .await
+            .map_err(|e| format!("ditto failed: {e}"))?;
+
+        // Unmount and clean up DMG regardless of ditto result
+        let _ = tokio::process::Command::new("hdiutil")
+            .arg("detach")
+            .arg(&mount_point)
+            .output()
+            .await;
+        let _ = std::fs::remove_file(&dmg_path);
+        let _ = std::fs::remove_dir(&mount_point);
+
+        if !ditto_output.status.success() {
+            let _ = std::fs::remove_dir_all(&staged_path);
+            let stderr = String::from_utf8_lossy(&ditto_output.stderr);
+            return Err(format!("ditto failed: {stderr}"));
+        }
+
+        // Atomic bundle swap:
+        // Rename current Enya.app → Enya.app.old (macOS allows renaming dirs
+        // containing running binaries; the process keeps its open inode)
+        log::info!("Swapping app bundles");
+        let _ = std::fs::remove_dir_all(&old_path);
+
+        std::fs::rename(&app_bundle, &old_path)
+            .map_err(|e| format!("Failed to move current .app to .old: {e}"))?;
+
+        if let Err(e) = std::fs::rename(&staged_path, &app_bundle) {
+            // Rollback: restore the old bundle
+            let _ = std::fs::rename(&old_path, &app_bundle);
+            let _ = std::fs::remove_dir_all(&staged_path);
+            return Err(format!("Failed to install staged .app: {e}"));
+        }
+
+        log::info!("Update installed successfully");
+        Ok(())
+    }
+
+    /// Perform the actual binary download and replacement (non-macOS).
+    #[cfg(not(target_os = "macos"))]
     async fn perform_download(client: &reqwest::Client, url: &str) -> Result<(), String> {
         use std::io::Write;
 
@@ -267,6 +394,34 @@ impl UpdateChecker {
             let _ = std::process::Command::new(exe).spawn();
         }
         ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+    }
+
+    /// Remove `Enya.app.old` left behind by a previous successful update.
+    ///
+    /// Called once on startup. Best-effort: logs on failure but does not panic.
+    #[cfg(target_os = "macos")]
+    pub fn cleanup_old_bundle() {
+        if let Some(bundle) = find_app_bundle() {
+            if let Some(parent) = bundle.parent() {
+                let bundle_name = bundle
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_else(|| "Enya.app".to_string());
+                let old_path = parent.join(format!("{bundle_name}.old"));
+                if old_path.exists() {
+                    log::info!("Removing leftover bundle from previous update: {old_path:?}");
+                    if let Err(e) = std::fs::remove_dir_all(&old_path) {
+                        log::warn!("Failed to remove old bundle {old_path:?}: {e}");
+                    }
+                }
+                // Also clean up any failed staging
+                let staged_path = parent.join(".Enya-staged.app");
+                if staged_path.exists() {
+                    log::info!("Removing leftover staged bundle: {staged_path:?}");
+                    let _ = std::fs::remove_dir_all(&staged_path);
+                }
+            }
+        }
     }
 
     /// Fire off an async update check.
@@ -340,6 +495,25 @@ impl UpdateChecker {
     }
 }
 
+/// Walk up from `current_exe()` to find the enclosing `.app` bundle directory.
+///
+/// Returns `None` when not running inside a macOS app bundle (e.g. `cargo run`).
+#[cfg(target_os = "macos")]
+fn find_app_bundle() -> Option<std::path::PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    let mut path = exe.as_path();
+    loop {
+        path = path.parent()?;
+        if path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .is_some_and(|n| n.ends_with(".app"))
+        {
+            return Some(path.to_path_buf());
+        }
+    }
+}
+
 /// Parse a version string at runtime into a `CrateVersion` for comparison.
 ///
 /// Handles formats like "0.2.0", "1.0.0-alpha.1", "1.0.0-rc.2".
@@ -355,14 +529,19 @@ fn parse_version(s: &str) -> Option<CrateVersion> {
 }
 
 /// Find the download asset URL matching the current platform.
+#[cfg(target_os = "macos")]
 fn find_platform_asset(assets: &[GitHubAsset]) -> Option<String> {
-    let target = if cfg!(target_os = "macos") {
-        if cfg!(target_arch = "aarch64") {
-            "aarch64-apple-darwin"
-        } else {
-            "x86_64-apple-darwin"
-        }
-    } else if cfg!(target_os = "linux") {
+    // The release uploads a single universal DMG named "Enya.dmg".
+    assets
+        .iter()
+        .find(|a| a.name.ends_with(".dmg"))
+        .map(|a| a.browser_download_url.clone())
+}
+
+/// Find the download asset URL matching the current platform.
+#[cfg(not(target_os = "macos"))]
+fn find_platform_asset(assets: &[GitHubAsset]) -> Option<String> {
+    let target = if cfg!(target_os = "linux") {
         if cfg!(target_arch = "aarch64") {
             "aarch64-unknown-linux"
         } else {
@@ -419,17 +598,33 @@ mod tests {
     fn test_find_platform_asset() {
         let assets = vec![
             GitHubAsset {
-                name: "enya-aarch64-apple-darwin.tar.gz".to_string(),
-                browser_download_url: "https://example.com/mac-arm".to_string(),
+                name: "Enya.dmg".to_string(),
+                browser_download_url: "https://example.com/Enya.dmg".to_string(),
             },
             GitHubAsset {
                 name: "enya-x86_64-unknown-linux-gnu.tar.gz".to_string(),
                 browser_download_url: "https://example.com/linux".to_string(),
             },
+            GitHubAsset {
+                name: "checksums-macos.txt".to_string(),
+                browser_download_url: "https://example.com/checksums".to_string(),
+            },
         ];
 
         let result = find_platform_asset(&assets);
-        // The result depends on the platform running the test
-        assert!(result.is_some() || cfg!(target_os = "windows"));
+        #[cfg(target_os = "macos")]
+        assert_eq!(result, Some("https://example.com/Enya.dmg".to_string()));
+        #[cfg(target_os = "linux")]
+        assert_eq!(result, Some("https://example.com/linux".to_string()));
+        #[cfg(target_os = "windows")]
+        assert!(result.is_none()); // no windows asset in test data
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn test_find_app_bundle_not_in_bundle() {
+        // Running from `cargo test`, not inside a .app bundle
+        let result = find_app_bundle();
+        assert!(result.is_none());
     }
 }
