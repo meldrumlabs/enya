@@ -23,7 +23,7 @@ submodules:
 
 # Installs required dev tools
 install: submodules
-    cargo install --locked cargo-machete cargo-nextest cargo-deny
+    cargo install --locked cargo-machete cargo-nextest cargo-deny git-cliff
     cd website && npm install
 
 # Cleans everything through cargo clean
@@ -110,6 +110,14 @@ snapshot-server:
 # Deploy the snapshot API worker to Cloudflare (R2)
 deploy-snapshot-api:
     cd workers/snapshot-api && npx wrangler deploy
+
+# Generate full changelog from git history
+changelog:
+    git-cliff -o CHANGELOG.md
+
+# Preview changelog for unreleased commits
+changelog-unreleased:
+    git-cliff --unreleased --strip header
 
 # Run enya serve in development
 serve workspace:

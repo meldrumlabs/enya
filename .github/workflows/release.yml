@@ -19,6 +19,8 @@ jobs:
       version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Extract version from tag
         id: version
@@ -36,6 +38,15 @@ jobs:
             exit 1
           fi
 
+      - name: Generate changelog
+        uses: orhun/git-cliff-action@v4
+        id: changelog
+        with:
+          config: cliff.toml
+          args: --latest --strip header
+        env:
+          GITHUB_REPO: ${{ github.repository }}
+
       - name: Create GitHub Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -43,7 +54,7 @@ jobs:
           gh release create "${{ github.ref_name }}" \
             --title "Enya ${{ github.ref_name }}" \
             --draft \
-            --generate-notes
+            --notes "${{ steps.changelog.outputs.content }}"
 
   # Build macOS universal binary and DMG
   build-macos:
