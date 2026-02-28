@@ -371,18 +371,14 @@ impl EnyaApp {
         #[cfg(not(target_arch = "wasm32"))]
         let check_for_updates = state.settings.check_for_updates;
 
-        #[cfg_attr(not(target_arch = "wasm32"), allow(unused_mut))]
-        let mut github_auth = GitHubAuthManager::restore(
+        let github_auth = GitHubAuthManager::restore(
             state.settings.github_credentials.clone(),
             async_runtime.clone(),
             reqwest::Client::new(),
         );
 
-        // On WASM, check if we arrived back from a GitHub OAuth redirect.
-        // If so, navigate directly to the settings Auth page.
-        #[cfg(target_arch = "wasm32")]
-        let auth_callback_detected = github_auth.check_auth_callback(&cc.egui_ctx);
-        #[cfg(not(target_arch = "wasm32"))]
+        // GitHub OAuth is native-only for now (WASM redirect_uri not
+        // registered with the GitHub OAuth App).
         let auth_callback_detected = false;
 
         if auth_callback_detected {
