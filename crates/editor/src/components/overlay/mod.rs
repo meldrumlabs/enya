@@ -68,9 +68,9 @@ pub use slash_commands::{
     SLASH_COMMANDS, SlashCommand, SlashCommandCategory, SlashCommandPopup, SlashCommandResult,
 };
 pub use source_preview::{SourcePreviewOverlay, SourcePreviewResult};
-pub use style_picker::{StylePicker, StylePickerResult, StyleTab};
+pub use style_picker::StyleTab;
 pub use time_range_picker::{TimeRangePicker, TimeRangePickerResult};
-pub use tutorial::{TutorialAction, TutorialOverlay};
+pub use tutorial::TutorialOverlay;
 pub use unified_finder::{FinderMode, UnifiedFinder, UnifiedFinderAction, UnifiedResult};
 pub use viewport_filter::{ViewportFilter, ViewportFilterResult};
 pub use which_key::WhichKey;
