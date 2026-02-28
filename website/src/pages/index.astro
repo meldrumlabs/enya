@@ -550,8 +550,18 @@ async fn main() -> Result<()> {
 			display: none;
 		}
 
+		.theme-toggle {
+			display: none;
+		}
+
 		.mobile-menu-toggle {
 			display: flex;
+		}
+
+		.main {
+			max-width: 100%;
+			padding-left: 1rem;
+			padding-right: 1rem;
 		}
 	}
 
@@ -812,7 +822,12 @@ async fn main() -> Result<()> {
 	}
 
 	@media (max-width: 768px) {
-		.hero-button-primary {
+		.hero-buttons {
+			flex-direction: column;
+		}
+
+		.hero-button-primary,
+		.hero-button-secondary {
 			width: 100%;
 			text-align: center;
 		}
@@ -908,6 +923,14 @@ async fn main() -> Result<()> {
 	@media (max-width: 768px) {
 		.demo-section {
 			padding: 2rem 1rem 4rem 1rem;
+		}
+
+		.demo-video {
+			border-radius: 0.25rem;
+		}
+
+		.demo-coming-soon {
+			border-radius: 0.25rem;
 		}
 	}
 
