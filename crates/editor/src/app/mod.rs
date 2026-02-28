@@ -158,6 +158,10 @@ impl EnyaApp {
         #[cfg(not(target_arch = "wasm32"))]
         Self::ensure_default_workspace();
 
+        // Clean up leftover .app.old from a previous macOS update
+        #[cfg(all(not(target_arch = "wasm32"), target_os = "macos"))]
+        UpdateChecker::cleanup_old_bundle();
+
         // Ensure Tutorial project with example workspaces exists (for new users)
         state.settings.ensure_tutorial_project();
 

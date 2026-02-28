@@ -10,6 +10,7 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Fixed
 
+- **macOS auto-update**: The "Restart" button in the update banner now downloads the signed DMG, mounts it, copies the full `.app` bundle using `ditto` (preserving code signatures and notarization), atomically swaps it into place, and restarts. Previously the asset matcher searched for architecture substrings absent from the `Enya.dmg` filename, so macOS users always fell back to "Download" (opening the browser). Stale `.app.old` bundles from previous updates are cleaned up on startup.
 - **Tracing pane no longer auto-focuses input**: The trace ID input field no longer grabs focus when the tracing pane is first activated, matching the behavior of other panes.
 - **SQL pane spinner theming**: Loading spinners in the SQL pane now use the active theme's accent color instead of the default black.
 - **SQL pane premature "no results" message**: Fixed "Query returned no results" appearing while a query was still running; the message now only shows after the query completes.
