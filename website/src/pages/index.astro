@@ -155,8 +155,8 @@ async fn main() -> Result<()> {
 							<p class="faq-answer">Yes. Enya is free for individual builders and <a href="https://github.com/meldrumlabs/enya" target="_blank" rel="noopener noreferrer">open source</a> under the MIT License.</p>
 						</details>
 						<details class="faq-item">
-							<summary class="faq-question">What about data privacy?<svg class="faq-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg></summary>
-							<div class="faq-answer">Enya is local-first — your data stays on your machine by default.<br/><br/>Snapshots are an opt-in feature that lets you share a workspace via a link. Snapshots are stored on Cloudflare R2 hosted by Meldrum Labs and requires GitHub sign-in. A minimum set of fields are stored to enable a per-user quota of 50 MB. Snapshots auto-expire after 7 days and anyone with the link will be able to view it.<br/><br/>Read more in our <a href="/privacy">privacy policy</a>.</div>
+							<summary class="faq-question">Is Enya privacy-focused?<svg class="faq-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg></summary>
+							<div class="faq-answer">Yes.<br/><br/>Enya never sends your data to external servers. Your workspaces and configurations are stored and processed locally on your computer.<br/><br/>Snapshots are an opt-in feature that lets you share a workspace via a link. Snapshots require GitHub sign-in, are stored on infrastructure operated by Meldrum Labs, and automatically deleted after 7 days.<br/><br/>Read more in our <a href="/privacy">privacy policy</a>.</div>
 						</details>
 						<details class="faq-item">
 							<summary class="faq-question">Which features are native only?<svg class="faq-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg></summary>
@@ -1397,7 +1397,7 @@ async fn main() -> Result<()> {
 			const platform = window.navigator.platform.toLowerCase();
 
 			if (userAgent.indexOf('mac') !== -1 || platform.indexOf('mac') !== -1) {
-				return { name: 'macOS', download: 'https://github.com/meldrumlabs/enya/releases/latest' };
+				return { name: 'macOS', download: 'https://github.com/meldrumlabs/enya/releases/latest/download/Enya.dmg' };
 			} else if (userAgent.indexOf('win') !== -1 || platform.indexOf('win') !== -1) {
 				return { name: 'Windows', download: 'https://github.com/meldrumlabs/enya/releases/latest' };
 			} else if (userAgent.indexOf('linux') !== -1 || platform.indexOf('linux') !== -1) {
