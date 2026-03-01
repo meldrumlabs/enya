@@ -23,6 +23,10 @@ pub enum SqlCommand {
     History,
     /// Load demo query plan.
     Demo,
+    /// Benchmark query execution over multiple iterations.
+    Bench,
+    /// Show column-level statistics for a table.
+    Describe,
 }
 
 impl SqlCommand {
@@ -38,6 +42,8 @@ impl SqlCommand {
             SqlCommand::Schema,
             SqlCommand::Diff,
             SqlCommand::History,
+            SqlCommand::Bench,
+            SqlCommand::Describe,
         ]
     }
 
@@ -53,6 +59,8 @@ impl SqlCommand {
             SqlCommand::Schema => "schema",
             SqlCommand::History => "history",
             SqlCommand::Demo => "demo",
+            SqlCommand::Bench => "bench",
+            SqlCommand::Describe => "describe",
         }
     }
 
@@ -68,6 +76,8 @@ impl SqlCommand {
             SqlCommand::Schema => "Table structure",
             SqlCommand::History => "Query history",
             SqlCommand::Demo => "Load demo query plan",
+            SqlCommand::Bench => "Benchmark query (N iterations)",
+            SqlCommand::Describe => "Column statistics (count, nulls, min/max)",
         }
     }
 

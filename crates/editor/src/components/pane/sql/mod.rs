@@ -18,6 +18,9 @@
 // Syntax highlighting (shared between all builds)
 pub mod highlighting;
 
+// Shared rendering helpers (used by both native and stub)
+pub(crate) mod rendering;
+
 /// Actions that can be triggered by the SQL pane.
 #[derive(Debug, Clone)]
 pub enum SqlPaneAction {

@@ -7,6 +7,7 @@
 use egui::{Color32, RichText};
 use enya_config::{SnapshotCellKind, SnapshotQueryCell};
 
+use super::super::rendering::{self, ColumnRow, PhaseRow};
 use super::{CellViewState, format_ms, snapshot_plan};
 use crate::components::OverlayColors;
 use crate::components::util::{render_stat_badge, render_stat_badge_with_icon};
@@ -38,6 +39,8 @@ pub(super) fn render_snapshot_card(
         SnapshotCellKind::Explain => render_explain_expanded(ui, cell, cell_idx, view_state, theme),
         SnapshotCellKind::Diff => render_diff_expanded(ui, cell, cell_idx, view_state, theme),
         SnapshotCellKind::Query => render_expanded_card(ui, cell, cell_idx, view_state, theme),
+        SnapshotCellKind::Benchmark => render_benchmark_snapshot(ui, cell, theme),
+        SnapshotCellKind::Describe => render_describe_snapshot(ui, cell, theme),
     }
 }
 
@@ -496,6 +499,242 @@ fn render_card_footer(
         });
     });
     ui.add_space(4.0);
+}
+
+// =============================================================================
+// Benchmark cell rendering (read-only snapshot)
+// =============================================================================
+
+fn render_benchmark_snapshot(
+    ui: &mut egui::Ui,
+    cell: &SnapshotQueryCell,
+    theme: AppTheme,
+) -> Vec<CardAction> {
+    let text_primary = theme.text_primary();
+    let text_secondary = theme.text_secondary();
+    let accent = theme.accent_primary();
+    let colors = OverlayColors::new(theme);
+
+    egui::Frame::new()
+        .fill(theme.bg_elevated())
+        .stroke(egui::Stroke::new(1.5, accent.gamma_multiply(0.5)))
+        .corner_radius(8.0)
+        .inner_margin(0.0)
+        .show(ui, |ui| {
+            // Header
+            egui::Frame::new()
+                .fill(theme.bg_surface())
+                .inner_margin(egui::Margin::symmetric(12, 8))
+                .corner_radius(egui::CornerRadius {
+                    nw: 8,
+                    ne: 8,
+                    sw: 0,
+                    se: 0,
+                })
+                .show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            RichText::new(status::SUCCESS)
+                                .color(theme.semantic_success())
+                                .size(11.0),
+                        );
+                        ui.add_space(6.0);
+                        ui.label(
+                            RichText::new(&cell.sql)
+                                .color(text_primary)
+                                .size(11.0)
+                                .monospace(),
+                        );
+                    });
+                });
+
+            if let Some(bench) = &cell.benchmark {
+                // Stats bar
+                rendering::render_stats_bar_frame(ui, theme, |ui, colors| {
+                    if bench.rows_per_iteration > 0 {
+                        render_stat_badge(
+                            ui,
+                            &format!("{} rows/iter", bench.rows_per_iteration),
+                            colors,
+                        );
+                        ui.add_space(4.0);
+                    }
+
+                    render_stat_badge_with_icon(
+                        ui,
+                        time::TIMER,
+                        &format_us(bench.total.median_us),
+                        colors,
+                    );
+                    ui.add_space(4.0);
+
+                    render_stat_badge(ui, &format!("{} iterations", bench.iterations), colors);
+                });
+
+                // Separator
+                ui.painter().hline(
+                    ui.available_rect_before_wrap().x_range(),
+                    ui.cursor().top(),
+                    egui::Stroke::new(1.0, colors.separator),
+                );
+
+                // Phase table
+                let fmt_phase = |name: &'static str,
+                                 timing: &enya_config::SnapshotPhaseTiming,
+                                 is_total: bool|
+                 -> PhaseRow<'static> {
+                    PhaseRow {
+                        name,
+                        values: [
+                            timing.min_us,
+                            timing.median_us,
+                            timing.mean_us,
+                            timing.max_us,
+                        ]
+                        .map(format_us),
+                        percent: if is_total {
+                            None
+                        } else {
+                            Some(timing.percent_of_total)
+                        },
+                    }
+                };
+
+                let rows = [
+                    fmt_phase("Logical Planning", &bench.logical_planning, false),
+                    fmt_phase("Physical Planning", &bench.physical_planning, false),
+                    fmt_phase("Execution", &bench.execution, false),
+                    fmt_phase("Total", &bench.total, true),
+                ];
+
+                rendering::render_phase_table(ui, &rows, theme);
+            }
+
+            // Footer
+            ui.painter().hline(
+                ui.available_rect_before_wrap().x_range(),
+                ui.cursor().top(),
+                egui::Stroke::new(1.0, colors.separator),
+            );
+            ui.add_space(4.0);
+            ui.horizontal(|ui| {
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.add_space(12.0);
+                    ui.label(
+                        RichText::new("read-only snapshot")
+                            .color(colors.faint_text.gamma_multiply(0.7))
+                            .font(typography::proportional(typography::XS)),
+                    );
+                });
+            });
+            ui.add_space(4.0);
+        });
+
+    let _ = (text_secondary, accent);
+    Vec::new()
+}
+
+/// Format microseconds as a human-readable duration string.
+fn format_us(us: u64) -> String {
+    if us < 1000 {
+        format!("{us}µs")
+    } else if us < 1_000_000 {
+        format!("{:.2}ms", us as f64 / 1000.0)
+    } else {
+        format!("{:.2}s", us as f64 / 1_000_000.0)
+    }
+}
+
+fn render_describe_snapshot(
+    ui: &mut egui::Ui,
+    cell: &SnapshotQueryCell,
+    theme: AppTheme,
+) -> Vec<CardAction> {
+    let text_primary = theme.text_primary();
+    let accent = theme.accent_primary();
+    let colors = OverlayColors::new(theme);
+
+    egui::Frame::new()
+        .fill(theme.bg_elevated())
+        .stroke(egui::Stroke::new(1.5, accent.gamma_multiply(0.5)))
+        .corner_radius(8.0)
+        .inner_margin(0.0)
+        .show(ui, |ui| {
+            // Header
+            egui::Frame::new()
+                .fill(theme.bg_surface())
+                .inner_margin(egui::Margin::symmetric(12, 8))
+                .corner_radius(egui::CornerRadius {
+                    nw: 8,
+                    ne: 8,
+                    sw: 0,
+                    se: 0,
+                })
+                .show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            RichText::new(status::SUCCESS)
+                                .color(theme.semantic_success())
+                                .size(11.0),
+                        );
+                        ui.add_space(6.0);
+                        ui.label(
+                            RichText::new(&cell.sql)
+                                .color(text_primary)
+                                .size(11.0)
+                                .monospace(),
+                        );
+                    });
+                });
+
+            if let Some(desc) = &cell.describe {
+                // Stats bar
+                rendering::render_stats_bar_frame(ui, theme, |ui, colors| {
+                    render_stat_badge_with_icon(
+                        ui,
+                        time::TIMER,
+                        &format!("{}ms", desc.elapsed_ms),
+                        colors,
+                    );
+                    ui.add_space(4.0);
+
+                    render_stat_badge(ui, &format!("{} columns", desc.columns.len()), colors);
+                    ui.add_space(4.0);
+
+                    render_stat_badge(
+                        ui,
+                        &format!("{} rows", rendering::format_number(desc.total_rows)),
+                        colors,
+                    );
+                });
+
+                // Separator
+                ui.painter().hline(
+                    ui.available_rect_before_wrap().x_range(),
+                    ui.cursor().top(),
+                    egui::Stroke::new(1.0, colors.separator),
+                );
+
+                // Column stats table
+                let rows: Vec<ColumnRow<'_>> = desc
+                    .columns
+                    .iter()
+                    .map(|col| ColumnRow {
+                        name: &col.name,
+                        data_type: &col.data_type,
+                        count: rendering::format_number(col.count),
+                        null_count: rendering::format_number(col.null_count),
+                        distinct_count: rendering::format_number(col.distinct_count),
+                        min: col.min.as_deref(),
+                        max: col.max.as_deref(),
+                        mean: col.mean,
+                    })
+                    .collect();
+
+                rendering::render_column_stats_table(ui, &rows, theme);
+            }
+        });
+    Vec::new()
 }
 
 // =============================================================================

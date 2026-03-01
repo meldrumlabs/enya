@@ -52,6 +52,8 @@ pub use types::*;
 // Re-export DftSessionStateBuilder for advanced session configuration
 pub use datafusion_app::extensions::DftSessionStateBuilder;
 
+// BenchmarkStats and PhaseTiming are exported via `pub use types::*` above.
+
 // Re-export arrow types needed by consumers
 pub use arrow;
 

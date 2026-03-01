@@ -13,7 +13,9 @@ use crate::Result;
 use crate::catalog::Catalog;
 use crate::error::Error;
 use crate::executor::{Executor, ExecutorHandle};
-use crate::types::{ColumnInfo, FileFormat, QueryEvent, QueryRequest, TableInfo};
+use crate::types::{
+    BenchmarkRequest, ColumnInfo, DescribeRequest, FileFormat, QueryEvent, QueryRequest, TableInfo,
+};
 
 /// Configuration for a DataFusion session.
 #[derive(Debug, Clone)]
@@ -149,6 +151,23 @@ impl Session {
     pub fn execute(&self, request: QueryRequest) -> Result<()> {
         let handle = self.executor_handle.as_ref().ok_or(Error::NotInitialized)?;
         handle.execute_blocking(request)
+    }
+
+    /// Submit a benchmark request for execution.
+    ///
+    /// Returns immediately. Poll the event receiver for `BenchmarkProgress`
+    /// and `BenchmarkCompleted` events.
+    pub fn benchmark(&self, request: BenchmarkRequest) -> Result<()> {
+        let handle = self.executor_handle.as_ref().ok_or(Error::NotInitialized)?;
+        handle.benchmark_blocking(request)
+    }
+
+    /// Submit a describe request for a table.
+    ///
+    /// Returns immediately. Poll the event receiver for `DescribeCompleted` events.
+    pub fn describe(&self, request: DescribeRequest) -> Result<()> {
+        let handle = self.executor_handle.as_ref().ok_or(Error::NotInitialized)?;
+        handle.describe_blocking(request)
     }
 
     /// Execute a SQL query and collect all results.

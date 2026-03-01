@@ -9,6 +9,7 @@ use enya_datafusion::arrow::array::RecordBatch;
 use enya_datafusion::arrow::datatypes::SchemaRef;
 use enya_datafusion::format_array_value;
 
+use super::super::rendering::{self, ColumnRow, PhaseRow};
 use super::plan_view::PlanViewer;
 use super::types::{Cell, CellViewState, QueryStatus};
 use crate::components::OverlayColors;
@@ -336,7 +337,14 @@ fn render_expanded_card(
                 egui::Stroke::new(1.0, colors.separator),
             );
 
-            if is_explain {
+            let is_benchmark = matches!(cell.kind, super::types::CellKind::Benchmark(_));
+            let is_describe = matches!(cell.kind, super::types::CellKind::Describe(_));
+
+            if is_benchmark {
+                render_benchmark_card(ui, cell, theme);
+            } else if is_describe {
+                render_describe_card(ui, cell, theme);
+            } else if is_explain {
                 // Explain cells always show the plan directly
                 render_inline_plan(ui, cell, plan_viewer, theme, overlay_blocks_input);
             } else if is_query {
@@ -743,6 +751,243 @@ fn render_inline_plan(
         });
 }
 
+/// Render a benchmark results card with progress or stats.
+fn render_benchmark_card(ui: &mut egui::Ui, cell: &Cell, theme: AppTheme) {
+    let text_secondary = theme.text_secondary();
+    let accent = theme.accent_primary();
+
+    if let super::types::CellKind::Benchmark(bench) = &cell.kind {
+        match bench.status {
+            QueryStatus::Running => {
+                egui::Frame::new()
+                    .fill(theme.bg_base())
+                    .inner_margin(egui::Margin::symmetric(16, 12))
+                    .show(ui, |ui| {
+                        // Show progress
+                        ui.horizontal(|ui| {
+                            ui.add(egui::Spinner::new().color(accent).size(14.0));
+                            ui.add_space(8.0);
+                            if let Some((current, total)) = bench.progress {
+                                ui.label(
+                                    RichText::new(format!("Iteration {current}/{total}"))
+                                        .color(theme.text_primary())
+                                        .size(12.0)
+                                        .monospace(),
+                                );
+                                if let Some(last) = bench.last_duration {
+                                    ui.add_space(12.0);
+                                    let colors = OverlayColors::new(theme);
+                                    render_stat_badge_with_icon(
+                                        ui,
+                                        time::TIMER,
+                                        &format!(
+                                            "last: {}",
+                                            enya_datafusion::format_duration(last)
+                                        ),
+                                        &colors,
+                                    );
+                                }
+                            } else {
+                                ui.label(
+                                    RichText::new("Starting benchmark...")
+                                        .color(text_secondary)
+                                        .size(11.0),
+                                );
+                            }
+                        });
+
+                        // Progress bar
+                        if let Some((current, total)) = bench.progress {
+                            ui.add_space(8.0);
+                            let progress = current as f32 / total as f32;
+                            let bar = egui::ProgressBar::new(progress)
+                                .desired_width(ui.available_width().max(1.0));
+                            ui.add(bar);
+                        }
+                    });
+            }
+            QueryStatus::Completed => {
+                if let Some(stats) = &bench.stats {
+                    render_benchmark_stats_bar(ui, stats, theme);
+
+                    // Separator
+                    let colors = OverlayColors::new(theme);
+                    ui.painter().hline(
+                        ui.available_rect_before_wrap().x_range(),
+                        ui.cursor().top(),
+                        egui::Stroke::new(1.0, colors.separator),
+                    );
+
+                    render_benchmark_phase_table(ui, stats, theme);
+                }
+            }
+            QueryStatus::Failed | QueryStatus::Cancelled => {
+                // Error already shown by the outer card
+            }
+        }
+    }
+}
+
+/// Render the stats bar for completed benchmarks.
+fn render_benchmark_stats_bar(
+    ui: &mut egui::Ui,
+    stats: &enya_datafusion::BenchmarkStats,
+    theme: AppTheme,
+) {
+    rendering::render_stats_bar_frame(ui, theme, |ui, colors| {
+        if stats.rows_per_iteration > 0 {
+            render_stat_badge(
+                ui,
+                &format!(
+                    "{} rows/iter",
+                    rendering::format_number(stats.rows_per_iteration as u64)
+                ),
+                colors,
+            );
+            ui.add_space(4.0);
+        }
+
+        render_stat_badge_with_icon(
+            ui,
+            time::TIMER,
+            &format!(
+                "median: {}",
+                enya_datafusion::format_duration(stats.total.median)
+            ),
+            colors,
+        );
+        ui.add_space(4.0);
+
+        render_stat_badge(ui, &format!("{} iterations", stats.iterations), colors);
+    });
+}
+
+/// Render the phase timing table for completed benchmarks.
+fn render_benchmark_phase_table(
+    ui: &mut egui::Ui,
+    stats: &enya_datafusion::BenchmarkStats,
+    theme: AppTheme,
+) {
+    let fmt = |t: &enya_datafusion::PhaseTiming| -> PhaseRow<'_> {
+        PhaseRow {
+            name: "", // set below
+            values: [t.min, t.median, t.mean, t.max].map(enya_datafusion::format_duration),
+            percent: Some(t.percent_of_total),
+        }
+    };
+
+    let mut rows = [
+        fmt(&stats.logical_planning),
+        fmt(&stats.physical_planning),
+        fmt(&stats.execution),
+        fmt(&stats.total),
+    ];
+    let names = [
+        "Logical Planning",
+        "Physical Planning",
+        "Execution",
+        "Total",
+    ];
+    for (row, name) in rows.iter_mut().zip(names) {
+        row.name = name;
+    }
+    rows[3].percent = None; // suppress % for Total
+
+    rendering::render_phase_table(ui, &rows, theme);
+}
+
+/// Render a describe results card with stats or spinner.
+fn render_describe_card(ui: &mut egui::Ui, cell: &Cell, theme: AppTheme) {
+    let text_secondary = theme.text_secondary();
+    let accent = theme.accent_primary();
+
+    if let super::types::CellKind::Describe(desc) = &cell.kind {
+        match desc.status {
+            QueryStatus::Running => {
+                egui::Frame::new()
+                    .fill(theme.bg_base())
+                    .inner_margin(egui::Margin::symmetric(16, 12))
+                    .show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            ui.add(egui::Spinner::new().color(accent).size(14.0));
+                            ui.add_space(8.0);
+                            ui.label(
+                                RichText::new("Computing column statistics...")
+                                    .color(text_secondary)
+                                    .size(11.0),
+                            );
+                        });
+                    });
+            }
+            QueryStatus::Completed => {
+                if let Some(stats) = &desc.stats {
+                    render_describe_stats_bar(ui, stats, theme);
+
+                    let colors = OverlayColors::new(theme);
+                    ui.painter().hline(
+                        ui.available_rect_before_wrap().x_range(),
+                        ui.cursor().top(),
+                        egui::Stroke::new(1.0, colors.separator),
+                    );
+
+                    render_describe_table(ui, stats, theme);
+                }
+            }
+            QueryStatus::Failed | QueryStatus::Cancelled => {}
+        }
+    }
+}
+
+/// Render the stats bar for completed describe.
+fn render_describe_stats_bar(
+    ui: &mut egui::Ui,
+    stats: &enya_datafusion::DescribeStats,
+    theme: AppTheme,
+) {
+    rendering::render_stats_bar_frame(ui, theme, |ui, colors| {
+        render_stat_badge_with_icon(
+            ui,
+            time::TIMER,
+            &enya_datafusion::format_duration(stats.elapsed),
+            colors,
+        );
+        ui.add_space(4.0);
+
+        render_stat_badge(ui, &format!("{} columns", stats.columns.len()), colors);
+        ui.add_space(4.0);
+
+        render_stat_badge(
+            ui,
+            &format!("{} rows", rendering::format_number(stats.total_rows as u64)),
+            colors,
+        );
+    });
+}
+
+/// Render the column statistics table.
+fn render_describe_table(
+    ui: &mut egui::Ui,
+    stats: &enya_datafusion::DescribeStats,
+    theme: AppTheme,
+) {
+    let rows: Vec<ColumnRow<'_>> = stats
+        .columns
+        .iter()
+        .map(|col| ColumnRow {
+            name: &col.name,
+            data_type: &col.data_type,
+            count: rendering::format_number(col.count as u64),
+            null_count: rendering::format_number(col.null_count as u64),
+            distinct_count: rendering::format_number(col.distinct_count as u64),
+            min: col.min.as_deref(),
+            max: col.max.as_deref(),
+            mean: col.mean,
+        })
+        .collect();
+
+    rendering::render_column_stats_table(ui, &rows, theme);
+}
+
 /// Render the card footer with pagination controls and keyboard hints.
 fn render_card_footer(
     ui: &mut egui::Ui,
@@ -771,7 +1016,11 @@ fn render_card_footer(
 
             // Keyboard hints
             let is_explain = matches!(cell.kind, super::types::CellKind::Explain(_));
-            let hints = if is_explain {
+            let is_benchmark = matches!(cell.kind, super::types::CellKind::Benchmark(_));
+            let is_describe = matches!(cell.kind, super::types::CellKind::Describe(_));
+            let hints = if is_benchmark || is_describe {
+                "\u{2318}C copy \u{00B7} x close \u{00B7} Esc"
+            } else if is_explain {
                 "j/k nav \u{00B7} h/l fold \u{00B7} \u{2318}C copy \u{00B7} x close \u{00B7} Esc"
             } else {
                 "hjkl scroll \u{00B7} [/] page \u{00B7} gg/G first/last \u{00B7} \u{2318}C copy \u{00B7} S share \u{00B7} x close \u{00B7} Esc"

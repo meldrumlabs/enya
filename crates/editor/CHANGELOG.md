@@ -35,6 +35,8 @@ All notable changes to the Enya editor will be documented in this file.
 
 - **SQL pane auto-connect**: When a SQL pane is opened and Flight SQL connections are configured in Settings, the pane automatically connects to the first endpoint in the list instead of requiring manual connection.
 - **SQL pane expand results button**: Added an expand button in the query result stats bar that opens the fullscreen table overlay for easier browsing of large result sets.
+- **SQL pane `/bench` command**: Benchmark query execution by running it N times (default 10) and displaying a styled phase timing table with min/median/mean/max breakdown for logical planning, physical planning, and execution phases. Benchmark results are fully snapshotable (serialized with microsecond precision). Uses datafusion-dft's benchmarking engine via a vendored copy. Local DataFusion sessions only. Usage: `/bench [iterations] <query>`.
+- **SQL pane `/describe` command**: Show per-column statistics for a table including count, null count, distinct count, min, max, and mean (numeric columns only). Generates a single dynamic aggregate SQL query for efficient computation. Results displayed in a styled table with stats bar. Fully snapshotable. Local DataFusion sessions only. Usage: `/describe <table>`.
 - **Recent commits in fuzzy finder**: Typing `#` in the fuzzy finder now shows a list of the most recent commits sorted by timestamp (newest first), without requiring a search query. Typing further filters the commits as before.
 - **Theme cycle keybinding**: Added `ct` keybinding to cycle through app themes.
 - **Mobile browser detection**: On WASM, mobile browsers see the landing page but are blocked from entering the editor with a notification saying "Enya is designed for desktop".
