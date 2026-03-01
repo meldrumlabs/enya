@@ -38,4 +38,7 @@ pub use workspace::{
 pub use daemon::{Config, Datasource, Datasources, Server};
 
 #[cfg(not(target_arch = "wasm32"))]
-pub use dir::{config_path, enya_dir, list_workspaces, resolve_workspace_path, workspace_dir};
+pub use dir::{
+    config_path, conversations_dir, enya_dir, index_dir, list_workspaces, plugins_dir,
+    resolve_workspace_path, workspace_dir,
+};

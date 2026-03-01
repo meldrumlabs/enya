@@ -2,7 +2,7 @@
 -- Demonstrates the custom chart pane feature
 --
 -- Usage:
--- 1. Copy this file to ~/.config/enya/plugins/
+-- 1. Copy this file to ~/.enya/plugins/
 -- 2. Restart Enya
 -- 3. Type :demo-chart to show the demo chart
 -- 4. Type :demo-chart-update to refresh with new data

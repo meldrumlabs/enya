@@ -1,10 +1,10 @@
 # Plugin Authoring Guide
 
-Enya supports Lua plugins for custom commands, keybindings, panes, and themes. Plugins are loaded from `~/.config/enya/plugins/` on startup.
+Enya supports Lua plugins for custom commands, keybindings, panes, and themes. Plugins are loaded from `~/.enya/plugins/` on startup.
 
 ## Quick Start
 
-Create `~/.config/enya/plugins/hello.lua`:
+Create `~/.enya/plugins/hello.lua`:
 
 ```lua
 plugin = {
@@ -122,4 +122,4 @@ See `plugins/share-to-slack.lua` for a real-world plugin that uses HTTP, clipboa
 
 ## Testing Locally
 
-Place your `.lua` file in `~/.config/enya/plugins/` and restart Enya. Use `enya.log()` for debug output. The Plugins overlay shows load status and errors.
+Place your `.lua` file in `~/.enya/plugins/` and restart Enya. Use `enya.log()` for debug output. The Plugins overlay shows load status and errors.

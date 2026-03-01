@@ -1729,9 +1729,7 @@ impl SettingsPage {
                 regular::PUZZLE_OUTLINE,
                 "Plugins",
                 "Custom theme and extension plugins",
-                dirs::home_dir()
-                    .map(|d| d.join(".config").join("enya").join("plugins"))
-                    .unwrap_or_else(|| std::path::PathBuf::from("~/.config/enya/plugins")),
+                enya_config::plugins_dir(),
             ),
         ];
 

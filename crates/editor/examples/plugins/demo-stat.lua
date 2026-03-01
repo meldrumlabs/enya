@@ -2,7 +2,7 @@
 -- Demonstrates the custom stat and gauge pane features with auto-refresh
 --
 -- Usage:
--- 1. Copy this file to ~/.config/enya/plugins/
+-- 1. Copy this file to ~/.enya/plugins/
 -- 2. Restart Enya
 -- 3. Type :demo-stat to show a stat pane (auto-refreshes every 5 seconds)
 -- 4. Type :demo-gauge to show a gauge pane (auto-refreshes every 5 seconds)

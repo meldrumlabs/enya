@@ -6,10 +6,10 @@ Enya provides a neovim-style plugin system for extending editor functionality. P
 
 1. **Create your plugin directory:**
    ```bash
-   mkdir -p ~/.config/enya/plugins
+   mkdir -p ~/.enya/plugins
    ```
 
-2. **Create a simple plugin** (`~/.config/enya/plugins/my-plugin.lua`):
+2. **Create a simple plugin** (`~/.enya/plugins/my-plugin.lua`):
    ```lua
    -- Plugin metadata (required)
    plugin = {
@@ -38,7 +38,7 @@ Plugins are loaded from these directories (in priority order):
 
 | Location | Purpose |
 |----------|---------|
-| `~/.config/enya/plugins/` | User plugins (highest priority) |
+| `~/.enya/plugins/` | User plugins (highest priority) |
 | `<workspace>/.enya/plugins/` | Workspace-local plugins |
 | Built-in plugins | Core functionality (lowest priority) |
 
@@ -49,7 +49,7 @@ Plugins are loaded from these directories (in priority order):
 Every Lua plugin needs a `plugin` table with metadata:
 
 ```lua
--- ~/.config/enya/plugins/my-plugin.lua
+-- ~/.enya/plugins/my-plugin.lua
 
 -- Plugin metadata (required)
 plugin = {
@@ -917,7 +917,7 @@ Register your Rust plugin in the plugin registry during app initialization.
 
 ### Plugin not loading?
 
-1. Check the file is in the correct directory (`~/.config/enya/plugins/`)
+1. Check the file is in the correct directory (`~/.enya/plugins/`)
 2. Ensure the file has a `.lua` extension
 3. Verify the `plugin` table is defined with at least a `name` field
 4. Check Enya logs for Lua syntax errors

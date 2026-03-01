@@ -164,7 +164,7 @@ Plugins extend Enya with custom commands, keybindings, and pane types. Two forma
 - **TOML config plugins** (`.toml`) — static shell/url/notify actions
 - **Lua plugins** (`.lua`) — dynamic commands with HTTP, logging, and scripting
 
-Plugins live in `~/.config/enya/plugins/`.
+Plugins live in `~/.enya/plugins/`.
 
 ```sh
 # List installed plugins

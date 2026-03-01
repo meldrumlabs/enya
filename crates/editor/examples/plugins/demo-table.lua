@@ -2,7 +2,7 @@
 -- Demonstrates the custom table pane feature
 --
 -- Usage:
--- 1. Copy this file to ~/.config/enya/plugins/
+-- 1. Copy this file to ~/.enya/plugins/
 -- 2. Restart Enya
 -- 3. Type :demo-table to show the demo table
 -- 4. Type :demo-refresh to refresh with new data

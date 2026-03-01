@@ -6,7 +6,7 @@
 //! # Plugin Locations
 //!
 //! Plugins are loaded from these directories (in order of priority):
-//! 1. `~/.config/enya/plugins/` - User plugins (highest priority)
+//! 1. `~/.enya/plugins/` - User plugins (highest priority)
 //! 2. `<workspace>/.enya/plugins/` - Workspace-local plugins
 //! 3. Built-in plugins (lowest priority)
 //!
@@ -414,7 +414,7 @@ fn scan_directory_with_ext(dir: &Path, ext: &str) -> Vec<PathBuf> {
 
 /// Plugin loader that discovers and loads plugins from the filesystem.
 pub struct PluginLoader {
-    /// User plugin directory (~/.config/enya/plugins/)
+    /// User plugin directory (~/.enya/plugins/)
     user_dir: Option<PathBuf>,
     /// Workspace plugin directory (.enya/plugins/)
     workspace_dir: Option<PathBuf>,
@@ -435,10 +435,9 @@ impl PluginLoader {
         self
     }
 
-    /// Get the default user plugin directory.
-    /// Always uses ~/.config/enya/plugins/ regardless of platform.
+    /// Get the default user plugin directory (`~/.enya/plugins/`).
     fn default_user_plugin_dir() -> Option<PathBuf> {
-        dirs::home_dir().map(|d| d.join(".config").join("enya").join("plugins"))
+        Some(enya_config::plugins_dir())
     }
 
     /// Discover all plugin files in the configured directories.
@@ -553,7 +552,7 @@ impl Default for PluginLoader {
 
 /// Example plugin template.
 pub const EXAMPLE_PLUGIN: &str = r#"# Example Enya Plugin
-# Place this file in ~/.config/enya/plugins/
+# Place this file in ~/.enya/plugins/
 
 [plugin]
 name = "example"

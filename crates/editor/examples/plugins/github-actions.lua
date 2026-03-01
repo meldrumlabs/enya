@@ -7,7 +7,7 @@
 -- 2. Have GitHub CLI (gh) authenticated (reads from ~/.config/gh/hosts.yml)
 --
 -- Usage:
--- 1. Copy this file to ~/.config/enya/plugins/
+-- 1. Copy this file to ~/.enya/plugins/
 -- 2. Restart Enya
 -- 3. Type :gh-actions <owner/repo> to show workflows (e.g., :gh-actions anthropics/claude-code)
 -- 4. Type :gh-refresh to refresh the data

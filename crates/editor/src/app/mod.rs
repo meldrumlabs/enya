@@ -220,7 +220,7 @@ impl EnyaApp {
         // Collect plugin errors to surface in diagnostics pane
         let mut plugin_errors: Vec<String> = Vec::new();
 
-        // Load external plugins from ~/.config/enya/plugins/ (native only)
+        // Load external plugins from ~/.enya/plugins/ (native only)
         #[cfg(not(target_arch = "wasm32"))]
         {
             use crate::plugin::{Plugin, PluginLoader};
@@ -1266,7 +1266,7 @@ impl EnyaApp {
                     if project.is_none() {
                         self.save_workspace(name.as_deref());
                     } else if let Some(ref ws_name) = name {
-                        self.workspace.loaded_name = Some(ws_name.clone());
+                        self.workspace.set_loaded_name(Some(ws_name.clone()));
                         self.notifications.notify(Notification::new(
                             format!(
                                 "Project created: {}",
@@ -1711,15 +1711,7 @@ impl EnyaApp {
         }
 
         // Find and delete the plugin file
-        let Some(home_dir) = dirs::home_dir() else {
-            self.notifications.notify(Notification::new(
-                "Failed to remove plugin: could not find home directory",
-                NotificationLevel::Error,
-            ));
-            return;
-        };
-
-        let plugins_dir = home_dir.join(".config").join("enya").join("plugins");
+        let plugins_dir = enya_config::plugins_dir();
 
         // Look for .lua file with plugin name
         let plugin_file = plugins_dir.join(format!("{name}.lua"));
@@ -1756,24 +1748,7 @@ impl EnyaApp {
 
         let plugin_url = format!("{plugins_url}/{file}");
 
-        let Some(home_dir) = dirs::home_dir() else {
-            self.notifications.notify(Notification::new(
-                "Failed to install plugin: could not find home directory",
-                NotificationLevel::Error,
-            ));
-            return;
-        };
-
-        let plugins_dir = home_dir.join(".config").join("enya").join("plugins");
-
-        if let Err(e) = std::fs::create_dir_all(&plugins_dir) {
-            self.notifications.notify(Notification::new(
-                format!("Failed to create plugins directory: {e}"),
-                NotificationLevel::Error,
-            ));
-            return;
-        }
-
+        let plugins_dir = enya_config::plugins_dir();
         let plugin_path = plugins_dir.join(file);
 
         match ureq::get(&plugin_url).call() {

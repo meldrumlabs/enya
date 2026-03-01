@@ -185,7 +185,7 @@ impl EnyaApp {
                     }
 
                     // Track the loaded workspace name
-                    self.workspace.loaded_name = Some(name.to_string());
+                    self.workspace.set_loaded_name(Some(name.to_string()));
 
                     // Add to recent workspaces
                     self.state.settings.add_recent_workspace(
@@ -239,7 +239,8 @@ impl EnyaApp {
                     }
 
                     // Track the loaded workspace name
-                    self.workspace.loaded_name = Some(workspace_config.workspace.name.clone());
+                    self.workspace
+                        .set_loaded_name(Some(workspace_config.workspace.name.clone()));
 
                     // Add to recent workspaces
                     self.state.settings.add_recent_workspace(
