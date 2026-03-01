@@ -69,6 +69,13 @@ impl ExecutorHandle {
             .map_err(|_| Error::Channel("executor channel closed".to_string()))
     }
 
+    /// Cancel a running query (non-async version).
+    pub fn cancel_blocking(&self, id: QueryId) -> Result<()> {
+        self.command_tx
+            .blocking_send(ExecutorCommand::Cancel(id))
+            .map_err(|_| Error::Channel("executor channel closed".to_string()))
+    }
+
     /// Submit a benchmark for execution (non-async version).
     pub fn benchmark_blocking(&self, request: BenchmarkRequest) -> Result<()> {
         self.command_tx

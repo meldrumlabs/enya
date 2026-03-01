@@ -11,7 +11,7 @@ use tokio::sync::mpsc;
 
 use crate::Result;
 use crate::catalog::Catalog;
-use crate::error::Error;
+use crate::error::{Error, QueryId};
 use crate::executor::{Executor, ExecutorHandle};
 use crate::types::{
     BenchmarkRequest, ColumnInfo, DescribeRequest, FileFormat, QueryEvent, QueryRequest, TableInfo,
@@ -168,6 +168,15 @@ impl Session {
     pub fn describe(&self, request: DescribeRequest) -> Result<()> {
         let handle = self.executor_handle.as_ref().ok_or(Error::NotInitialized)?;
         handle.describe_blocking(request)
+    }
+
+    /// Cancel a running query by ID.
+    ///
+    /// Signals the executor to stop the query at the next batch boundary.
+    /// The query will emit a `QueryEvent::Cancelled` event.
+    pub fn cancel(&self, id: QueryId) -> Result<()> {
+        let handle = self.executor_handle.as_ref().ok_or(Error::NotInitialized)?;
+        handle.cancel_blocking(id)
     }
 
     /// Execute a SQL query and collect all results.

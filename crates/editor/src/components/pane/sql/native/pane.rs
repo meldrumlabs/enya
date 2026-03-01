@@ -103,6 +103,8 @@ pub struct SqlPane {
         Option<tokio::sync::oneshot::Receiver<Result<(SchemaRef, Vec<RecordBatch>), String>>>,
     /// ID of the query currently being executed via Flight.
     pending_query_id: Option<QueryId>,
+    /// Abort handle for the currently running Flight SQL query task.
+    pending_flight_abort: Option<tokio::task::AbortHandle>,
     /// Pending explain query result receiver.
     #[allow(clippy::type_complexity)]
     pending_explain: Option<tokio::sync::oneshot::Receiver<Result<String, String>>>,
@@ -221,6 +223,7 @@ impl SqlPane {
             pending_connect: None,
             pending_query: None,
             pending_query_id: None,
+            pending_flight_abort: None,
             pending_explain: None,
             pending_connect_id: None,
             auto_connected: false,
@@ -801,7 +804,7 @@ impl SqlPane {
                 self.pending_query_id = Some(query_id);
 
                 if let Some(endpoint) = self.endpoint.clone() {
-                    self.runtime_handle.spawn(async move {
+                    let join_handle = self.runtime_handle.spawn(async move {
                         let result = async {
                             let mut client = FlightClient::connect(&endpoint)
                                 .await
@@ -815,6 +818,7 @@ impl SqlPane {
                         .await;
                         let _ = tx.send(result);
                     });
+                    self.pending_flight_abort = Some(join_handle.abort_handle());
                 }
             }
             Some(SqlBackend::Local { session, .. }) => {
@@ -832,6 +836,37 @@ impl SqlPane {
                     cell.set_error("Not connected. Configure connections in Settings.".to_string());
                 }
             }
+        }
+    }
+
+    /// Cancel the currently running query.
+    fn cancel_query(&mut self) {
+        // Only cancel if there's a running cell
+        let query_id = match &self.result_cell {
+            Some(cell) if cell.status() == QueryStatus::Running => cell.id(),
+            _ => return,
+        };
+
+        match &self.backend {
+            Some(SqlBackend::Local { session, .. }) => {
+                if let Err(e) = session.cancel(query_id) {
+                    log::warn!("Failed to cancel query: {e}");
+                }
+                // Executor will send QueryEvent::Cancelled via the event channel
+            }
+            Some(SqlBackend::Flight { .. }) => {
+                // Abort the spawned tokio task
+                if let Some(abort_handle) = self.pending_flight_abort.take() {
+                    abort_handle.abort();
+                }
+                // Manually set cancelled since Flight has no event channel
+                if let Some(cell) = self.result_cell.as_mut() {
+                    cell.set_status(QueryStatus::Cancelled);
+                }
+                self.pending_query = None;
+                self.pending_query_id = None;
+            }
+            None => {}
         }
     }
 
@@ -1144,6 +1179,25 @@ impl SqlPane {
                 CardAction::ExpandTable => {
                     self.open_overlay(ResultOverlay::Table);
                 }
+                CardAction::Cancel => {
+                    self.cancel_query();
+                }
+                CardAction::NextPage => {
+                    let total_rows: usize = self
+                        .result_cell
+                        .as_ref()
+                        .map(|c| c.batches().iter().map(|b| b.num_rows()).sum())
+                        .unwrap_or(0);
+                    let total_pages = total_rows.div_ceil(super::query_card::ROWS_PER_PAGE).max(1);
+                    if self.cell_view_state.table_page < total_pages - 1 {
+                        self.cell_view_state.table_page += 1;
+                    }
+                }
+                CardAction::PrevPage => {
+                    if self.cell_view_state.table_page > 0 {
+                        self.cell_view_state.table_page -= 1;
+                    }
+                }
             }
         }
     }
@@ -1232,6 +1286,7 @@ impl SqlPane {
             match rx.try_recv() {
                 Ok(Ok((schema, batches))) => {
                     // Query successful
+                    self.pending_flight_abort = None;
                     if let Some(query_id) = self.pending_query_id.take() {
                         if let Some(cell) = self.result_cell.as_mut().filter(|c| c.id() == query_id)
                         {
@@ -1251,6 +1306,7 @@ impl SqlPane {
                 }
                 Ok(Err(e)) => {
                     // Query failed
+                    self.pending_flight_abort = None;
                     if let Some(query_id) = self.pending_query_id.take() {
                         if let Some(cell) = self.result_cell.as_mut().filter(|c| c.id() == query_id)
                         {
@@ -1264,12 +1320,16 @@ impl SqlPane {
                     self.pending_query = Some(rx);
                 }
                 Err(tokio::sync::oneshot::error::TryRecvError::Closed) => {
-                    // Query task dropped
+                    // Query task dropped (possibly cancelled)
+                    self.pending_flight_abort = None;
                     if let Some(query_id) = self.pending_query_id.take() {
                         if let Some(cell) = self.result_cell.as_mut().filter(|c| c.id() == query_id)
                         {
-                            cell.set_status(QueryStatus::Failed);
-                            cell.set_error("Query task dropped".to_string());
+                            // If already cancelled, don't overwrite with Failed
+                            if cell.status() != QueryStatus::Cancelled {
+                                cell.set_status(QueryStatus::Failed);
+                                cell.set_error("Query task dropped".to_string());
+                            }
                         }
                     }
                 }

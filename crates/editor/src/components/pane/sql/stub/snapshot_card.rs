@@ -305,7 +305,12 @@ fn render_inline_table(
                 });
 
             // Scrollable data body
-            let body_max_height = (400.0 - header_height).max(100.0);
+            let avail = ui.available_height();
+            let body_max_height = if avail.is_finite() && avail > 0.0 {
+                (avail - header_height - 40.0).clamp(100.0, 600.0)
+            } else {
+                (400.0 - header_height).max(100.0)
+            };
             let body_scroll_output = egui::ScrollArea::both()
                 .id_salt(("snapshot_table_body", cell_idx))
                 .scroll_offset(egui::vec2(stored_h_offset, 0.0))
@@ -440,6 +445,20 @@ fn render_card_footer(
 
     ui.horizontal(|ui| {
         ui.add_space(12.0);
+
+        // Left side: row range indicator
+        let total_rows = cell.total_rows as usize;
+        let displayed_rows = cell.rows.len();
+        if displayed_rows > 0 {
+            let start = view_state.table_page * ROWS_PER_PAGE + 1;
+            let end = ((view_state.table_page + 1) * ROWS_PER_PAGE).min(displayed_rows);
+            let total_fmt = rendering::format_number(total_rows as u64);
+            ui.label(
+                RichText::new(format!("Rows {start}\u{2013}{end} of {total_fmt}"))
+                    .color(colors.muted_text)
+                    .font(typography::proportional(typography::XS)),
+            );
+        }
 
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             ui.add_space(12.0);

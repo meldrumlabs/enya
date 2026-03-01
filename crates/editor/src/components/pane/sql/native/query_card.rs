@@ -19,7 +19,7 @@ use crate::ui::theme::AppTheme;
 use crate::ui::typography;
 
 /// Number of rows displayed per page in table views.
-const ROWS_PER_PAGE: usize = 50;
+pub(super) const ROWS_PER_PAGE: usize = 50;
 
 /// Actions returned by card rendering for the caller to apply.
 pub(super) enum CardAction {
@@ -33,6 +33,12 @@ pub(super) enum CardAction {
     Delete,
     /// Open the fullscreen table overlay.
     ExpandTable,
+    /// Cancel the currently running query.
+    Cancel,
+    /// Move to the next result page.
+    NextPage,
+    /// Move to the previous result page.
+    PrevPage,
 }
 
 /// Render the result card (always expanded).
@@ -84,6 +90,7 @@ fn render_expanded_card(
     // Handle keyboard shortcuts only when input bar doesn't have focus
     if !overlay_blocks_input && !input_has_focus {
         let mut should_collapse = false;
+        let mut should_cancel = false;
         let mut should_delete = false;
         let mut next_page = false;
         let mut prev_page = false;
@@ -95,7 +102,11 @@ fn render_expanded_card(
 
         ui.ctx().input_mut(|i| {
             if i.consume_key(egui::Modifiers::NONE, egui::Key::Escape) {
-                should_collapse = true;
+                if cell.status() == QueryStatus::Running {
+                    should_cancel = true;
+                } else {
+                    should_collapse = true;
+                }
             }
             if i.consume_key(egui::Modifiers::NONE, egui::Key::X) {
                 should_delete = true;
@@ -145,6 +156,9 @@ fn render_expanded_card(
             }
         });
 
+        if should_cancel {
+            actions.push(CardAction::Cancel);
+        }
         if should_collapse {
             actions.push(CardAction::Collapse);
         }
@@ -303,6 +317,26 @@ fn render_expanded_card(
                             if chevron_resp.hovered() {
                                 ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
                             }
+
+                            // Cancel button (only when running)
+                            if cell.status() == QueryStatus::Running {
+                                ui.add_space(8.0);
+                                let cancel_resp = ui.add(
+                                    egui::Label::new(
+                                        RichText::new(action::CANCEL)
+                                            .color(theme.semantic_error().gamma_multiply(0.7))
+                                            .size(11.0),
+                                    )
+                                    .sense(egui::Sense::click()),
+                                );
+                                if cancel_resp.clicked() {
+                                    actions.push(CardAction::Cancel);
+                                }
+                                if cancel_resp.hovered() {
+                                    ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                                    cancel_resp.on_hover_text("Cancel query (Esc)");
+                                }
+                            }
                         });
                     });
                 });
@@ -368,7 +402,7 @@ fn render_expanded_card(
             }
 
             // === Footer ===
-            render_card_footer(ui, cell, view_state, theme, &colors);
+            render_card_footer(ui, cell, view_state, theme, &colors, &mut actions);
         });
 
     actions
@@ -608,7 +642,12 @@ fn render_inline_table(
                 });
 
             // === Scrollable data body (both directions) ===
-            let body_max_height = (400.0 - header_height).max(100.0);
+            let avail = ui.available_height();
+            let body_max_height = if avail.is_finite() && avail > 0.0 {
+                (avail - header_height - 40.0).clamp(100.0, 600.0)
+            } else {
+                (400.0 - header_height).max(100.0)
+            };
             let body_scroll_output = egui::ScrollArea::both()
                 .id_salt(("card_table_body", cell_idx))
                 .scroll_offset(egui::vec2(stored_h_offset, stored_offset.y))
@@ -995,6 +1034,7 @@ fn render_card_footer(
     view_state: &CellViewState,
     _theme: AppTheme,
     colors: &OverlayColors,
+    actions: &mut Vec<CardAction>,
 ) {
     let rows_per_page = ROWS_PER_PAGE;
     let total_rows: usize = cell.batches().iter().map(|b| b.num_rows()).sum();
@@ -1010,6 +1050,19 @@ fn render_card_footer(
 
     ui.horizontal(|ui| {
         ui.add_space(12.0);
+
+        // Left side: row range indicator for query cells
+        let is_query = matches!(cell.kind, super::types::CellKind::Query(_));
+        if is_query && total_rows > 0 {
+            let start = view_state.table_page * rows_per_page + 1;
+            let end = ((view_state.table_page + 1) * rows_per_page).min(total_rows);
+            let total_fmt = rendering::format_number(total_rows as u64);
+            ui.label(
+                RichText::new(format!("Rows {start}\u{2013}{end} of {total_fmt}"))
+                    .color(colors.muted_text)
+                    .font(typography::proportional(typography::XS)),
+            );
+        }
 
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             ui.add_space(12.0);
@@ -1031,9 +1084,27 @@ fn render_card_footer(
                     .font(typography::proportional(typography::XS)),
             );
 
-            // Pagination
+            // Pagination with clickable buttons
             if !is_explain && total_pages > 1 {
                 ui.add_space(12.0);
+
+                // Next page button (right-to-left: appears rightmost)
+                if view_state.table_page < total_pages - 1 {
+                    let next_resp = ui.add(
+                        egui::Label::new(
+                            RichText::new(nav::FORWARD)
+                                .color(colors.muted_text)
+                                .size(11.0),
+                        )
+                        .sense(egui::Sense::click()),
+                    );
+                    if next_resp.clicked() {
+                        actions.push(CardAction::NextPage);
+                    }
+                    if next_resp.hovered() {
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                    }
+                }
 
                 // Page indicator
                 ui.label(
@@ -1045,6 +1116,24 @@ fn render_card_footer(
                     .color(colors.muted_text)
                     .font(typography::proportional(typography::SM)),
                 );
+
+                // Prev page button
+                if view_state.table_page > 0 {
+                    let prev_resp = ui.add(
+                        egui::Label::new(
+                            RichText::new(nav::BACK)
+                                .color(colors.muted_text)
+                                .size(11.0),
+                        )
+                        .sense(egui::Sense::click()),
+                    );
+                    if prev_resp.clicked() {
+                        actions.push(CardAction::PrevPage);
+                    }
+                    if prev_resp.hovered() {
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                    }
+                }
             }
         });
     });
