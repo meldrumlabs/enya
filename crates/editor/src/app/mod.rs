@@ -24,8 +24,8 @@ use crate::command::{CommandReceiver, CommandSender, UICommand, UICommandSender,
 #[cfg(not(target_arch = "wasm32"))]
 use crate::components::util::ManifestFetcher;
 use crate::components::{
-    Notification, NotificationLevel, NotificationManager, SettingsPage, SettingsPageResult,
-    Sparkline, StatusLine, StatusMode,
+    Diagnostic, DiagnosticSource, Notification, NotificationLevel, NotificationManager,
+    SettingsPage, SettingsPageResult, Sparkline, StatusLine, StatusMode,
 };
 #[cfg(not(target_arch = "wasm32"))]
 use crate::components::{UpdateBanner, UpdateBannerAction};
@@ -1510,16 +1510,19 @@ impl EnyaApp {
                     } else {
                         &health.git_hash
                     };
-                    self.notifications.notify(Notification::new(
-                        format!("Connected to agent v{} ({})", health.version, short_hash),
-                        NotificationLevel::Success,
-                    ));
+                    self.workspace.add_diagnostic(
+                        Diagnostic::info(format!(
+                            "Connected to agent v{} ({})",
+                            health.version, short_hash
+                        ))
+                        .with_source(DiagnosticSource::DataConnection),
+                    );
                 }
                 Err(e) => {
-                    self.notifications.notify(Notification::new(
-                        format!("Connection failed: {e}"),
-                        NotificationLevel::Error,
-                    ));
+                    self.workspace.add_diagnostic(
+                        Diagnostic::error(format!("Connection failed: {e}"))
+                            .with_source(DiagnosticSource::DataConnection),
+                    );
                 }
             }
         }

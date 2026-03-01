@@ -10,6 +10,7 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Changed
 
+- **Connection errors in diagnostics overlay**: Prometheus and agent endpoint connection failures now appear in the diagnostics overlay instead of as toast notifications. This makes errors persistent and easier to find rather than auto-dismissing after 4 seconds.
 - **Reduced logging verbosity**: Downgraded ~120 `log::info!` calls to `log::debug!` across the editor crate. Internal details like agent command execution, keyboard handler traces, pane operations, finder selections, query executor internals, and indexing progress are now debug-level. User-facing events (connections, plugin loads, workspace save/load, updates, screenshots) remain at info level.
 - **Skip landing page for returning users**: When the user has any projects, the app now auto-restores the last workspace on startup instead of showing the landing page. The landing page only appears for first-time users with no projects.
 - **Streamlined tutorial**: Reduced from 24 to 15 steps (web). Removed advanced pane management steps (Move Panes, Merge Into Tabs, Floating Panes, Visual Multi-Select, Workspace Undo). Merged time navigation into one step and AI Agent Setup into Ask the AI Agent. Added a "Project Sidebar" step (`Space+b`) and expanded "Find Anything" with prefix-based fuzzy search (`@` metrics, `!` alerts, `#` commits). Colorscheme step now uses `ct` (cycle themes) and `:settings` instead of the style picker.
