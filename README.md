@@ -64,6 +64,12 @@ Enya runs on your machine. Your workspaces, configuration, observability data, a
 
 Snapshots let you share a workspace via a link. Sharing is entirely opt-in — nothing is uploaded unless you explicitly choose to share. Public snapshots require GitHub authentication and are stored on Cloudflare R2 with a per-user quota. Snapshots auto-expire after 7 days. Read more in our [privacy policy](https://enya.build/privacy).
 
+## Disclaimer
+
+Enya can connect to third-party AI services (e.g., OpenAI, Anthropic) using your own API keys. Meldrum Labs is not responsible for any costs, charges, or fees incurred through the use of these services. You are solely responsible for managing your API keys and monitoring your usage.
+
+Enya connects directly to your data sources, including databases, metrics systems, and other infrastructure. Meldrum Labs is not responsible for any data loss, corruption, or unintended access resulting from these connections. You are responsible for ensuring appropriate access controls and backups for your data.
+
 ## License
 
 Enya is developed by [Meldrum Labs](https://github.com/meldrumlabs) and licensed under the [MIT license](LICENSE).
