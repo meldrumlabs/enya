@@ -604,7 +604,7 @@ impl CodebaseManager {
                         // Build or update the Tantivy index
                         let result = if is_incremental && !commits.is_empty() {
                             // Incremental update: add new commits to existing index
-                            log::info!(
+                            log::debug!(
                                 "Incremental update: adding {} new commits to index",
                                 commits.len()
                             );
@@ -616,11 +616,11 @@ impl CodebaseManager {
                             )
                         } else if is_incremental && commits.is_empty() {
                             // No new commits - just return existing index
-                            log::info!("No new commits to index");
+                            log::debug!("No new commits to index");
                             existing_index.ok_or(IndexError::NotInitialized)
                         } else {
                             // Full rebuild
-                            log::info!("Full index rebuild with {} commits", commits.len());
+                            log::debug!("Full index rebuild with {} commits", commits.len());
                             TantivyCodebaseIndex::open_or_create(&repo_path).and_then(
                                 |mut tantivy_index| {
                                     tantivy_index.rebuild_with_progress(

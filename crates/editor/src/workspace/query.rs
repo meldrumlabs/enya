@@ -119,7 +119,7 @@ impl Workspace {
                             height: pending.height,
                         };
                         self.inject_inline_content_to_agent_pane(InlineContent::Chart(chart));
-                        log::info!("Inline chart completed with real data");
+                        log::debug!("Inline chart completed with real data");
                     }
                     QueryPollResult::Error(error) => {
                         log::warn!("Inline chart query failed: {error}");
@@ -172,7 +172,7 @@ impl Workspace {
                                         .with_source(DiagnosticSource::DataConnection)
                                         .with_pane(pane_id, &pane_name);
                                         self.diagnostics_pane.add(diagnostic);
-                                        log::info!(
+                                        log::debug!(
                                             "Query for pane {pane_id} returned no data (0 series, 0 points)"
                                         );
                                     } else {
@@ -359,7 +359,7 @@ impl Workspace {
             }
         }
         if count > 0 {
-            log::info!("Marked {count} panes for refresh");
+            log::debug!("Marked {count} panes for refresh");
         }
     }
 
@@ -372,12 +372,12 @@ impl Workspace {
         if interval == super::RefreshInterval::Off {
             self.refresh_interval = None;
             self.last_refresh = None;
-            log::info!("Auto-refresh disabled");
+            log::debug!("Auto-refresh disabled");
         } else {
             self.refresh_interval = Some(interval);
             // Reset the timer when interval changes
             self.last_refresh = Some(crate::util::Instant::now());
-            log::info!("Auto-refresh set to {}", interval.label());
+            log::debug!("Auto-refresh set to {}", interval.label());
         }
     }
 
@@ -406,7 +406,7 @@ impl Workspace {
         };
 
         if should_refresh {
-            log::info!("Auto-refresh triggered (interval: {})", interval.label());
+            log::debug!("Auto-refresh triggered (interval: {})", interval.label());
             self.last_refresh = Some(now);
             self.refresh_all_panes();
             true

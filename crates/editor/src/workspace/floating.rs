@@ -1309,7 +1309,7 @@ impl FloatingPaneManager {
     pub fn toggle_pop_out(&mut self, id: FloatingPaneId) {
         if let Some(pane) = self.panes.iter_mut().find(|p| p.id == id) {
             pane.popped_out = !pane.popped_out;
-            log::info!(
+            log::debug!(
                 "Floating pane {} popped {}",
                 pane.name(),
                 if pane.popped_out { "out" } else { "in" }

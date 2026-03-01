@@ -225,7 +225,7 @@ impl Workspace {
             self.open_charts.insert(query.to_string());
             self.behavior.set_focused_tile(Some(pane_tile));
             self.show_landing = false;
-            log::info!("Agent created query pane: {}", title.unwrap_or(query));
+            log::debug!("Agent created query pane: {}", title.unwrap_or(query));
         }
     }
 
@@ -256,7 +256,7 @@ impl Workspace {
         };
 
         self.floating_panes.add_pane(pane, pos);
-        log::info!("Agent created floating pane: {}", title.unwrap_or(query));
+        log::debug!("Agent created floating pane: {}", title.unwrap_or(query));
     }
 
     /// Add a terminal pane to the viewport.
@@ -277,7 +277,7 @@ impl Workspace {
                 if self.add_tile_to_viewport(pane_tile) {
                     self.behavior.set_focused_tile(Some(pane_tile));
                     self.show_landing = false;
-                    log::info!("Added terminal pane");
+                    log::debug!("Added terminal pane");
                     Some(pane_tile)
                 } else {
                     None
@@ -323,7 +323,7 @@ impl Workspace {
         if self.add_tile_to_viewport(pane_tile) {
             self.behavior.set_focused_tile(Some(pane_tile));
             self.show_landing = false;
-            log::info!("Added tracing pane");
+            log::debug!("Added tracing pane");
             Some(pane_tile)
         } else {
             None
@@ -341,7 +341,7 @@ impl Workspace {
 
         let runtime_handle = self.query_executor.runtime_handle();
         let mut sql_pane = SqlPane::new(AppTheme::default(), runtime_handle);
-        log::info!(
+        log::debug!(
             "add_sql_pane: cached {} connections, syncing to new pane",
             self.cached_flight_sql_connections.len()
         );
@@ -352,7 +352,7 @@ impl Workspace {
         if self.add_tile_to_viewport(pane_tile) {
             self.behavior.set_focused_tile(Some(pane_tile));
             self.show_landing = false;
-            log::info!("Added SQL pane");
+            log::debug!("Added SQL pane");
             Some(pane_tile)
         } else {
             None
@@ -373,7 +373,7 @@ impl Workspace {
         if self.add_tile_to_viewport(pane_tile) {
             self.behavior.set_focused_tile(Some(pane_tile));
             self.show_landing = false;
-            log::info!("Added SQL pane stub (sql feature disabled)");
+            log::debug!("Added SQL pane stub (sql feature disabled)");
             Some(pane_tile)
         } else {
             None
@@ -461,7 +461,7 @@ impl Workspace {
         if self.add_tile_to_viewport(pane_tile) {
             self.behavior.set_focused_tile(Some(pane_tile));
             self.show_landing = false;
-            log::info!("Added logs pane with backend: {backend_name}");
+            log::debug!("Added logs pane with backend: {backend_name}");
             Some(pane_tile)
         } else {
             None
@@ -511,7 +511,7 @@ impl Workspace {
                         self.time_range_toolbar.set_preset(preset_enum);
                         // Trigger global refresh of all panes (Grafana-style)
                         self.refresh_all_panes();
-                        log::info!("Agent set time range to: {preset}, refreshing all panes");
+                        log::debug!("Agent set time range to: {preset}, refreshing all panes");
                         success = true;
                     } else {
                         log::warn!("Agent requested unknown time preset: {preset}");
@@ -522,7 +522,7 @@ impl Workspace {
                     self.unified_finder
                         .open_with_mode(crate::components::overlay::FinderMode::Metrics);
                     self.unified_finder.set_query(&pattern);
-                    log::info!("Agent opened metrics search: {pattern}");
+                    log::debug!("Agent opened metrics search: {pattern}");
                     success = true;
                 }
                 AgentCommand::ShowMetricSource { metric } => {
@@ -530,7 +530,7 @@ impl Workspace {
                     #[cfg(not(target_arch = "wasm32"))]
                     {
                         self.open_metric_definition(&metric);
-                        log::info!("Agent opened metric source: {metric}");
+                        log::debug!("Agent opened metric source: {metric}");
                         success = true;
                     }
                     #[cfg(target_arch = "wasm32")]
@@ -543,7 +543,7 @@ impl Workspace {
                     #[cfg(not(target_arch = "wasm32"))]
                     {
                         self.open_alert_definition(&alert);
-                        log::info!("Agent opened alert source: {alert}");
+                        log::debug!("Agent opened alert source: {alert}");
                         success = true;
                     }
                     #[cfg(target_arch = "wasm32")]
@@ -562,12 +562,12 @@ impl Workspace {
                     if self.query_executor.is_online() {
                         // Fire real query and track as pending inline chart
                         self.request_inline_chart(&query, &chart_title, height, ctx);
-                        log::info!("Requested inline chart for query: {query}");
+                        log::debug!("Requested inline chart for query: {query}");
                     } else {
                         // Demo/offline mode: use generated data
                         let chart = self.generate_demo_inline_chart(&query, &chart_title, height);
                         self.inject_inline_content_to_agent_pane(InlineContent::Chart(chart));
-                        log::info!("Injected demo inline chart for query: {query}");
+                        log::debug!("Injected demo inline chart for query: {query}");
                     }
                     success = true;
                 }
@@ -581,7 +581,7 @@ impl Workspace {
                         let lines = context_lines.unwrap_or(5);
                         if let Some(source) = self.generate_inline_source(&metric, lines) {
                             self.inject_inline_content_to_agent_pane(InlineContent::Source(source));
-                            log::info!("Injected inline source for metric: {metric}");
+                            log::debug!("Injected inline source for metric: {metric}");
                             success = true;
                         } else {
                             log::warn!("Could not find source for metric: {metric}");
@@ -606,12 +606,12 @@ impl Workspace {
 
                         // Log results with details
                         if results.is_empty() {
-                            log::info!(
+                            log::debug!(
                                 "Agent searched codebase for '{query}' (filter: {filter_str}): no results"
                             );
                         } else {
                             let count = results.len();
-                            log::info!(
+                            log::debug!(
                                 "Agent searched codebase for '{query}' (filter: {filter_str}): {count} results"
                             );
                             for (i, r) in results.iter().take(5).enumerate() {
@@ -619,11 +619,11 @@ impl Workspace {
                                 let kind = &r.kind;
                                 let name = &r.name;
                                 let score = r.score;
-                                log::info!("  [{idx}] {kind:?}: {name} (score: {score:.2})");
+                                log::debug!("  [{idx}] {kind:?}: {name} (score: {score:.2})");
                             }
                             if count > 5 {
                                 let remaining = count - 5;
-                                log::info!("  ... and {remaining} more");
+                                log::debug!("  ... and {remaining} more");
                             }
                         }
 
@@ -673,12 +673,12 @@ impl Workspace {
                         }
                     }
 
-                    log::info!("Agent created logs pane");
+                    log::debug!("Agent created logs pane");
                     success = true;
                 }
                 AgentCommand::AddTracingPane { trace_id, title: _ } => {
                     self.add_tracing_pane(trace_id.as_deref());
-                    log::info!(
+                    log::debug!(
                         "Agent created tracing pane{}",
                         trace_id
                             .as_ref()
@@ -689,7 +689,7 @@ impl Workspace {
                 }
                 AgentCommand::AddTerminalPane { title: _ } => {
                     if self.add_terminal_pane().is_some() {
-                        log::info!("Agent created terminal pane");
+                        log::debug!("Agent created terminal pane");
                         success = true;
                     } else {
                         log::warn!(
@@ -714,7 +714,7 @@ impl Workspace {
                                     component.as_any_mut().downcast_mut::<QueryPane>()
                                 {
                                     query_pane.set_visualization_type(viz);
-                                    log::info!(
+                                    log::debug!(
                                         "Agent set visualization to {viz_type} for pane: {}",
                                         pane.as_deref().unwrap_or("focused")
                                     );
@@ -733,7 +733,7 @@ impl Workspace {
                     self.time_range_toolbar.set_custom_range(start, end);
                     // Refresh all panes to use the new time range
                     self.refresh_all_panes();
-                    log::info!("Agent set absolute time range: {start} to {end}");
+                    log::debug!("Agent set absolute time range: {start} to {end}");
                     success = true;
                 }
                 AgentCommand::RefreshPane { pane } => {
@@ -747,7 +747,7 @@ impl Workspace {
                                     component.as_any_mut().downcast_mut::<QueryPane>()
                                 {
                                     query_pane.mark_needs_refresh();
-                                    log::info!("Agent refreshed pane: {pane_name}");
+                                    log::debug!("Agent refreshed pane: {pane_name}");
                                     success = true;
                                 }
                             }
@@ -757,14 +757,14 @@ impl Workspace {
                     } else {
                         // Refresh all panes
                         self.refresh_all_panes();
-                        log::info!("Agent refreshed all panes");
+                        log::debug!("Agent refreshed all panes");
                         success = true;
                     }
                 }
                 AgentCommand::ClosePane { pane } => {
                     if let Some(tile_id) = self.resolve_pane_target(&pane) {
                         self.close_tile(tile_id);
-                        log::info!("Agent closed pane: {pane}");
+                        log::debug!("Agent closed pane: {pane}");
                         success = true;
                     } else {
                         log::warn!("Agent could not find pane to close: {pane}");
@@ -789,7 +789,7 @@ impl Workspace {
                             Some(egui_tiles::Tile::Pane(_))
                         ) {
                             self.fullscreen_tile = Some(tile_id);
-                            log::info!("Agent maximized pane: {pane}");
+                            log::debug!("Agent maximized pane: {pane}");
                             success = true;
                         }
                     } else {
@@ -805,7 +805,7 @@ impl Workspace {
                                 component.as_any_mut().downcast_mut::<QueryPane>()
                             {
                                 query_pane.set_name(&new_name);
-                                log::info!("Agent renamed pane '{pane}' to '{new_name}'");
+                                log::debug!("Agent renamed pane '{pane}' to '{new_name}'");
                                 success = true;
                             }
                         }
@@ -846,7 +846,7 @@ impl Workspace {
                         let tile_id = self.viewport_tree.tiles.insert_pane(new_pane);
                         if self.add_tile_to_viewport(tile_id) {
                             self.show_landing = false;
-                            log::info!("Agent duplicated pane '{pane}' as '{name}'");
+                            log::debug!("Agent duplicated pane '{pane}' as '{name}'");
                             success = true;
                         }
                     } else {
@@ -857,7 +857,7 @@ impl Workspace {
                     if let Some(tile_id) = self.find_pane_by_name(&pane) {
                         self.behavior.set_focused_tile(Some(tile_id));
                         self.activate_tile(tile_id);
-                        log::info!("Agent focused pane: {pane}");
+                        log::debug!("Agent focused pane: {pane}");
                         success = true;
                     } else {
                         log::warn!("Agent could not find pane to focus: {pane}");
@@ -865,13 +865,13 @@ impl Workspace {
                 }
                 AgentCommand::ToggleZenMode => {
                     self.zen_mode = !self.zen_mode;
-                    log::info!("Agent toggled zen mode: {}", self.zen_mode);
+                    log::debug!("Agent toggled zen mode: {}", self.zen_mode);
                     success = true;
                 }
                 AgentCommand::ExitFullscreen => {
                     if self.fullscreen_tile.is_some() {
                         self.fullscreen_tile = None;
-                        log::info!("Agent exited fullscreen mode");
+                        log::debug!("Agent exited fullscreen mode");
                         success = true;
                     }
                 }
@@ -879,7 +879,7 @@ impl Workspace {
                     #[cfg(not(target_arch = "wasm32"))]
                     {
                         self.codebase_manager.fetch_updates(ctx);
-                        log::info!("Agent triggered repository sync and re-indexing");
+                        log::debug!("Agent triggered repository sync and re-indexing");
                         success = true;
                     }
                     #[cfg(target_arch = "wasm32")]
@@ -897,7 +897,7 @@ impl Workspace {
                             self.inject_inline_content_to_agent_pane(InlineContent::Diff(
                                 diff_content,
                             ));
-                            log::info!("Agent showed inline diff");
+                            log::debug!("Agent showed inline diff");
                             success = true;
                         } else {
                             log::warn!("Failed to get git diff");
@@ -919,7 +919,7 @@ impl Workspace {
                     {
                         if is_alert {
                             self.open_alert_definition(&name);
-                            log::info!("Agent showed alert source: {name}");
+                            log::debug!("Agent showed alert source: {name}");
                             success = true;
                         } else {
                             // Try inline source first, fall back to modal
@@ -928,11 +928,11 @@ impl Workspace {
                                 self.inject_inline_content_to_agent_pane(InlineContent::Source(
                                     source,
                                 ));
-                                log::info!("Agent showed inline source for: {name}");
+                                log::debug!("Agent showed inline source for: {name}");
                                 success = true;
                             } else {
                                 self.open_metric_definition(&name);
-                                log::info!("Agent showed metric source (modal): {name}");
+                                log::debug!("Agent showed metric source (modal): {name}");
                                 success = true;
                             }
                         }
@@ -949,7 +949,7 @@ impl Workspace {
                             table.title = t;
                         }
                         self.inject_inline_content_to_agent_pane(InlineContent::Table(table));
-                        log::info!("Agent showed inline table");
+                        log::debug!("Agent showed inline table");
                         success = true;
                     } else {
                         log::warn!("No SQL results available for inline table");
@@ -957,7 +957,7 @@ impl Workspace {
                 }
                 AgentCommand::LoadWorkspace { workspace } => {
                     self.pending_load_workspace = Some(workspace.clone());
-                    log::info!("Agent requested workspace load: {workspace}");
+                    log::debug!("Agent requested workspace load: {workspace}");
                     success = true;
                 }
             }
@@ -1913,7 +1913,7 @@ impl Workspace {
 
     /// Open the diff viewer with specific content.
     pub fn open_diff_viewer_with_content(&mut self, hash: &str, message: &str, diff: &str) {
-        log::info!("Opening diff viewer for commit from chat: {hash}");
+        log::debug!("Opening diff viewer for commit from chat: {hash}");
         self.diff_viewer.open(hash, message, 0, diff);
     }
 
@@ -1940,7 +1940,7 @@ impl Workspace {
             Ok(output) if output.status.success() => {
                 let diff_content = String::from_utf8_lossy(&output.stdout).to_string();
                 if !diff_content.is_empty() {
-                    log::info!("Opening diff viewer for commit: {hash}");
+                    log::debug!("Opening diff viewer for commit: {hash}");
                     self.diff_viewer.open(hash, message, 0, &diff_content);
                 } else {
                     log::warn!("No diff content for commit: {hash}");
@@ -2287,7 +2287,7 @@ impl Workspace {
             .map(|idx| idx.repo_path.clone())
             .unwrap_or_else(|| PathBuf::from("."));
 
-        log::info!(
+        log::debug!(
             "Getting git diff: commit={:?}, file={:?}, repo_path={}",
             commit,
             file,
@@ -2327,7 +2327,7 @@ impl Workspace {
 
         let diff_content = String::from_utf8_lossy(&diff_output.stdout);
         if diff_content.trim().is_empty() {
-            log::info!("No diff content found for commit {effective_commit:?}");
+            log::debug!("No diff content found for commit {effective_commit:?}");
             return None;
         }
 
@@ -2454,7 +2454,7 @@ impl Workspace {
         use crate::components::SqlPane;
         use egui_tiles::Tile;
 
-        log::info!(
+        log::debug!(
             "sync_sql_connections: {} definitions, caching",
             connections.len()
         );
@@ -2472,7 +2472,7 @@ impl Workspace {
                 }
             }
         }
-        log::info!("sync_sql_connections: synced {sql_count} SQL panes");
+        log::debug!("sync_sql_connections: synced {sql_count} SQL panes");
     }
 
     /// Poll all SqlPanes for pending actions (like share-to-agent).
@@ -2499,7 +2499,7 @@ impl Workspace {
 
         for table in inline_tables {
             self.inject_inline_content_to_agent_pane(InlineContent::Table(table));
-            log::info!("Shared SQL result to agent panel");
+            log::debug!("Shared SQL result to agent panel");
         }
     }
 
@@ -2521,7 +2521,7 @@ impl Workspace {
             }
         }
 
-        log::info!("Docked all floating panes");
+        log::debug!("Docked all floating panes");
     }
 
     /// Float the currently focused pane (detach from tile layout to floating window).
@@ -2592,7 +2592,7 @@ impl Workspace {
             // Clean up the tree structure (remove empty containers)
             self.viewport_tree.tiles.remove(focused_tile);
 
-            log::info!("Floated pane from tile tree with size {size:?}");
+            log::debug!("Floated pane from tile tree with size {size:?}");
         }
     }
 
@@ -2650,7 +2650,7 @@ impl Workspace {
     pub fn set_time_range_preset_from_plugin(&mut self, preset: &str) {
         if let Some(preset_enum) = Self::parse_time_preset(preset) {
             self.time_range_toolbar.set_preset(preset_enum);
-            log::info!("Plugin set time range preset: {preset}");
+            log::debug!("Plugin set time range preset: {preset}");
         } else {
             log::warn!("Plugin: unknown time range preset '{preset}'");
         }
@@ -2664,7 +2664,7 @@ impl Workspace {
     pub fn set_time_range_absolute_from_plugin(&mut self, start_secs: f64, end_secs: f64) {
         self.time_range_toolbar
             .set_custom_range(start_secs, end_secs);
-        log::info!("Plugin set absolute time range: {start_secs} to {end_secs}");
+        log::debug!("Plugin set absolute time range: {start_secs} to {end_secs}");
     }
 
     // ==================== Plugin Custom Table Panes ====================
@@ -2673,7 +2673,7 @@ impl Workspace {
     ///
     /// This stores the configuration so custom pane instances can be created later.
     pub fn register_custom_table_pane(&mut self, config: enya_plugin::CustomTableConfig) {
-        log::info!(
+        log::debug!(
             "Registered custom table pane '{}' from plugin '{}'",
             config.name,
             config.plugin_name
@@ -2701,7 +2701,7 @@ impl Workspace {
             if self.add_tile_to_viewport(pane_tile) {
                 self.behavior.set_focused_tile(Some(pane_tile));
                 self.show_landing = false;
-                log::info!("Added custom table pane: {pane_type}");
+                log::debug!("Added custom table pane: {pane_type}");
             }
         } else {
             log::warn!("Unknown custom table pane type: {pane_type}");
@@ -2779,7 +2779,7 @@ impl Workspace {
     ///
     /// This stores the configuration so custom chart pane instances can be created later.
     pub fn register_custom_chart_pane(&mut self, config: enya_plugin::CustomChartConfig) {
-        log::info!(
+        log::debug!(
             "Registered custom chart pane '{}' from plugin '{}'",
             config.name,
             config.plugin_name
@@ -2807,7 +2807,7 @@ impl Workspace {
             if self.add_tile_to_viewport(pane_tile) {
                 self.behavior.set_focused_tile(Some(pane_tile));
                 self.show_landing = false;
-                log::info!("Added custom chart pane: {pane_type}");
+                log::debug!("Added custom chart pane: {pane_type}");
             }
         } else {
             log::warn!("Unknown custom chart pane type: {pane_type}");
@@ -2860,7 +2860,7 @@ impl Workspace {
     ///
     /// This stores the configuration so custom stat pane instances can be created later.
     pub fn register_custom_stat_pane(&mut self, config: enya_plugin::StatPaneConfig) {
-        log::info!(
+        log::debug!(
             "Registered custom stat pane '{}' from plugin '{}'",
             config.name,
             config.plugin_name
@@ -2887,7 +2887,7 @@ impl Workspace {
             if self.add_tile_to_viewport(pane_tile) {
                 self.behavior.set_focused_tile(Some(pane_tile));
                 self.show_landing = false;
-                log::info!("Added custom stat pane of type '{pane_type}'");
+                log::debug!("Added custom stat pane of type '{pane_type}'");
             }
         } else {
             log::warn!("Unknown custom stat pane type: {pane_type}");
@@ -2931,7 +2931,7 @@ impl Workspace {
     ///
     /// This stores the configuration so custom gauge pane instances can be created later.
     pub fn register_custom_gauge_pane(&mut self, config: enya_plugin::GaugePaneConfig) {
-        log::info!(
+        log::debug!(
             "Registered custom gauge pane '{}' from plugin '{}'",
             config.name,
             config.plugin_name
@@ -2959,7 +2959,7 @@ impl Workspace {
             if self.add_tile_to_viewport(pane_tile) {
                 self.behavior.set_focused_tile(Some(pane_tile));
                 self.show_landing = false;
-                log::info!("Added custom gauge pane of type '{pane_type}'");
+                log::debug!("Added custom gauge pane of type '{pane_type}'");
             }
         } else {
             log::warn!("Unknown custom gauge pane type: {pane_type}");

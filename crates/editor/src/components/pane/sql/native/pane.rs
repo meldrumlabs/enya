@@ -1242,7 +1242,7 @@ impl SqlPane {
                         if let Some(conn) = self.connections.iter_mut().find(|c| c.id == conn_id) {
                             let table_count = tables.len();
                             conn.tables = tables;
-                            log::info!(
+                            log::debug!(
                                 "Fetched {} tables for connection '{}'",
                                 table_count,
                                 conn.name
@@ -4334,7 +4334,7 @@ impl SqlPane {
         &mut self,
         definitions: &[crate::ui::settings_screen::FlightSqlConnection],
     ) {
-        log::info!(
+        log::debug!(
             "SqlPane::sync_connections: received {} definitions, had {} connections",
             definitions.len(),
             self.connections.len()
@@ -4351,7 +4351,7 @@ impl SqlPane {
                 new_connections.push(self.connections.swap_remove(pos));
             } else {
                 // New definition — create a fresh SavedConnection
-                log::info!(
+                log::debug!(
                     "SqlPane::sync_connections: creating new connection '{}' -> '{}'",
                     def.name,
                     def.endpoint
@@ -4360,7 +4360,7 @@ impl SqlPane {
             }
         }
         self.connections = new_connections;
-        log::info!(
+        log::debug!(
             "SqlPane::sync_connections: now has {} connections",
             self.connections.len()
         );
@@ -4372,7 +4372,7 @@ impl SqlPane {
         {
             self.auto_connected = true;
             let first_id = self.connections[0].id;
-            log::info!("SqlPane: auto-connecting to '{}'", self.connections[0].name);
+            log::debug!("SqlPane: auto-connecting to '{}'", self.connections[0].name);
             self.connect_saved(first_id);
         }
     }

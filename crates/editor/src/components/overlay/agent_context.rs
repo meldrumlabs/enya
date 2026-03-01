@@ -1005,7 +1005,7 @@ pub fn load_project_context(repo_path: &std::path::Path) -> Option<String> {
         if let Ok(content) = fs::read_to_string(&enya_md) {
             let trimmed = content.trim();
             if !trimmed.is_empty() {
-                log::info!("Loaded project context from {}", enya_md.display());
+                log::debug!("Loaded project context from {}", enya_md.display());
                 return Some(trimmed.to_string());
             }
         }
@@ -1017,7 +1017,7 @@ pub fn load_project_context(repo_path: &std::path::Path) -> Option<String> {
         if let Ok(content) = fs::read_to_string(&enya_context) {
             let trimmed = content.trim();
             if !trimmed.is_empty() {
-                log::info!("Loaded project context from {}", enya_context.display());
+                log::debug!("Loaded project context from {}", enya_context.display());
                 return Some(trimmed.to_string());
             }
         }

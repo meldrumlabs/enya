@@ -2135,7 +2135,7 @@ impl AgentInputBar {
                     self.applied_command_count = commands.len();
                     if !commands.is_empty() {
                         for cmd in &commands {
-                            log::info!("Agent command: {cmd:?}");
+                            log::debug!("Agent command: {cmd:?}");
                         }
                         self.pending_commands.extend(commands);
                         // Request repaint to ensure commands are processed on next frame
