@@ -4,6 +4,10 @@ All notable changes to the Enya editor will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **macOS window vibrancy**: The custom titlebar now has a subtle translucent vibrancy effect on macOS, allowing the desktop to gently show through. Uses `NSVisualEffectView` with the colorless Selection material (same approach as Zed) for a neutral blur that works with all themes.
+
 ### Changed
 
 - **Reduced logging verbosity**: Downgraded ~120 `log::info!` calls to `log::debug!` across the editor crate. Internal details like agent command execution, keyboard handler traces, pane operations, finder selections, query executor internals, and indexing progress are now debug-level. User-facing events (connections, plugin loads, workspace save/load, updates, screenshots) remain at info level.
