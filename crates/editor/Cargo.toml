@@ -112,9 +112,21 @@ gloo-timers = { workspace = true, features = ["futures"] }
 eframe = { workspace = true, features = ["x11", "wayland"] }
 wgpu = { workspace = true, features = ["vulkan"] }
 
-# macOS: enable metal backend for wgpu
+# macOS: enable metal backend for wgpu + window vibrancy (NSVisualEffectView)
 [target.'cfg(target_os = "macos")'.dependencies]
 wgpu = { workspace = true, features = ["metal"] }
+objc2 = "0.5.2"
+objc2-app-kit = { version = "0.2.2", features = [
+    "NSAppearance",
+    "NSColor",
+    "NSGraphics",
+    "NSResponder",
+    "NSView",
+    "NSVisualEffectView",
+    "NSWindow",
+] }
+objc2-foundation = { version = "0.2.2", features = ["NSThread"] }
+raw-window-handle = "0.6"
 
 # Windows: enable vulkan backend for wgpu
 [target.'cfg(target_os = "windows")'.dependencies]

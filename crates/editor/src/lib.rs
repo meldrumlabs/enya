@@ -51,6 +51,10 @@ pub mod workspace;
 /// GitHub authentication via the Authorization Code flow.
 pub mod github_auth;
 
+/// Platform-specific integrations (macOS vibrancy, etc.)
+#[cfg(target_os = "macos")]
+mod platform;
+
 /// Plugin system for extending editor functionality.
 pub mod plugin;
 
@@ -101,17 +105,26 @@ pub fn run_native_app(startup_workspace: Option<String>) -> Result<(), Box<dyn s
         Err(_) => panic!("failed to install CryptoProvider"),
     }
 
+    let mut viewport = egui::ViewportBuilder::default()
+        .with_inner_size([1280.0, 800.0])
+        .with_min_inner_size([800.0, 600.0])
+        .with_icon(util::png_to_icon_data(
+            &include_bytes!("../assets/logo.png")[..],
+        ))
+        .with_titlebar_shown(false)
+        .with_titlebar_buttons_shown(false)
+        .with_fullsize_content_view(true)
+        .with_app_id("Enya");
+
+    // Enable window transparency on macOS so the NSVisualEffectView vibrancy
+    // shows through the semi-transparent titlebar.
+    #[cfg(target_os = "macos")]
+    {
+        viewport = viewport.with_transparent(true);
+    }
+
     let native_options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default()
-            .with_inner_size([1280.0, 800.0])
-            .with_min_inner_size([800.0, 600.0])
-            .with_icon(util::png_to_icon_data(
-                &include_bytes!("../assets/logo.png")[..],
-            ))
-            .with_titlebar_shown(false)
-            .with_titlebar_buttons_shown(false)
-            .with_fullsize_content_view(true)
-            .with_app_id("Enya"),
+        viewport,
         ..Default::default()
     };
 
