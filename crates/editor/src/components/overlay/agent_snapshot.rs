@@ -82,7 +82,7 @@ impl AgentPanel {
         self.is_open = true;
         self.scroll_to_bottom = true;
 
-        log::info!(
+        log::debug!(
             "Loaded snapshot conversation '{}': {} messages",
             conversation.name,
             conversation.messages.len()

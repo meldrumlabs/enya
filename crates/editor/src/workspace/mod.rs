@@ -620,12 +620,12 @@ impl Workspace {
             self.agent_input_bar.poll(ctx);
             let commands = self.agent_input_bar.take_pending_commands();
             if !commands.is_empty() {
-                log::info!(
+                log::debug!(
                     "Processing {} agent command(s) before query execution",
                     commands.len()
                 );
                 for cmd in &commands {
-                    log::info!("Executing agent command: {cmd:?}");
+                    log::debug!("Executing agent command: {cmd:?}");
                 }
                 let activities = self.handle_agent_commands(commands, ctx);
                 // Add activities to input bar for display
@@ -636,7 +636,7 @@ impl Workspace {
                 // This allows conversational flows where the agent explains what it's doing
                 let has_response_text = !self.agent_input_bar.display_text().is_empty();
                 if !activities.is_empty() && !has_response_text {
-                    log::info!("Agent command executed (no response text), exiting agent mode");
+                    log::debug!("Agent command executed (no response text), exiting agent mode");
                     self.exit_agent_mode();
                 }
             }
@@ -890,7 +890,7 @@ impl Workspace {
             }
             AgentPanelResult::OpenDiffViewer { hash, message } => {
                 // Open the full diff viewer for this commit
-                log::info!("Opening diff viewer from inline diff: {hash}");
+                log::debug!("Opening diff viewer from inline diff: {hash}");
                 self.open_diff_viewer_for_commit(&hash, &message);
             }
         }
@@ -1344,22 +1344,22 @@ impl Workspace {
                 }
             }
             PluginsOverlayResult::TogglePlugin(name) => {
-                log::info!("Toggle plugin: {name}");
+                log::debug!("Toggle plugin: {name}");
                 // TODO: Implement plugin enable/disable via PluginRegistry
             }
             PluginsOverlayResult::InstallPlugin(name, file) => {
-                log::info!("Install plugin: {name} from {file}");
+                log::debug!("Install plugin: {name} from {file}");
                 // Set installing state to show spinner
                 self.plugins_overlay
                     .set_installing_plugin(Some(name.clone()));
                 self.pending_install_plugin = Some((name, file));
             }
             PluginsOverlayResult::RemovePlugin(name) => {
-                log::info!("Remove plugin: {name}");
+                log::debug!("Remove plugin: {name}");
                 self.pending_remove_plugin = Some(name);
             }
             PluginsOverlayResult::RefreshAvailable => {
-                log::info!("Refresh available plugins");
+                log::debug!("Refresh available plugins");
                 self.pending_refresh_plugins = true;
             }
             PluginsOverlayResult::Closed | PluginsOverlayResult::None => {}
@@ -1693,22 +1693,22 @@ impl Workspace {
                 }
             }
             PluginsOverlayResult::TogglePlugin(name) => {
-                log::info!("Toggle plugin: {name}");
+                log::debug!("Toggle plugin: {name}");
                 // TODO: Implement plugin enable/disable via PluginRegistry
             }
             PluginsOverlayResult::InstallPlugin(name, file) => {
-                log::info!("Install plugin: {name} from {file}");
+                log::debug!("Install plugin: {name} from {file}");
                 // Set installing state to show spinner
                 self.plugins_overlay
                     .set_installing_plugin(Some(name.clone()));
                 self.pending_install_plugin = Some((name, file));
             }
             PluginsOverlayResult::RemovePlugin(name) => {
-                log::info!("Remove plugin: {name}");
+                log::debug!("Remove plugin: {name}");
                 self.pending_remove_plugin = Some(name);
             }
             PluginsOverlayResult::RefreshAvailable => {
-                log::info!("Refresh available plugins");
+                log::debug!("Refresh available plugins");
                 self.pending_refresh_plugins = true;
             }
             PluginsOverlayResult::Closed | PluginsOverlayResult::None => {}
@@ -1758,7 +1758,7 @@ impl Workspace {
                     if let Some(Tile::Pane(pane)) = self.viewport_tree.tiles.get_mut(focused_id) {
                         if let Some(query_pane) = pane.as_any_mut().downcast_mut::<QueryPane>() {
                             query_pane.add_annotation(annotation);
-                            log::info!("Added annotation to focused pane");
+                            log::debug!("Added annotation to focused pane");
                         }
                     }
                 }
@@ -1769,7 +1769,7 @@ impl Workspace {
                     if let Some(Tile::Pane(pane)) = self.viewport_tree.tiles.get_mut(focused_id) {
                         if let Some(query_pane) = pane.as_any_mut().downcast_mut::<QueryPane>() {
                             query_pane.update_annotation(annotation);
-                            log::info!("Updated annotation in focused pane");
+                            log::debug!("Updated annotation in focused pane");
                         }
                     }
                 }
@@ -1780,7 +1780,7 @@ impl Workspace {
                     if let Some(Tile::Pane(pane)) = self.viewport_tree.tiles.get_mut(focused_id) {
                         if let Some(query_pane) = pane.as_any_mut().downcast_mut::<QueryPane>() {
                             query_pane.remove_annotation(id);
-                            log::info!("Removed annotation from focused pane");
+                            log::debug!("Removed annotation from focused pane");
                         }
                     }
                 }
@@ -1860,7 +1860,7 @@ impl Workspace {
                 #[cfg(not(target_arch = "wasm32"))]
                 {
                     self.codebase_manager.fetch_updates(ctx);
-                    log::info!("Triggered repository sync and re-indexing via :sync command");
+                    log::debug!("Triggered repository sync and re-indexing via :sync command");
                 }
                 WorkspaceAction::None
             }
@@ -2533,7 +2533,7 @@ impl Workspace {
         // Handle Tab to open in agent panel (side panel handoff)
         if result.open_in_pane {
             if let Some(handoff) = self.agent_input_bar.export_for_handoff() {
-                log::info!("Handing off conversation to agent panel");
+                log::debug!("Handing off conversation to agent panel");
                 self.agent_panel.import_from_handoff(handoff);
                 self.exit_agent_mode();
                 ctx.request_repaint();
@@ -2610,7 +2610,7 @@ impl Workspace {
             // Only auto-exit if commands were executed AND there's no response text
             let has_response_text = !self.agent_input_bar.display_text().is_empty();
             if !activities.is_empty() && !has_response_text {
-                log::info!("Agent command executed (no response text), exiting agent mode");
+                log::debug!("Agent command executed (no response text), exiting agent mode");
                 self.exit_agent_mode();
             }
         }
@@ -2660,7 +2660,7 @@ impl Workspace {
         };
 
         // Send query directly to input bar (it handles AI communication)
-        log::info!(
+        log::debug!(
             "Sending query to agent: '{}' with context ({} chars, {} panes)",
             query,
             context.as_ref().map(|c| c.len()).unwrap_or(0),

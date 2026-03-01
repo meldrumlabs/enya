@@ -66,7 +66,7 @@ impl Workspace {
     pub(super) fn handle_codebase_finder_result(&mut self, result: SearchResult) {
         use crate::codebase::CodebaseStatus;
 
-        log::info!("Codebase finder selected: {result:?}");
+        log::debug!("Codebase finder selected: {result:?}");
 
         // Get the index if codebase is ready
         let Some(index) = self.codebase_manager.index() else {
@@ -92,11 +92,11 @@ impl Workspace {
 
                 if locations.is_empty() {
                     // Fallback: just add a chart for this metric
-                    log::info!("No source location for metric, adding chart");
+                    log::debug!("No source location for metric, adding chart");
                     self.show_landing = false;
                     let _ = self.add_chart_for_metric_with_tracking(&result.name);
                 } else {
-                    log::info!(
+                    log::debug!(
                         "Opening source preview for '{}' with {} location(s)",
                         result.name,
                         locations.len()
@@ -110,7 +110,7 @@ impl Workspace {
                 let alert = index.alerts.iter().find(|a| a.name == result.name);
 
                 if let Some(alert) = alert {
-                    log::info!(
+                    log::debug!(
                         "Opening alert preview for '{}' at {}:{}",
                         alert.name,
                         alert.file.display(),
@@ -126,7 +126,7 @@ impl Workspace {
                 timestamp,
                 diff,
             } => {
-                log::info!("Opening diff viewer for commit: {} - {}", hash, result.name);
+                log::debug!("Opening diff viewer for commit: {} - {}", hash, result.name);
                 // Open the diff viewer overlay with the commit's full diff
                 self.diff_viewer.open(hash, &result.name, *timestamp, diff);
             }
@@ -228,7 +228,7 @@ impl Workspace {
                 None
             }
             UnifiedFinderAction::NavigateToSource { file, line } => {
-                log::info!("Navigate to source: {}:{}", file.display(), line);
+                log::debug!("Navigate to source: {}:{}", file.display(), line);
                 // Look up metric by file/line to open in source preview
                 #[cfg(not(target_arch = "wasm32"))]
                 if let Some(index) = self.codebase_manager.index() {
@@ -261,7 +261,7 @@ impl Workspace {
                 message,
                 diff,
             } => {
-                log::info!("Opening diff viewer for commit: {hash}");
+                log::debug!("Opening diff viewer for commit: {hash}");
                 self.diff_viewer.open(&hash, &message, 0, &diff);
                 None
             }

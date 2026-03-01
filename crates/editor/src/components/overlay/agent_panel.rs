@@ -326,7 +326,7 @@ impl AgentPanel {
         self.scroll_to_bottom = true;
         self.focus_input = true;
 
-        log::info!(
+        log::debug!(
             "Imported conversation handoff: {} messages",
             self.messages.len()
         );
@@ -353,7 +353,7 @@ impl AgentPanel {
         {
             msg.inline_blocks.push(content);
             self.scroll_to_bottom = true;
-            log::info!("Added inline content to agent panel message");
+            log::debug!("Added inline content to agent panel message");
         } else {
             log::warn!("No assistant message found to inject inline content");
         }
