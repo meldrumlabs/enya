@@ -19,7 +19,6 @@ impl Workspace {
     #[profiling::function]
     pub(super) fn process_query_execution(&mut self, ctx: &egui::Context) -> WorkspaceAction {
         // 0. Poll for health check completion
-        let mut notification_action = WorkspaceAction::None;
         if let Some(success) = self.query_executor.poll_health_check() {
             if success {
                 if let crate::components::util::query_executor::ConnectionHealth::Online {
@@ -49,11 +48,6 @@ impl Workspace {
                     crate::components::overlay::diagnostics::DiagnosticSource::DataConnection,
                 );
                 self.diagnostics_pane.add(diagnostic);
-                // Show error notification
-                notification_action = WorkspaceAction::Notify {
-                    level: "error".to_string(),
-                    message: format!("Connection failed: {error}"),
-                };
             }
         }
 
@@ -341,7 +335,7 @@ impl Workspace {
             }
         }
 
-        notification_action
+        WorkspaceAction::None
     }
 
     /// Refresh all query panes (triggered by time range change or manual refresh).
