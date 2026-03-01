@@ -642,51 +642,9 @@ impl SqlPane {
                     self.add_info_cell("Usage: /schema <table-name>\nExample: /schema users");
                 }
             }
-            "history" => {
-                // With single-cell model, show input history instead
-                if self.input_history.is_empty() {
-                    self.set_status_info("No query history yet.");
-                } else {
-                    let history_text: Vec<_> = self
-                        .input_history
-                        .iter()
-                        .rev()
-                        .take(10)
-                        .enumerate()
-                        .map(|(i, sql)| format!("[{}] {}", i + 1, sql.lines().next().unwrap_or("")))
-                        .collect();
-                    self.set_status_info(&format!("Recent queries:\n{}", history_text.join("\n")));
-                }
-            }
             "close" => {
                 self.disconnect();
                 self.add_info_cell("Disconnected");
-            }
-            "tables" => {
-                self.execute_query("SHOW TABLES");
-            }
-            "plan" => {
-                // Toggle or set plan viewer mode
-                match parts.get(1).copied() {
-                    Some("tree") => {
-                        self.plan_viewer.mode = PlanViewMode::Tree;
-                        self.show_plan_viewer = true;
-                    }
-                    Some("stats") => {
-                        self.plan_viewer.mode = PlanViewMode::Stats;
-                        self.show_plan_viewer = true;
-                    }
-                    Some("waterfall") => {
-                        self.plan_viewer.mode = PlanViewMode::Waterfall;
-                        self.show_plan_viewer = true;
-                    }
-                    Some("hide") => {
-                        self.show_plan_viewer = false;
-                    }
-                    _ => {
-                        self.show_plan_viewer = !self.show_plan_viewer;
-                    }
-                }
             }
             "normal" | "reset" => {
                 // Reset to normal mode

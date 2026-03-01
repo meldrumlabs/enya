@@ -7,10 +7,6 @@
 pub enum SqlCommand {
     /// Disconnect from server.
     Close,
-    /// List available tables.
-    Tables,
-    /// Toggle plan viewer.
-    Plan,
     /// Compare query results across two environments.
     Diff,
     /// Show query execution plan (EXPLAIN).
@@ -19,8 +15,6 @@ pub enum SqlCommand {
     Analyze,
     /// Show table schema/structure.
     Schema,
-    /// Show query history.
-    History,
     /// Load demo query plan.
     Demo,
     /// Benchmark query execution over multiple iterations.
@@ -34,14 +28,11 @@ impl SqlCommand {
     pub fn all() -> &'static [SqlCommand] {
         &[
             SqlCommand::Close,
-            SqlCommand::Tables,
-            SqlCommand::Plan,
             SqlCommand::Explain,
             SqlCommand::Analyze,
             SqlCommand::Demo,
             SqlCommand::Schema,
             SqlCommand::Diff,
-            SqlCommand::History,
             SqlCommand::Bench,
             SqlCommand::Describe,
         ]
@@ -51,13 +42,10 @@ impl SqlCommand {
     pub fn name(&self) -> &'static str {
         match self {
             SqlCommand::Close => "close",
-            SqlCommand::Tables => "tables",
-            SqlCommand::Plan => "plan",
             SqlCommand::Diff => "diff",
             SqlCommand::Explain => "explain",
             SqlCommand::Analyze => "analyze",
             SqlCommand::Schema => "schema",
-            SqlCommand::History => "history",
             SqlCommand::Demo => "demo",
             SqlCommand::Bench => "bench",
             SqlCommand::Describe => "describe",
@@ -68,13 +56,10 @@ impl SqlCommand {
     pub fn description(&self) -> &'static str {
         match self {
             SqlCommand::Close => "Disconnect from server",
-            SqlCommand::Tables => "List available tables",
-            SqlCommand::Plan => "Toggle plan viewer",
             SqlCommand::Diff => "Compare across envs",
             SqlCommand::Explain => "Show query plan (EXPLAIN)",
             SqlCommand::Analyze => "Query plan with timing (EXPLAIN ANALYZE)",
             SqlCommand::Schema => "Table structure",
-            SqlCommand::History => "Query history",
             SqlCommand::Demo => "Load demo query plan",
             SqlCommand::Bench => "Benchmark query (N iterations)",
             SqlCommand::Describe => "Column statistics (count, nulls, min/max)",
