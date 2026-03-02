@@ -44,13 +44,20 @@ use egui::{Color32, RichText, TextEdit, TextFormat};
 use enya_datafusion::arrow::array::{Array, RecordBatch};
 use enya_datafusion::arrow::datatypes::SchemaRef;
 use enya_datafusion::{
-    ConnectionState, ExecutionStats, FlightClient, PlanNode, QueryEvent, QueryId, QueryRequest,
-    TableInfo, format_array_value, format_duration, format_rows,
+    BenchmarkRequest, ConnectionState, DescribeRequest, ExecutionStats, FlightClient, PlanNode,
+    QueryEvent, QueryId, QueryRequest, TableInfo, format_array_value, format_duration, format_rows,
 };
 use nucleo_matcher::{
     Config, Matcher, Utf32Str,
     pattern::{AtomKind, CaseMatching, Normalization, Pattern},
 };
+
+/// Result of checking backend type for local-only operations.
+enum LocalBackendCheck {
+    Local,
+    Flight,
+    NotConnected,
+}
 
 /// A SQL pane with REPL-style interface.
 pub struct SqlPane {
@@ -96,6 +103,8 @@ pub struct SqlPane {
         Option<tokio::sync::oneshot::Receiver<Result<(SchemaRef, Vec<RecordBatch>), String>>>,
     /// ID of the query currently being executed via Flight.
     pending_query_id: Option<QueryId>,
+    /// Abort handle for the currently running Flight SQL query task.
+    pending_flight_abort: Option<tokio::task::AbortHandle>,
     /// Pending explain query result receiver.
     #[allow(clippy::type_complexity)]
     pending_explain: Option<tokio::sync::oneshot::Receiver<Result<String, String>>>,
@@ -214,6 +223,7 @@ impl SqlPane {
             pending_connect: None,
             pending_query: None,
             pending_query_id: None,
+            pending_flight_abort: None,
             pending_explain: None,
             pending_connect_id: None,
             auto_connected: false,
@@ -578,6 +588,46 @@ impl SqlPane {
                     self.execute_explain(&sql, true);
                 }
             }
+            "bench" => {
+                // /bench [N] <query> - benchmark query over N iterations
+                let rest = parts[1..].join(" ");
+                if rest.is_empty() {
+                    self.add_info_cell(
+                        "Usage: /bench [iterations] <query>\n\
+                         Example: /bench SELECT * FROM users\n\
+                         Example: /bench 20 SELECT * FROM users\n\n\
+                         Runs the query N times (default: 10) and shows min/median/max timings.\n\
+                         Local DataFusion sessions only.",
+                    );
+                } else {
+                    // Check if first arg is a number (iteration count)
+                    let (iterations, sql) = match parts.get(1).and_then(|s| s.parse::<usize>().ok())
+                    {
+                        Some(n) if n > 0 && parts.len() > 2 => (n, parts[2..].join(" ")),
+                        _ => (10, rest),
+                    };
+                    if sql.is_empty() {
+                        self.add_info_cell(
+                            "Usage: /bench [iterations] <query>\n\
+                             Provide a SQL query to benchmark.",
+                        );
+                    } else {
+                        self.execute_benchmark(&sql, iterations);
+                    }
+                }
+            }
+            "describe" => {
+                if let Some(table_name) = parts.get(1) {
+                    self.execute_describe(table_name);
+                } else {
+                    self.add_info_cell(
+                        "Usage: /describe <table>\n\
+                         Example: /describe users\n\
+                         Example: /describe public.orders\n\n\
+                         Shows per-column statistics: count, nulls, distinct, min, max, mean.",
+                    );
+                }
+            }
             "demo" => {
                 // Load a demo plan for testing the visualization
                 self.load_demo_plan();
@@ -595,51 +645,9 @@ impl SqlPane {
                     self.add_info_cell("Usage: /schema <table-name>\nExample: /schema users");
                 }
             }
-            "history" => {
-                // With single-cell model, show input history instead
-                if self.input_history.is_empty() {
-                    self.set_status_info("No query history yet.");
-                } else {
-                    let history_text: Vec<_> = self
-                        .input_history
-                        .iter()
-                        .rev()
-                        .take(10)
-                        .enumerate()
-                        .map(|(i, sql)| format!("[{}] {}", i + 1, sql.lines().next().unwrap_or("")))
-                        .collect();
-                    self.set_status_info(&format!("Recent queries:\n{}", history_text.join("\n")));
-                }
-            }
             "close" => {
                 self.disconnect();
                 self.add_info_cell("Disconnected");
-            }
-            "tables" => {
-                self.execute_query("SHOW TABLES");
-            }
-            "plan" => {
-                // Toggle or set plan viewer mode
-                match parts.get(1).copied() {
-                    Some("tree") => {
-                        self.plan_viewer.mode = PlanViewMode::Tree;
-                        self.show_plan_viewer = true;
-                    }
-                    Some("stats") => {
-                        self.plan_viewer.mode = PlanViewMode::Stats;
-                        self.show_plan_viewer = true;
-                    }
-                    Some("waterfall") => {
-                        self.plan_viewer.mode = PlanViewMode::Waterfall;
-                        self.show_plan_viewer = true;
-                    }
-                    Some("hide") => {
-                        self.show_plan_viewer = false;
-                    }
-                    _ => {
-                        self.show_plan_viewer = !self.show_plan_viewer;
-                    }
-                }
             }
             "normal" | "reset" => {
                 // Reset to normal mode
@@ -714,6 +722,73 @@ impl SqlPane {
         }
     }
 
+    /// Check the local backend type (avoids E0502 borrow conflicts).
+    fn check_local_backend(&self) -> LocalBackendCheck {
+        match &self.backend {
+            Some(SqlBackend::Local { .. }) => LocalBackendCheck::Local,
+            Some(SqlBackend::Flight { .. }) => LocalBackendCheck::Flight,
+            _ => LocalBackendCheck::NotConnected,
+        }
+    }
+
+    /// Execute a benchmark on the local backend.
+    fn execute_benchmark(&mut self, sql: &str, iterations: usize) {
+        match self.check_local_backend() {
+            LocalBackendCheck::Local => {
+                let query_id = QueryId::new();
+                let display = format!("/bench {iterations} {sql}");
+                self.set_result_cell(Cell::benchmark(display, query_id));
+
+                let request = BenchmarkRequest::new(sql)
+                    .with_id(query_id)
+                    .with_iterations(iterations);
+
+                if let Some(SqlBackend::Local { session, .. }) = &self.backend {
+                    if let Err(e) = session.benchmark(request) {
+                        if let Some(cell) = self.result_cell.as_mut() {
+                            cell.set_status(QueryStatus::Failed);
+                            cell.set_error(e.to_string());
+                        }
+                    }
+                }
+            }
+            LocalBackendCheck::Flight => {
+                self.add_error_cell("Benchmarking is only supported on local DataFusion sessions.");
+            }
+            LocalBackendCheck::NotConnected => {
+                self.add_error_cell("Not connected. Configure connections in Settings.");
+            }
+        }
+    }
+
+    /// Execute a describe on a table (local backend only).
+    fn execute_describe(&mut self, table_name: &str) {
+        match self.check_local_backend() {
+            LocalBackendCheck::Local => {
+                let query_id = QueryId::new();
+                let display = format!("/describe {table_name}");
+                self.set_result_cell(Cell::describe(display, query_id));
+
+                let request = DescribeRequest::new(table_name).with_id(query_id);
+
+                if let Some(SqlBackend::Local { session, .. }) = &self.backend {
+                    if let Err(e) = session.describe(request) {
+                        if let Some(cell) = self.result_cell.as_mut() {
+                            cell.set_status(QueryStatus::Failed);
+                            cell.set_error(e.to_string());
+                        }
+                    }
+                }
+            }
+            LocalBackendCheck::Flight => {
+                self.add_error_cell("Describe is only supported on local DataFusion sessions.");
+            }
+            LocalBackendCheck::NotConnected => {
+                self.add_error_cell("Not connected. Configure connections in Settings.");
+            }
+        }
+    }
+
     /// Execute a SQL query.
     fn execute_query(&mut self, sql: &str) {
         let query_id = QueryId::new();
@@ -729,7 +804,7 @@ impl SqlPane {
                 self.pending_query_id = Some(query_id);
 
                 if let Some(endpoint) = self.endpoint.clone() {
-                    self.runtime_handle.spawn(async move {
+                    let join_handle = self.runtime_handle.spawn(async move {
                         let result = async {
                             let mut client = FlightClient::connect(&endpoint)
                                 .await
@@ -743,6 +818,7 @@ impl SqlPane {
                         .await;
                         let _ = tx.send(result);
                     });
+                    self.pending_flight_abort = Some(join_handle.abort_handle());
                 }
             }
             Some(SqlBackend::Local { session, .. }) => {
@@ -760,6 +836,37 @@ impl SqlPane {
                     cell.set_error("Not connected. Configure connections in Settings.".to_string());
                 }
             }
+        }
+    }
+
+    /// Cancel the currently running query.
+    fn cancel_query(&mut self) {
+        // Only cancel if there's a running cell
+        let query_id = match &self.result_cell {
+            Some(cell) if cell.status() == QueryStatus::Running => cell.id(),
+            _ => return,
+        };
+
+        match &self.backend {
+            Some(SqlBackend::Local { session, .. }) => {
+                if let Err(e) = session.cancel(query_id) {
+                    log::warn!("Failed to cancel query: {e}");
+                }
+                // Executor will send QueryEvent::Cancelled via the event channel
+            }
+            Some(SqlBackend::Flight { .. }) => {
+                // Abort the spawned tokio task
+                if let Some(abort_handle) = self.pending_flight_abort.take() {
+                    abort_handle.abort();
+                }
+                // Manually set cancelled since Flight has no event channel
+                if let Some(cell) = self.result_cell.as_mut() {
+                    cell.set_status(QueryStatus::Cancelled);
+                }
+                self.pending_query = None;
+                self.pending_query_id = None;
+            }
+            None => {}
         }
     }
 
@@ -1072,6 +1179,25 @@ impl SqlPane {
                 CardAction::ExpandTable => {
                     self.open_overlay(ResultOverlay::Table);
                 }
+                CardAction::Cancel => {
+                    self.cancel_query();
+                }
+                CardAction::NextPage => {
+                    let total_rows: usize = self
+                        .result_cell
+                        .as_ref()
+                        .map(|c| c.batches().iter().map(|b| b.num_rows()).sum())
+                        .unwrap_or(0);
+                    let total_pages = total_rows.div_ceil(super::query_card::ROWS_PER_PAGE).max(1);
+                    if self.cell_view_state.table_page < total_pages - 1 {
+                        self.cell_view_state.table_page += 1;
+                    }
+                }
+                CardAction::PrevPage => {
+                    if self.cell_view_state.table_page > 0 {
+                        self.cell_view_state.table_page -= 1;
+                    }
+                }
             }
         }
     }
@@ -1160,6 +1286,7 @@ impl SqlPane {
             match rx.try_recv() {
                 Ok(Ok((schema, batches))) => {
                     // Query successful
+                    self.pending_flight_abort = None;
                     if let Some(query_id) = self.pending_query_id.take() {
                         if let Some(cell) = self.result_cell.as_mut().filter(|c| c.id() == query_id)
                         {
@@ -1179,6 +1306,7 @@ impl SqlPane {
                 }
                 Ok(Err(e)) => {
                     // Query failed
+                    self.pending_flight_abort = None;
                     if let Some(query_id) = self.pending_query_id.take() {
                         if let Some(cell) = self.result_cell.as_mut().filter(|c| c.id() == query_id)
                         {
@@ -1192,12 +1320,16 @@ impl SqlPane {
                     self.pending_query = Some(rx);
                 }
                 Err(tokio::sync::oneshot::error::TryRecvError::Closed) => {
-                    // Query task dropped
+                    // Query task dropped (possibly cancelled)
+                    self.pending_flight_abort = None;
                     if let Some(query_id) = self.pending_query_id.take() {
                         if let Some(cell) = self.result_cell.as_mut().filter(|c| c.id() == query_id)
                         {
-                            cell.set_status(QueryStatus::Failed);
-                            cell.set_error("Query task dropped".to_string());
+                            // If already cancelled, don't overwrite with Failed
+                            if cell.status() != QueryStatus::Cancelled {
+                                cell.set_status(QueryStatus::Failed);
+                                cell.set_error("Query task dropped".to_string());
+                            }
                         }
                     }
                 }
@@ -1242,7 +1374,7 @@ impl SqlPane {
                         if let Some(conn) = self.connections.iter_mut().find(|c| c.id == conn_id) {
                             let table_count = tables.len();
                             conn.tables = tables;
-                            log::info!(
+                            log::debug!(
                                 "Fetched {} tables for connection '{}'",
                                 table_count,
                                 conn.name
@@ -1496,6 +1628,46 @@ impl SqlPane {
                                 q.status = QueryStatus::Cancelled;
                             }
                             QueryEvent::Progress { .. } => {}
+                            _ => {} // Benchmark events not applicable to query cells
+                        }
+                    } else if let Some(b) = cell.as_benchmark_mut() {
+                        match event {
+                            QueryEvent::BenchmarkProgress {
+                                iteration,
+                                total_iterations,
+                                last_duration,
+                                ..
+                            } => {
+                                b.progress = Some((iteration, total_iterations));
+                                b.last_duration = Some(last_duration);
+                            }
+                            QueryEvent::BenchmarkCompleted { stats, .. } => {
+                                b.status = QueryStatus::Completed;
+                                b.stats = Some(*stats);
+                            }
+                            QueryEvent::Failed { error, .. } => {
+                                b.status = QueryStatus::Failed;
+                                b.error = Some(error);
+                            }
+                            QueryEvent::Cancelled { .. } => {
+                                b.status = QueryStatus::Cancelled;
+                            }
+                            _ => {}
+                        }
+                    } else if let Some(d) = cell.as_describe_mut() {
+                        match event {
+                            QueryEvent::DescribeCompleted { stats, .. } => {
+                                d.status = QueryStatus::Completed;
+                                d.stats = Some(*stats);
+                            }
+                            QueryEvent::Failed { error, .. } => {
+                                d.status = QueryStatus::Failed;
+                                d.error = Some(error);
+                            }
+                            QueryEvent::Cancelled { .. } => {
+                                d.status = QueryStatus::Cancelled;
+                            }
+                            _ => {}
                         }
                     }
                 }
@@ -2339,13 +2511,16 @@ impl SqlPane {
                                     } else {
                                         // Truncate long values
                                         let max_chars = ((col_width - 8.0) / 7.0) as usize;
-                                        let display_val = if value.len() > max_chars
-                                            && max_chars > 3
-                                        {
-                                            format!("{}…", &value[..max_chars.saturating_sub(1)])
-                                        } else {
-                                            value
-                                        };
+                                        let display_val =
+                                            if value.len() > max_chars && max_chars > 3 {
+                                                let truncated: String = value
+                                                    .chars()
+                                                    .take(max_chars.saturating_sub(1))
+                                                    .collect();
+                                                format!("{truncated}…")
+                                            } else {
+                                                value
+                                            };
 
                                         ui.painter().text(
                                             cell_rect.left_center() + egui::vec2(8.0, 0.0),
@@ -2597,11 +2772,8 @@ impl SqlPane {
             ui.add_space(16.0);
 
             // SQL query preview (truncated)
-            let sql_preview = if sql_query.len() > 50 {
-                format!("{}...", &sql_query[..50])
-            } else {
-                sql_query.clone()
-            };
+            let sql_preview =
+                crate::components::util::text_formatting::truncate_with_ellipsis(&sql_query, 50);
             ui.label(
                 RichText::new(&sql_preview)
                     .color(colors.faint_text)
@@ -2982,10 +3154,29 @@ impl SqlPane {
 
         // Check if typing a command (starts with /)
         if let Some(cmd_query) = input.strip_prefix('/') {
-            // Special handling for /explain and /analyze - show table suggestions for SQL part
+            // /describe <table> and /schema <table> - show table name suggestions directly
+            if let Some(partial) = cmd_query
+                .strip_prefix("describe ")
+                .or_else(|| cmd_query.strip_prefix("schema "))
+            {
+                let partial = partial.trim();
+                let items = self.get_schema_suggestions(partial);
+                self.suggestions.set(items);
+                return;
+            }
+
+            // Special handling for /explain, /analyze, and /bench - show table suggestions for SQL part
             let sql_part = cmd_query
                 .strip_prefix("explain ")
-                .or_else(|| cmd_query.strip_prefix("analyze "));
+                .or_else(|| cmd_query.strip_prefix("analyze "))
+                .or_else(|| {
+                    // /bench may have an optional iteration count before the SQL
+                    let rest = cmd_query.strip_prefix("bench ")?;
+                    rest.split_once(' ')
+                        .filter(|(first, _)| first.parse::<usize>().is_ok())
+                        .map(|(_, sql)| sql)
+                        .or(Some(rest))
+                });
 
             if let Some(sql_part) = sql_part {
                 // Check for table completion in the SQL part
@@ -4334,7 +4525,7 @@ impl SqlPane {
         &mut self,
         definitions: &[crate::ui::settings_screen::FlightSqlConnection],
     ) {
-        log::info!(
+        log::debug!(
             "SqlPane::sync_connections: received {} definitions, had {} connections",
             definitions.len(),
             self.connections.len()
@@ -4351,7 +4542,7 @@ impl SqlPane {
                 new_connections.push(self.connections.swap_remove(pos));
             } else {
                 // New definition — create a fresh SavedConnection
-                log::info!(
+                log::debug!(
                     "SqlPane::sync_connections: creating new connection '{}' -> '{}'",
                     def.name,
                     def.endpoint
@@ -4360,7 +4551,7 @@ impl SqlPane {
             }
         }
         self.connections = new_connections;
-        log::info!(
+        log::debug!(
             "SqlPane::sync_connections: now has {} connections",
             self.connections.len()
         );
@@ -4372,7 +4563,7 @@ impl SqlPane {
         {
             self.auto_connected = true;
             let first_id = self.connections[0].id;
-            log::info!("SqlPane: auto-connecting to '{}'", self.connections[0].name);
+            log::debug!("SqlPane: auto-connecting to '{}'", self.connections[0].name);
             self.connect_saved(first_id);
         }
     }
@@ -4530,10 +4721,10 @@ impl SqlPane {
     pub fn extract_snapshot_data(&self) -> Option<enya_config::SnapshotSqlPane> {
         use super::types::ColumnDiffStatus;
         use enya_config::{
-            SnapshotCellKind, SnapshotColumnDiffStatus, SnapshotDiffData, SnapshotDiffStats,
-            SnapshotDiffType, SnapshotOperatorMetrics, SnapshotPlanNode, SnapshotQueryCell,
-            SnapshotQueryStats, SnapshotSchemaDiff, SnapshotSchemaDiffColumn, SnapshotSqlPane,
-            SnapshotTableColumn,
+            SnapshotBenchmarkData, SnapshotCellKind, SnapshotColumnDiffStatus, SnapshotDiffData,
+            SnapshotDiffStats, SnapshotDiffType, SnapshotOperatorMetrics, SnapshotPhaseTiming,
+            SnapshotPlanNode, SnapshotQueryCell, SnapshotQueryStats, SnapshotSchemaDiff,
+            SnapshotSchemaDiffColumn, SnapshotSqlPane, SnapshotTableColumn,
         };
 
         let max_rows_per_cell = 500;
@@ -4622,6 +4813,8 @@ impl SqlPane {
                         error: q.error.clone(),
                         plan: None,
                         diff: None,
+                        benchmark: None,
+                        describe: None,
                     }
                 }
                 CellKind::Info(i) => SnapshotQueryCell {
@@ -4634,6 +4827,8 @@ impl SqlPane {
                     error: i.error.clone(),
                     plan: None,
                     diff: None,
+                    benchmark: None,
+                    describe: None,
                 },
                 CellKind::Diff(d) => {
                     let diff_data = d.diff_result.as_ref().map(|dr| {
@@ -4717,6 +4912,8 @@ impl SqlPane {
                         error: d.error.clone(),
                         plan: None,
                         diff: diff_data,
+                        benchmark: None,
+                        describe: None,
                     }
                 }
                 CellKind::Explain(_e) => SnapshotQueryCell {
@@ -4729,7 +4926,74 @@ impl SqlPane {
                     error: cell.get_error().map(|e| e.to_string()),
                     plan: None,
                     diff: None,
+                    benchmark: None,
+                    describe: None,
                 },
+                CellKind::Benchmark(b) => {
+                    let phase_to_snapshot =
+                        |p: &enya_datafusion::PhaseTiming| SnapshotPhaseTiming {
+                            min_us: p.min.as_micros() as u64,
+                            max_us: p.max.as_micros() as u64,
+                            mean_us: p.mean.as_micros() as u64,
+                            median_us: p.median.as_micros() as u64,
+                            percent_of_total: p.percent_of_total,
+                        };
+                    let benchmark = b.stats.as_ref().map(|s| SnapshotBenchmarkData {
+                        iterations: s.iterations as u64,
+                        rows_per_iteration: s.rows_per_iteration as u64,
+                        logical_planning: phase_to_snapshot(&s.logical_planning),
+                        physical_planning: phase_to_snapshot(&s.physical_planning),
+                        execution: phase_to_snapshot(&s.execution),
+                        total: phase_to_snapshot(&s.total),
+                    });
+                    SnapshotQueryCell {
+                        kind: SnapshotCellKind::Benchmark,
+                        sql: cell.sql().to_string(),
+                        columns: Vec::new(),
+                        rows: Vec::new(),
+                        total_rows: 0,
+                        stats: None,
+                        error: b.error.clone(),
+                        plan: None,
+                        diff: None,
+                        benchmark,
+                        describe: None,
+                    }
+                }
+                CellKind::Describe(d) => {
+                    let describe = d.stats.as_ref().map(|s| enya_config::SnapshotDescribeData {
+                        table_name: s.table_name.clone(),
+                        total_rows: s.total_rows as u64,
+                        columns: s
+                            .columns
+                            .iter()
+                            .map(|c| enya_config::SnapshotColumnStats {
+                                name: c.name.clone(),
+                                data_type: c.data_type.clone(),
+                                count: c.count as u64,
+                                null_count: c.null_count as u64,
+                                distinct_count: c.distinct_count as u64,
+                                min: c.min.clone(),
+                                max: c.max.clone(),
+                                mean: c.mean,
+                            })
+                            .collect(),
+                        elapsed_ms: s.elapsed.as_millis() as u64,
+                    });
+                    SnapshotQueryCell {
+                        kind: SnapshotCellKind::Describe,
+                        sql: cell.sql().to_string(),
+                        columns: Vec::new(),
+                        rows: Vec::new(),
+                        total_rows: 0,
+                        stats: None,
+                        error: d.error.clone(),
+                        plan: None,
+                        diff: None,
+                        benchmark: None,
+                        describe,
+                    }
+                }
             })
             .collect();
 
@@ -4922,6 +5186,55 @@ impl SqlPane {
                         // Diff cell with no data (shouldn't happen, but handle gracefully)
                         Cell::diff(cell_data.sql.clone(), id)
                     }
+                }
+                SnapshotCellKind::Benchmark => {
+                    let snapshot_to_phase =
+                        |p: &enya_config::SnapshotPhaseTiming| enya_datafusion::PhaseTiming {
+                            min: std::time::Duration::from_micros(p.min_us),
+                            max: std::time::Duration::from_micros(p.max_us),
+                            mean: std::time::Duration::from_micros(p.mean_us),
+                            median: std::time::Duration::from_micros(p.median_us),
+                            percent_of_total: p.percent_of_total,
+                        };
+                    let stats =
+                        cell_data
+                            .benchmark
+                            .as_ref()
+                            .map(|b| enya_datafusion::BenchmarkStats {
+                                iterations: b.iterations as usize,
+                                rows_per_iteration: b.rows_per_iteration as usize,
+                                logical_planning: snapshot_to_phase(&b.logical_planning),
+                                physical_planning: snapshot_to_phase(&b.physical_planning),
+                                execution: snapshot_to_phase(&b.execution),
+                                total: snapshot_to_phase(&b.total),
+                            });
+                    Cell::benchmark_completed(cell_data.sql.clone(), id, stats)
+                }
+                SnapshotCellKind::Describe => {
+                    let stats =
+                        cell_data
+                            .describe
+                            .as_ref()
+                            .map(|d| enya_datafusion::DescribeStats {
+                                table_name: d.table_name.clone(),
+                                total_rows: d.total_rows as usize,
+                                columns: d
+                                    .columns
+                                    .iter()
+                                    .map(|c| enya_datafusion::ColumnStats {
+                                        name: c.name.clone(),
+                                        data_type: c.data_type.clone(),
+                                        count: c.count as usize,
+                                        null_count: c.null_count as usize,
+                                        distinct_count: c.distinct_count as usize,
+                                        min: c.min.clone(),
+                                        max: c.max.clone(),
+                                        mean: c.mean,
+                                    })
+                                    .collect(),
+                                elapsed: std::time::Duration::from_millis(d.elapsed_ms),
+                            });
+                    Cell::describe_completed(cell_data.sql.clone(), id, stats)
                 }
             };
 

@@ -49,13 +49,10 @@ impl EnyaApp {
     /// Ensure the built-in tutorial and example workspaces exist on disk.
     ///
     /// Tutorial workspaces are always overwritten so template updates take
-    /// effect without users having to manually delete old files. The atlas
-    /// workspace (user-customizable) is only written if missing.
+    /// effect without users having to manually delete old files.
     #[cfg(not(target_arch = "wasm32"))]
     pub(super) fn ensure_default_workspace() {
-        use crate::workspace::{
-            ATLAS_WORKSPACE_TOML, GOLDEN_SIGNALS_TOML, INFRASTRUCTURE_TOML, MULTI_SERVICE_TOML,
-        };
+        use crate::workspace::{GOLDEN_SIGNALS_TOML, INFRASTRUCTURE_TOML, MULTI_SERVICE_TOML};
 
         let dir = Self::workspace_dir();
 
@@ -69,14 +66,6 @@ impl EnyaApp {
             let path = dir.join(format!("{name}.toml"));
             if let Err(e) = std::fs::write(&path, toml) {
                 log::warn!("Failed to write {name} workspace: {e}");
-            }
-        }
-
-        // Atlas — only create if missing (user may have customized it)
-        let atlas_path = dir.join("atlas.toml");
-        if !atlas_path.exists() {
-            if let Err(e) = std::fs::write(&atlas_path, ATLAS_WORKSPACE_TOML) {
-                log::warn!("Failed to create atlas workspace: {e}");
             }
         }
     }
@@ -140,7 +129,7 @@ impl EnyaApp {
                         return;
                     }
 
-                    log::info!("Workspace URL: {full_url}");
+                    log::debug!("Workspace URL: {full_url}");
                     self.notifications.notify(Notification::new(
                         format!("Workspace '{workspace_name}' URL copied to clipboard!"),
                         NotificationLevel::Success,
@@ -180,12 +169,12 @@ impl EnyaApp {
                     // TODO: Apply connection settings when endpoint tracking is implemented
                     if let Some(conn) = connection {
                         if !conn.endpoint.is_empty() {
-                            log::info!("Workspace specifies endpoint: {}", conn.endpoint);
+                            log::debug!("Workspace specifies endpoint: {}", conn.endpoint);
                         }
                     }
 
                     // Track the loaded workspace name
-                    self.workspace.loaded_name = Some(name.to_string());
+                    self.workspace.set_loaded_name(Some(name.to_string()));
 
                     // Add to recent workspaces
                     self.state.settings.add_recent_workspace(
@@ -234,12 +223,13 @@ impl EnyaApp {
                     // TODO: Apply connection settings when endpoint tracking is implemented
                     if let Some(conn) = connection {
                         if !conn.endpoint.is_empty() {
-                            log::info!("Workspace specifies endpoint: {}", conn.endpoint);
+                            log::debug!("Workspace specifies endpoint: {}", conn.endpoint);
                         }
                     }
 
                     // Track the loaded workspace name
-                    self.workspace.loaded_name = Some(workspace_config.workspace.name.clone());
+                    self.workspace
+                        .set_loaded_name(Some(workspace_config.workspace.name.clone()));
 
                     // Add to recent workspaces
                     self.state.settings.add_recent_workspace(
@@ -568,7 +558,7 @@ impl EnyaApp {
                     let connection = self.workspace.load_workspace_config(&workspace_config);
                     if let Some(conn) = connection {
                         if !conn.endpoint.is_empty() {
-                            log::info!("Snapshot workspace specifies endpoint: {}", conn.endpoint);
+                            log::debug!("Snapshot workspace specifies endpoint: {}", conn.endpoint);
                         }
                     }
                     self.notifications.notify(Notification::new(
@@ -598,7 +588,7 @@ impl EnyaApp {
             for param in search[1..].split('&') {
                 if let Some(value) = param.strip_prefix("snapshot=") {
                     if !value.is_empty() {
-                        log::info!("Found snapshot parameter in URL");
+                        log::debug!("Found snapshot parameter in URL");
                         return Some(value.to_string());
                     }
                 }
@@ -640,7 +630,7 @@ impl EnyaApp {
             for param in search[1..].split('&') {
                 if let Some(value) = param.strip_prefix("workspace=") {
                     if !value.is_empty() {
-                        log::info!("Found workspace parameter in URL");
+                        log::debug!("Found workspace parameter in URL");
                         return Some(value.to_string());
                     }
                 }
@@ -664,7 +654,7 @@ impl EnyaApp {
             for param in search[1..].split('&') {
                 if let Some(value) = param.strip_prefix("pane=") {
                     if !value.is_empty() {
-                        log::info!("Found pane parameter in URL");
+                        log::debug!("Found pane parameter in URL");
                         return Some(value.to_string());
                     }
                 }
@@ -702,7 +692,7 @@ impl EnyaApp {
                         ));
                     } else {
                         let list = workspaces.join(", ");
-                        log::info!("Available workspaces: {list}");
+                        log::debug!("Available workspaces: {list}");
                         self.notifications.notify(Notification::new(
                             format!("Workspaces: {list}"),
                             NotificationLevel::Info,

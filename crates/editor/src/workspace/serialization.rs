@@ -219,7 +219,7 @@ impl Workspace {
 
         // Phase 2: Build the layout tree
         let root_id = if let Some(layout) = &config.layout {
-            log::info!(
+            log::debug!(
                 "Loading workspace layout: {:?} with {} children",
                 layout.layout_type,
                 layout.children.len()

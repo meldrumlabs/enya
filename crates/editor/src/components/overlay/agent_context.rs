@@ -704,11 +704,7 @@ impl AgentCommand {
 
 /// Truncate a string to a maximum length, adding "..." if truncated.
 fn truncate_str(s: &str, max_len: usize) -> String {
-    if s.len() <= max_len {
-        s.to_string()
-    } else {
-        format!("{}...", &s[..max_len.saturating_sub(3)])
-    }
+    crate::components::util::text_formatting::truncate_with_ellipsis(s, max_len)
 }
 
 /// Parse agent commands from a response text.
@@ -1005,7 +1001,7 @@ pub fn load_project_context(repo_path: &std::path::Path) -> Option<String> {
         if let Ok(content) = fs::read_to_string(&enya_md) {
             let trimmed = content.trim();
             if !trimmed.is_empty() {
-                log::info!("Loaded project context from {}", enya_md.display());
+                log::debug!("Loaded project context from {}", enya_md.display());
                 return Some(trimmed.to_string());
             }
         }
@@ -1017,7 +1013,7 @@ pub fn load_project_context(repo_path: &std::path::Path) -> Option<String> {
         if let Ok(content) = fs::read_to_string(&enya_context) {
             let trimmed = content.trim();
             if !trimmed.is_empty() {
-                log::info!("Loaded project context from {}", enya_context.display());
+                log::debug!("Loaded project context from {}", enya_context.display());
                 return Some(trimmed.to_string());
             }
         }

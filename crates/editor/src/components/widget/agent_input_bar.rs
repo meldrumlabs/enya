@@ -1053,12 +1053,12 @@ impl AgentInputBar {
                 } else {
                     let summary = if !self.display_text.is_empty() {
                         let first_line = self.display_text.lines().next().unwrap_or("");
-                        if first_line.len() > 50 {
-                            format!("{}...", &first_line[..47])
-                        } else if first_line.is_empty() {
+                        if first_line.is_empty() {
                             "Response ready".to_string()
                         } else {
-                            first_line.to_string()
+                            crate::components::util::text_formatting::truncate_with_ellipsis(
+                                first_line, 50,
+                            )
                         }
                     } else {
                         "Response ready".to_string()
@@ -1506,11 +1506,9 @@ impl AgentInputBar {
                             .size(typography::SM),
                     );
                     let preview = if let Some(first_line) = display.lines().next() {
-                        if first_line.len() > 50 {
-                            format!("{}...", &first_line[..47])
-                        } else {
-                            first_line.to_string()
-                        }
+                        crate::components::util::text_formatting::truncate_with_ellipsis(
+                            first_line, 50,
+                        )
                     } else {
                         String::new()
                     };
@@ -1524,8 +1522,8 @@ impl AgentInputBar {
                 }
             });
         } else {
-            let preview = if display.len() > 80 {
-                format!("{}...", &display[..77])
+            let preview = if display.chars().count() > 80 {
+                crate::components::util::text_formatting::truncate_with_ellipsis(display, 80)
             } else if let Some(first_line) = display.lines().next() {
                 if display.lines().count() > 1 {
                     format!("{first_line}...")
@@ -2135,7 +2133,7 @@ impl AgentInputBar {
                     self.applied_command_count = commands.len();
                     if !commands.is_empty() {
                         for cmd in &commands {
-                            log::info!("Agent command: {cmd:?}");
+                            log::debug!("Agent command: {cmd:?}");
                         }
                         self.pending_commands.extend(commands);
                         // Request repaint to ensure commands are processed on next frame
@@ -2217,11 +2215,7 @@ impl AgentInputBar {
 /// Truncate text to a maximum length, adding ellipsis if needed
 #[cfg(not(target_arch = "wasm32"))]
 fn truncate_text(text: &str, max_len: usize) -> String {
-    if text.len() <= max_len {
-        text.to_string()
-    } else {
-        format!("{}...", &text[..max_len.saturating_sub(3)])
-    }
+    crate::components::util::text_formatting::truncate_with_ellipsis(text, max_len)
 }
 
 /// Normalize tool names by stripping common prefixes (e.g., mcp__acp__)
@@ -2320,11 +2314,7 @@ fn streaming_preview(text: &str, max_len: usize) -> String {
 
     let display = if cleaned.is_empty() { line } else { cleaned };
 
-    if display.len() <= max_len {
-        display.to_string()
-    } else {
-        format!("{}...", &display[..max_len.saturating_sub(3)])
-    }
+    crate::components::util::text_formatting::truncate_with_ellipsis(display, max_len)
 }
 
 #[cfg(test)]

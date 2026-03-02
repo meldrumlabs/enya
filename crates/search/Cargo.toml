@@ -10,6 +10,8 @@ description = "Full-text search index for Enya codebase (metrics, alerts, commit
 [dependencies]
 # Core types from analyzer
 enya-analyzer = { workspace = true }
+# Configuration (directory paths)
+enya-config = { workspace = true }
 
 # Full-text search engine
 tantivy = "0.25"

@@ -1309,7 +1309,7 @@ impl FloatingPaneManager {
     pub fn toggle_pop_out(&mut self, id: FloatingPaneId) {
         if let Some(pane) = self.panes.iter_mut().find(|p| p.id == id) {
             pane.popped_out = !pane.popped_out;
-            log::info!(
+            log::debug!(
                 "Floating pane {} popped {}",
                 pane.name(),
                 if pane.popped_out { "out" } else { "in" }
@@ -1351,8 +1351,9 @@ impl FloatingPaneManager {
         // Calculate cell size with margins
         let margin = SNAP_MARGIN;
         let gap = 12.0; // Gap between panes
-        let available_width = viewport.width() - margin * 2.0 - gap * (cols - 1) as f32;
-        let available_height = viewport.height() - margin * 2.0 - gap * (rows - 1) as f32;
+        let available_width = (viewport.width() - margin * 2.0 - gap * (cols - 1) as f32).max(1.0);
+        let available_height =
+            (viewport.height() - margin * 2.0 - gap * (rows - 1) as f32).max(1.0);
         let cell_width = available_width / cols as f32;
         let cell_height = available_height / rows as f32;
 

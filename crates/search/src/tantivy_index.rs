@@ -103,7 +103,7 @@ pub struct TantivyCodebaseIndex {
 impl TantivyCodebaseIndex {
     /// Opens an existing index or creates a new one for the given repository.
     ///
-    /// The index is stored in `{repo_path}/.enya/tantivy/`.
+    /// The index is stored under `~/.enya/indexes/` (keyed by repo name and path hash).
     /// If the existing index has an incompatible schema version, it will be
     /// deleted and recreated.
     ///
@@ -185,9 +185,17 @@ impl TantivyCodebaseIndex {
 
     /// Returns the index directory for a repository.
     ///
-    /// The index is stored in `{repo_path}/.enya/tantivy/`.
+    /// On native, stores the index under `~/.enya/indexes/{name}-{hash}/`.
+    /// On WASM, falls back to `{repo_path}/.enya/tantivy/` (unused in practice).
     fn index_dir_for_repo(repo_path: &Path) -> Result<PathBuf, IndexError> {
-        Ok(repo_path.join(".enya").join("tantivy"))
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            Ok(enya_config::index_dir(repo_path))
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            Ok(repo_path.join(".enya").join("tantivy"))
+        }
     }
 
     /// Loads metadata from the index directory.

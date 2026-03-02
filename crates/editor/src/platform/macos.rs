@@ -1,131 +1,145 @@
-//! macOS URL scheme handler for `enya://` deep links.
+//! macOS window vibrancy via NSVisualEffectView.
 //!
-//! Registers an Apple Event handler for `kInternetEventClass`/`kAEGetURL` so that
-//! when macOS opens an `enya://snapshot/<id>` URL, the native app receives it.
+//! Applies a translucent vibrancy effect to the window, allowing the desktop
+//! to subtly show through the custom titlebar. The content area remains opaque
+//! via egui panel fills.
 //!
-//! Call [`init_url_handler`] before starting the eframe event loop, then poll
-//! [`drain_pending_urls`] each frame to retrieve any received URLs.
-
-use std::sync::OnceLock;
-use std::sync::mpsc;
+//! The effect view is inserted as a sibling of winit's content view inside the
+//! window's frame view (NSThemeFrame), positioned behind the wgpu Metal
+//! surface. Where egui paints semi-transparent pixels (the titlebar) the
+//! vibrancy shows through; opaque panel fills hide it.
 
 use objc2::rc::Retained;
-use objc2::runtime::{AnyObject, Sel};
-use objc2::{ClassType, DeclaredClass, declare_class, msg_send, msg_send_id, mutability, sel};
-use objc2_foundation::{NSAppleEventManager, NSObject, NSObjectProtocol};
+use objc2_app_kit::{
+    NSAppearance, NSAppearanceCustomization, NSAutoresizingMaskOptions, NSColor, NSView,
+    NSVisualEffectBlendingMode, NSVisualEffectMaterial, NSVisualEffectState, NSVisualEffectView,
+    NSWindowOrderingMode,
+};
+use objc2_foundation::{MainThreadMarker, ns_string};
+use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
-use parking_lot::Mutex;
-
-/// Buffered channel for URLs received from macOS Apple Events.
-static URL_CHANNEL: OnceLock<(mpsc::Sender<String>, Mutex<mpsc::Receiver<String>>)> =
-    OnceLock::new();
-
-/// Apple Event constants.
-/// `kInternetEventClass` = 'GURL' and `kAEGetURL` = 'GURL'.
-const K_INTERNET_EVENT_CLASS: u32 = 0x4755524C;
-const K_AE_GET_URL: u32 = 0x4755524C;
-/// `keyDirectObject` = '----' (the direct parameter of an Apple Event).
-const KEY_DIRECT_OBJECT: u32 = 0x2D2D2D2D;
-
-declare_class!(
-    struct UrlEventHandler;
-
-    unsafe impl ClassType for UrlEventHandler {
-        type Super = NSObject;
-        type Mutability = mutability::InteriorMutable;
-        const NAME: &'static str = "EnyaUrlEventHandler";
-    }
-
-    impl DeclaredClass for UrlEventHandler {}
-
-    unsafe impl NSObjectProtocol for UrlEventHandler {}
-
-    unsafe impl UrlEventHandler {
-        /// Callback for `kAEGetURL` Apple Events.
-        /// Signature: `-(void)handleGetURLEvent:(NSAppleEventDescriptor*)event withReplyEvent:(NSAppleEventDescriptor*)reply`
-        #[method(handleGetURLEvent:withReplyEvent:)]
-        fn handle_get_url_event(&self, event: &AnyObject, _reply: &AnyObject) {
-            // Extract the direct object parameter (the URL string) from the Apple Event.
-            // event.paramDescriptorForKeyword_(keyDirectObject).stringValue
-            unsafe {
-                let direct_param: *mut AnyObject =
-                    msg_send![event, paramDescriptorForKeyword: KEY_DIRECT_OBJECT];
-                if direct_param.is_null() {
-                    log::warn!("URL event had no direct object parameter");
-                    return;
-                }
-                let ns_string: *mut AnyObject = msg_send![direct_param, stringValue];
-                if ns_string.is_null() {
-                    log::warn!("URL event direct object had no string value");
-                    return;
-                }
-                // Convert NSString to Rust String via UTF-8 bytes.
-                let utf8: *const u8 = msg_send![ns_string, UTF8String];
-                if utf8.is_null() {
-                    log::warn!("URL event string UTF8String was null");
-                    return;
-                }
-                let c_str = std::ffi::CStr::from_ptr(utf8 as *const std::ffi::c_char);
-                if let Ok(url) = c_str.to_str() {
-                    log::info!("Received URL via Apple Event: {url}");
-                    if let Some((tx, _)) = URL_CHANNEL.get() {
-                        let _ = tx.send(url.to_string());
-                    }
-                }
-            }
-        }
-    }
-);
-
-impl UrlEventHandler {
-    fn new() -> Retained<Self> {
-        unsafe { msg_send_id![Self::alloc(), init] }
-    }
-}
-
-/// Initialize the macOS URL scheme handler.
+/// Apply NSVisualEffectView vibrancy to the window behind the eframe content.
 ///
-/// Must be called on the main thread before `eframe::run_native()`.
-/// Registers an Apple Event handler for `kInternetEventClass`/`kAEGetURL`
-/// which catches `enya://` URLs opened by the OS.
-pub fn init_url_handler() {
-    // Set up the buffered channel.
-    URL_CHANNEL.get_or_init(|| {
-        let (tx, rx) = mpsc::channel();
-        (tx, Mutex::new(rx))
-    });
+/// Configures the window for transparency and inserts a vibrancy view as a
+/// sibling of winit's content view inside the window's frame view, positioned
+/// *behind* the content view. This avoids replacing the content view (which
+/// would break winit's instance variable access) while still putting vibrancy
+/// behind the wgpu Metal surface.
+///
+/// Only the custom titlebar (rendered with a semi-transparent fill) reveals
+/// the effect; all other panels paint opaque.
+pub fn apply_vibrancy(cc: &eframe::CreationContext<'_>, is_dark: bool) {
+    let Some(mtm) = MainThreadMarker::new() else {
+        log::warn!("apply_vibrancy called off main thread, skipping");
+        return;
+    };
 
-    let handler = UrlEventHandler::new();
+    let window_handle = match cc.window_handle() {
+        Ok(handle) => handle,
+        Err(e) => {
+            log::warn!("Failed to get window handle for vibrancy: {e}");
+            return;
+        }
+    };
 
-    // Register with NSAppleEventManager for GURL/GURL events.
+    let RawWindowHandle::AppKit(appkit_handle) = window_handle.as_raw() else {
+        log::warn!("Window handle is not AppKit, skipping vibrancy");
+        return;
+    };
+
+    // Get the NSView from the raw handle pointer.
+    let ns_view: Retained<NSView> =
+        unsafe { Retained::retain(appkit_handle.ns_view.as_ptr().cast()) }
+            .expect("NSView pointer was null");
+
+    let Some(window) = ns_view.window() else {
+        log::warn!("NSView has no window, skipping vibrancy");
+        return;
+    };
+
+    let Some(content_view) = window.contentView() else {
+        log::warn!("NSWindow has no content view, skipping vibrancy");
+        return;
+    };
+
+    // The content view's superview is the window's frame view (NSThemeFrame).
+    // We insert the effect view there as a sibling *behind* the content view
+    // so winit's content view stays untouched.
+    let Some(frame_view) = (unsafe { content_view.superview() }) else {
+        log::warn!("Content view has no superview, skipping vibrancy");
+        return;
+    };
+
     unsafe {
-        let manager = NSAppleEventManager::sharedAppleEventManager();
-        let sel: Sel = sel!(handleGetURLEvent:withReplyEvent:);
-        let _: () = msg_send![
-            &*manager,
-            setEventHandler: &*handler
-            andSelector: sel
-            forEventClass: K_INTERNET_EVENT_CLASS
-            andEventID: K_AE_GET_URL
-        ];
+        // Tell macOS this window participates in transparency compositing.
+        // Without these the compositor treats the window as opaque and the
+        // vibrancy effect is invisible.
+        window.setOpaque(false);
+
+        // Use near-zero alpha (0.0001) instead of clearColor() to preserve
+        // the native window drop shadow. Fully transparent backgrounds break
+        // the shadow compositing. This is the same trick Zed uses.
+        let bg = NSColor::colorWithSRGBRed_green_blue_alpha(0.0, 0.0, 0.0, 0.0001);
+        window.setBackgroundColor(Some(&bg));
     }
 
-    // Prevent handler from being deallocated — it must live for the app lifetime.
-    std::mem::forget(handler);
+    // Sync the window appearance with the editor theme so the vibrancy
+    // blur renders with the correct dark/light tint.
+    set_window_appearance(&window, is_dark);
 
-    log::info!("macOS URL scheme handler registered for enya://");
+    let frame = content_view.frame();
+    let effect_view = unsafe { NSVisualEffectView::initWithFrame(mtm.alloc(), frame) };
+
+    unsafe {
+        // Selection material: colorless/neutral blur without imposing a tint,
+        // so it works cleanly across all themes (dark, light, custom).
+        effect_view.setMaterial(NSVisualEffectMaterial::Selection);
+        effect_view.setBlendingMode(NSVisualEffectBlendingMode::BehindWindow);
+        // Active state keeps vibrancy visible even when the window is
+        // unfocused, matching Zed's behavior.
+        effect_view.setState(NSVisualEffectState::Active);
+
+        // Auto-resize with the window.
+        effect_view.setAutoresizingMask(
+            NSAutoresizingMaskOptions::NSViewWidthSizable
+                | NSAutoresizingMaskOptions::NSViewHeightSizable,
+        );
+
+        // Insert into the frame view as a sibling behind the content view.
+        frame_view.addSubview_positioned_relativeTo(
+            &effect_view,
+            NSWindowOrderingMode::NSWindowBelow,
+            Some(&content_view),
+        );
+    }
+
+    log::debug!("Applied macOS window vibrancy (Selection material)");
 }
 
-/// Drain any URLs received since the last call. Non-blocking.
+/// Sync the window's NSAppearance with the editor theme.
 ///
-/// Call this each frame from `EnyaApp::update()` to process incoming deep links.
-pub fn drain_pending_urls() -> Vec<String> {
-    let mut urls = Vec::new();
-    if let Some((_, rx)) = URL_CHANNEL.get() {
-        let rx = rx.lock();
-        while let Ok(url) = rx.try_recv() {
-            urls.push(url);
+/// Call this when the effective theme changes (dark ↔ light) so the vibrancy
+/// blur uses the correct appearance. Without this, a dark editor theme on a
+/// light macOS system would show a light-tinted blur behind the titlebar.
+pub fn sync_appearance(is_dark: bool) {
+    unsafe {
+        let app: Retained<objc2_app_kit::NSApplication> =
+            objc2::msg_send_id![objc2::class!(NSApplication), sharedApplication];
+        if let Some(window) = app.mainWindow() {
+            set_window_appearance(&window, is_dark);
         }
     }
-    urls
+}
+
+/// Set the NSAppearance on an NSWindow to match the editor's dark/light mode.
+fn set_window_appearance(window: &objc2_app_kit::NSWindow, is_dark: bool) {
+    let name = if is_dark {
+        ns_string!("NSAppearanceNameVibrantDark")
+    } else {
+        ns_string!("NSAppearanceNameVibrantLight")
+    };
+    let appearance = NSAppearance::appearanceNamed(name);
+    unsafe {
+        window.setAppearance(appearance.as_deref());
+    }
 }

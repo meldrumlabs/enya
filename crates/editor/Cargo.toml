@@ -54,7 +54,6 @@ simple_logger = { workspace = true }
 mimalloc = { workspace = true }
 rustls = { workspace = true }
 # System utilities for file/folder operations
-dirs = "5.0"
 open = "5.3"
 # Clipboard access for plugin system
 arboard = "3.4"
@@ -112,11 +111,21 @@ gloo-timers = { workspace = true, features = ["futures"] }
 eframe = { workspace = true, features = ["x11", "wayland"] }
 wgpu = { workspace = true, features = ["vulkan"] }
 
-# macOS: enable metal backend for wgpu, objc2 for URL scheme handling
+# macOS: enable metal backend for wgpu, window vibrancy, and URL scheme handling
 [target.'cfg(target_os = "macos")'.dependencies]
 wgpu = { workspace = true, features = ["metal"] }
 objc2 = "0.5.2"
-objc2-foundation = { version = "0.2.2", features = ["NSAppleEventManager", "NSAppleEventDescriptor", "NSString"] }
+objc2-app-kit = { version = "0.2.2", features = [
+    "NSAppearance",
+    "NSColor",
+    "NSGraphics",
+    "NSResponder",
+    "NSView",
+    "NSVisualEffectView",
+    "NSWindow",
+] }
+objc2-foundation = { version = "0.2.2", features = ["NSAppleEventManager", "NSAppleEventDescriptor", "NSString", "NSThread"] }
+raw-window-handle = "0.6"
 
 # Windows: enable vulkan backend for wgpu
 [target.'cfg(target_os = "windows")'.dependencies]

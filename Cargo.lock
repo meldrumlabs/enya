@@ -2516,7 +2516,6 @@ dependencies = [
 [[package]]
 name = "datafusion-app"
 version = "0.1.0"
-source = "git+https://github.com/datafusion-contrib/datafusion-dft?rev=cddb4d8#cddb4d891c3378c33b343d4a23b3a6d482738017"
 dependencies = [
  "async-trait",
  "color-eyre",
@@ -2907,7 +2906,6 @@ dependencies = [
 [[package]]
 name = "datafusion-functions-parquet"
 version = "0.1.0"
-source = "git+https://github.com/datafusion-contrib/datafusion-dft?rev=cddb4d8#cddb4d891c3378c33b343d4a23b3a6d482738017"
 dependencies = [
  "arrow",
  "async-trait",
@@ -3286,7 +3284,7 @@ dependencies = [
  "datafusion-proto",
  "delta_kernel",
  "deltalake-derive",
- "dirs 6.0.0",
+ "dirs",
  "either",
  "futures",
  "humantime",
@@ -3365,15 +3363,6 @@ name = "directories"
 version = "5.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9a49173b84e034382284f27f1af4dcbbd231ffa358c0fe316541a7337f376a35"
-dependencies = [
- "dirs-sys 0.4.1",
-]
-
-[[package]]
-name = "dirs"
-version = "5.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "44c45a9d03d6676652bcb5e724c7e988de1acad23a711b5217ab9cbecbec2225"
 dependencies = [
  "dirs-sys 0.4.1",
 ]
@@ -3980,7 +3969,6 @@ dependencies = [
  "arboard",
  "chrono",
  "criterion",
- "dirs 5.0.1",
  "eframe",
  "egui",
  "egui_extras",
@@ -4009,6 +3997,7 @@ dependencies = [
  "nohash-hasher",
  "nucleo-matcher",
  "objc2 0.5.2",
+ "objc2-app-kit 0.2.2",
  "objc2-foundation 0.2.2",
  "open",
  "parking_lot",
@@ -4016,6 +4005,7 @@ dependencies = [
  "puffin",
  "puffin_http",
  "pulldown-cmark",
+ "raw-window-handle",
  "reqwest",
  "rustc-hash 2.1.1",
  "rustls",
@@ -4083,8 +4073,8 @@ name = "enya-plugin"
 version = "0.1.0"
 dependencies = [
  "bitflags 2.10.0",
- "dirs 5.0.1",
  "egui",
+ "enya-config",
  "log",
  "mlua",
  "open",
@@ -4109,6 +4099,7 @@ name = "enya-search"
 version = "0.1.0"
 dependencies = [
  "enya-analyzer",
+ "enya-config",
  "log",
  "parking_lot",
  "serde",

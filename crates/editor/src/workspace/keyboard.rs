@@ -218,7 +218,7 @@ impl Workspace {
 
                 // Space+a - open/focus agent pane (Claude Code)
                 if input.consume_key(egui::Modifiers::NONE, egui::Key::A) {
-                    log::info!(
+                    log::debug!(
                         "Keyboard: Space+a pressed, setting should_toggle_agent_panel = true"
                     );
                     should_toggle_agent_panel = true;
@@ -490,7 +490,7 @@ impl Workspace {
 
             // a - agent operator (aw, ae, ay, ac, ar, af, as, ah) or just enter agent mode
             if input.consume_key(egui::Modifiers::NONE, egui::Key::A) {
-                log::info!("Keyboard: standalone 'a' pressed (agent operator), NOT Space+a");
+                log::debug!("Keyboard: standalone 'a' pressed (agent operator), NOT Space+a");
                 // Record 'a' press time for agent operator detection
                 self.leader_keys.press_a();
                 consumed = true;
@@ -779,11 +779,11 @@ impl Workspace {
 
         if should_toggle_agent_panel {
             // Toggle the agent panel (right-side layout panel)
-            log::info!("Keyboard: toggling agent panel");
+            log::debug!("Keyboard: toggling agent panel");
             self.agent_panel.toggle();
             // Set focus state based on whether panel is now open
             if self.agent_panel.is_open() {
-                log::info!("Keyboard: agent panel opened, setting agent_panel_focused = true");
+                log::debug!("Keyboard: agent panel opened, setting agent_panel_focused = true");
                 self.agent_panel_focused = true;
                 self.agent_panel.set_focus(true);
                 // Clear viewport pane focus so it doesn't appear highlighted
@@ -793,7 +793,7 @@ impl Workspace {
                 // (otherwise a TextEdit or ComboBox from viewport might still consume keys)
                 ctx.memory_mut(|mem| mem.surrender_focus(egui::Id::NULL));
             } else {
-                log::info!("Keyboard: agent panel closed, setting agent_panel_focused = false");
+                log::debug!("Keyboard: agent panel closed, setting agent_panel_focused = false");
                 self.agent_panel_focused = false;
                 self.agent_panel.set_focus(false);
             }

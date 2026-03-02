@@ -4,8 +4,15 @@ All notable changes to the Enya editor will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **macOS window vibrancy**: The custom titlebar now has a subtle translucent vibrancy effect on macOS, allowing the desktop to gently show through. Uses `NSVisualEffectView` with the colorless Selection material (same approach as Zed) for a neutral blur that works with all themes.
+
 ### Changed
 
+- **Connection errors in diagnostics overlay**: Prometheus and agent endpoint connection failures now appear in the diagnostics overlay instead of as toast notifications. This makes errors persistent and easier to find rather than auto-dismissing after 4 seconds.
+- **Centralized data directory**: All Enya data now lives under `~/.enya/`. User plugins moved from `~/.config/enya/plugins/` to `~/.enya/plugins/`. Search indexes moved from `{repo}/.enya/tantivy/` to `~/.enya/indexes/`. AI conversations moved from `{cwd}/.enya/conversations/` to `~/.enya/conversations/`.
+- **Reduced logging verbosity**: Downgraded ~120 `log::info!` calls to `log::debug!` across the editor crate. Internal details like agent command execution, keyboard handler traces, pane operations, finder selections, query executor internals, and indexing progress are now debug-level. User-facing events (connections, plugin loads, workspace save/load, updates, screenshots) remain at info level.
 - **Skip landing page for returning users**: When the user has any projects, the app now auto-restores the last workspace on startup instead of showing the landing page. The landing page only appears for first-time users with no projects.
 - **Streamlined tutorial**: Reduced from 24 to 15 steps (web). Removed advanced pane management steps (Move Panes, Merge Into Tabs, Floating Panes, Visual Multi-Select, Workspace Undo). Merged time navigation into one step and AI Agent Setup into Ask the AI Agent. Added a "Project Sidebar" step (`Space+b`) and expanded "Find Anything" with prefix-based fuzzy search (`@` metrics, `!` alerts, `#` commits). Colorscheme step now uses `ct` (cycle themes) and `:settings` instead of the style picker.
 
@@ -28,6 +35,11 @@ All notable changes to the Enya editor will be documented in this file.
 
 - **SQL pane auto-connect**: When a SQL pane is opened and Flight SQL connections are configured in Settings, the pane automatically connects to the first endpoint in the list instead of requiring manual connection.
 - **SQL pane expand results button**: Added an expand button in the query result stats bar that opens the fullscreen table overlay for easier browsing of large result sets.
+- **SQL pane `/bench` command**: Benchmark query execution by running it N times (default 10) and displaying a styled phase timing table with min/median/mean/max breakdown for logical planning, physical planning, and execution phases. Benchmark results are fully snapshotable (serialized with microsecond precision). Uses datafusion-dft's benchmarking engine via a vendored copy. Local DataFusion sessions only. Usage: `/bench [iterations] <query>`.
+- **SQL pane `/describe` command**: Show per-column statistics for a table including count, null count, distinct count, min, max, and mean (numeric columns only). Generates a single dynamic aggregate SQL query for efficient computation. Results displayed in a styled table with stats bar. Fully snapshotable. Local DataFusion sessions only. Usage: `/describe <table>`.
+- **SQL pane query cancellation**: Running queries can now be cancelled via a cancel button in the card header or by pressing Escape. Works for both local DataFusion and Flight SQL backends. Local queries are cancelled at the next batch boundary; Flight SQL tasks are aborted immediately.
+- **SQL pane adaptive table height**: Result tables now use available vertical space (up to 600px) instead of a fixed 400px height, showing more rows without scrolling.
+- **SQL pane row count indicator**: Query result footers now show "Rows 1–50 of 1,234" with clickable prev/next page buttons alongside existing keyboard navigation.
 - **Recent commits in fuzzy finder**: Typing `#` in the fuzzy finder now shows a list of the most recent commits sorted by timestamp (newest first), without requiring a search query. Typing further filters the commits as before.
 - **Theme cycle keybinding**: Added `ct` keybinding to cycle through app themes.
 - **Mobile browser detection**: On WASM, mobile browsers see the landing page but are blocked from entering the editor with a notification saying "Enya is designed for desktop".
@@ -1382,7 +1394,7 @@ All notable changes to the Enya editor will be documented in this file.
 - **Improved file filtering**: The indexer now excludes more common static asset directories (`dist`, `build`, `public`, `assets`) and skips minified files (`*.min.*`).
 - **Enhanced codebase status display**: The status bar now shows richer information when a codebase is configured:
   - During indexing: Shows language icon (Rust gear, Go gopher, Python logo, etc.) with the current file being indexed
-  - When ready: Shows repo name with language icon and metrics count (e.g., " rust-app-atlas | 42 metrics")
+  - When ready: Shows repo name with language icon and metrics count (e.g., " my-app | 42 metrics")
 
 ### Added
 
@@ -1566,11 +1578,6 @@ All notable changes to the Enya editor will be documented in this file.
   - New dependency: `tree-sitter-yaml` for YAML parsing (consistent with the Rust scanner)
 
 - **Go To section in which-key overlay**: The `?` help overlay now includes a "Go To" section documenting `gd` (go to metric definition) and `ga` (go to alert) shortcuts.
-
-- **Atlas example workspace**: Added a new built-in workspace template (`atlas.toml`) that demonstrates codebase integration with the `polygon-io/rust-app-atlas` repository. This workspace is created automatically in the `.enya/workspaces/` directory and includes:
-  - `[codebase]` configuration pointing to the Atlas git repository
-  - Sample pane querying `atlas_live_consumer_errors_total` metrics
-  - Prometheus endpoint configured for local development
 
 - **Function context in metric definitions**: The go-to-definition feature (`gd`) now shows the containing function name when viewing metric source code. For metrics inside impl blocks, the display shows `Type::function_name` format. This helps quickly understand which code path records a metric.
 

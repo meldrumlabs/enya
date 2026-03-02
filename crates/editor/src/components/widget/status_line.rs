@@ -675,11 +675,8 @@ impl StatusLine {
         // Selected metric
         if let Some(ref metric) = self.selected_metric {
             self.render_separator(ui, height);
-            let display_name = if metric.len() > 30 {
-                format!("{}...", &metric[..27])
-            } else {
-                metric.clone()
-            };
+            let display_name =
+                crate::components::util::text_formatting::truncate_with_ellipsis(metric, 30);
             self.render_segment(
                 ui,
                 &display_name,

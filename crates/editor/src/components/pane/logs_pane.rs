@@ -729,7 +729,7 @@ impl LogsPane {
                         .show(ui, |ui| {
                             let avail = ui.available_width();
                             ui.set_min_width(300.0_f32.min(avail - 16.0).max(150.0));
-                            ui.set_max_width(400.0_f32.min(avail - 16.0));
+                            ui.set_max_width(400.0_f32.min((avail - 16.0).max(150.0)));
                             ui.spacing_mut().item_spacing.y = 2.0;
 
                             // Header
@@ -754,11 +754,7 @@ impl LogsPane {
                                         let is_current = query == &self.saved_query;
 
                                         // Truncate long queries for display
-                                        let display_query = if query.len() > 50 {
-                                            format!("{}…", &query[..47])
-                                        } else {
-                                            query.clone()
-                                        };
+                                        let display_query = crate::components::util::text_formatting::truncate_with_ellipsis(query, 50);
 
                                         let item_response = ui.add(
                                             egui::Button::new(
@@ -1594,6 +1590,7 @@ fn level_icon(level: LogLevel) -> &'static str {
 }
 
 /// Truncate a message to fit within a given width.
+/// Uses character boundaries to avoid panicking on multi-byte UTF-8.
 fn truncate_message(message: &str, max_width: f32, font_size: f32) -> String {
     // Rough estimate: ~6.5 pixels per character at size 11 for monospace
     let chars_per_pixel = font_size * 0.6;
@@ -1602,7 +1599,8 @@ fn truncate_message(message: &str, max_width: f32, font_size: f32) -> String {
     if message.len() <= max_chars {
         message.to_string()
     } else if max_chars > 3 {
-        format!("{}...", &message[..max_chars.saturating_sub(3)])
+        let truncated: String = message.chars().take(max_chars.saturating_sub(3)).collect();
+        format!("{truncated}...")
     } else {
         message.chars().take(max_chars).collect()
     }

@@ -114,9 +114,7 @@ mod compact;
 pub mod snapshot;
 mod templates;
 
-pub use templates::{
-    ATLAS_WORKSPACE_TOML, GOLDEN_SIGNALS_TOML, INFRASTRUCTURE_TOML, MULTI_SERVICE_TOML,
-};
+pub use templates::{GOLDEN_SIGNALS_TOML, INFRASTRUCTURE_TOML, MULTI_SERVICE_TOML};
 
 use serde::{Deserialize, Serialize};
 
@@ -1198,6 +1196,8 @@ pub enum WorkspaceError {
     Encode(String),
     /// Unsupported workspace version
     UnsupportedVersion(u32),
+    /// Unsupported snapshot blob version
+    UnsupportedSnapshotVersion(u8),
 }
 
 impl std::fmt::Display for WorkspaceError {
@@ -1214,6 +1214,9 @@ impl std::fmt::Display for WorkspaceError {
                     f,
                     "unsupported workspace version: {v} (max: {WORKSPACE_VERSION})"
                 )
+            }
+            Self::UnsupportedSnapshotVersion(v) => {
+                write!(f, "unsupported snapshot version: {v}")
             }
         }
     }
@@ -1927,6 +1930,13 @@ version = 999
         let error = WorkspaceError::UnsupportedVersion(99);
         let msg = format!("{error}");
         assert!(msg.contains("unsupported workspace version: 99"));
+    }
+
+    #[test]
+    fn test_workspace_error_display_unsupported_snapshot_version() {
+        let error = WorkspaceError::UnsupportedSnapshotVersion(42);
+        let msg = format!("{error}");
+        assert!(msg.contains("unsupported snapshot version: 42"));
     }
 
     // ==================== TOML Serialization Skip Tests ====================

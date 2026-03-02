@@ -141,6 +141,72 @@ pub struct SnapshotPlanNode {
     pub metrics: Option<SnapshotOperatorMetrics>,
 }
 
+/// Phase timing data for a snapshot benchmark.
+#[derive(Debug, Clone)]
+pub struct SnapshotPhaseTiming {
+    /// Minimum duration in microseconds.
+    pub min_us: u64,
+    /// Maximum duration in microseconds.
+    pub max_us: u64,
+    /// Mean duration in microseconds.
+    pub mean_us: u64,
+    /// Median duration in microseconds.
+    pub median_us: u64,
+    /// Percentage of total execution time (0.0–100.0).
+    pub percent_of_total: f64,
+}
+
+/// Benchmark statistics for a snapshot cell.
+#[derive(Debug, Clone)]
+pub struct SnapshotBenchmarkData {
+    /// Number of iterations run.
+    pub iterations: u64,
+    /// Rows returned per iteration.
+    pub rows_per_iteration: u64,
+    /// Logical planning phase timings.
+    pub logical_planning: SnapshotPhaseTiming,
+    /// Physical planning phase timings.
+    pub physical_planning: SnapshotPhaseTiming,
+    /// Execution phase timings.
+    pub execution: SnapshotPhaseTiming,
+    /// Total (end-to-end) timings.
+    pub total: SnapshotPhaseTiming,
+}
+
+/// Per-column statistics for a snapshot describe cell.
+#[derive(Debug, Clone)]
+pub struct SnapshotColumnStats {
+    /// Column name.
+    pub name: String,
+    /// Data type as string.
+    pub data_type: String,
+    /// Total non-null count.
+    pub count: u64,
+    /// Number of null values.
+    pub null_count: u64,
+    /// Number of distinct values.
+    pub distinct_count: u64,
+    /// Minimum value as string.
+    pub min: Option<String>,
+    /// Maximum value as string.
+    pub max: Option<String>,
+    /// Mean value (numeric columns only).
+    pub mean: Option<f64>,
+}
+
+/// Describe statistics for a snapshot cell.
+#[derive(Debug, Clone)]
+pub struct SnapshotDescribeData {
+    /// Table name that was described.
+    pub table_name: String,
+    /// Total row count.
+    pub total_rows: u64,
+    /// Per-column statistics.
+    pub columns: Vec<SnapshotColumnStats>,
+    /// Time taken in milliseconds.
+    pub elapsed_ms: u64,
+}
+
 /// Cell kind discriminant for snapshot SQL cells.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SnapshotCellKind {
@@ -153,6 +219,10 @@ pub enum SnapshotCellKind {
     Diff,
     /// Explain/analyze execution plan.
     Explain,
+    /// Benchmark results with per-phase timing.
+    Benchmark,
+    /// Describe table statistics.
+    Describe,
 }
 
 /// Type of diff comparison.
@@ -230,7 +300,7 @@ pub struct SnapshotDiffData {
     pub schema_diff: Option<SnapshotSchemaDiff>,
 }
 
-/// A single cell in a SQL pane snapshot (query, info, diff, or explain).
+/// A single cell in a SQL pane snapshot (query, info, diff, explain, or benchmark).
 #[derive(Debug, Clone)]
 pub struct SnapshotQueryCell {
     /// Cell kind discriminant.
@@ -244,6 +314,10 @@ pub struct SnapshotQueryCell {
     pub plan: Option<SnapshotPlanNode>,
     /// Diff comparison data (populated only for Diff cells).
     pub diff: Option<SnapshotDiffData>,
+    /// Benchmark data (populated only for Benchmark cells).
+    pub benchmark: Option<SnapshotBenchmarkData>,
+    /// Describe data (populated only for Describe cells).
+    pub describe: Option<SnapshotDescribeData>,
 }
 
 /// Snapshot data for a SQL pane (all query cells).
@@ -419,6 +493,47 @@ enum CompactCellKind {
     Info,
     Diff,
     Explain,
+    Benchmark,
+    Describe,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct CompactPhaseTiming {
+    pub min_us: u64,
+    pub max_us: u64,
+    pub mean_us: u64,
+    pub median_us: u64,
+    pub pct: f32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct CompactBenchmarkData {
+    pub iterations: u32,
+    pub rows_per_iteration: u64,
+    pub logical: CompactPhaseTiming,
+    pub physical: CompactPhaseTiming,
+    pub execution: CompactPhaseTiming,
+    pub total: CompactPhaseTiming,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct CompactColumnStats {
+    pub name: String,
+    pub data_type: String,
+    pub count: u64,
+    pub null_count: u64,
+    pub distinct_count: u64,
+    pub min: Option<String>,
+    pub max: Option<String>,
+    pub mean: Option<f64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct CompactDescribeData {
+    pub table_name: String,
+    pub total_rows: u64,
+    pub columns: Vec<CompactColumnStats>,
+    pub elapsed_ms: u64,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -497,6 +612,10 @@ struct CompactSqlCell {
     pub error: Option<String>,
     pub plan: Option<CompactPlanNode>,
     pub diff: Option<CompactDiffData>,
+    #[serde(default)]
+    pub benchmark: Option<CompactBenchmarkData>,
+    #[serde(default)]
+    pub describe: Option<CompactDescribeData>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -538,9 +657,19 @@ struct CompactFullSnapshot {
 // Encode / Decode
 // =============================================================================
 
+/// Version byte prepended to R2 blob snapshots.
+///
+/// The wire format is: `[version_u8] [lz4_compressed_postcard_bytes...]`
+///
+/// This allows the decoder to detect schema mismatches before attempting
+/// decompression, and lets us evolve the postcard schema by bumping the
+/// version and adding a new decode path.
+pub(crate) const SNAPSHOT_BLOB_VERSION: u8 = 1;
+
 /// Encode a full snapshot to compressed binary (postcard + LZ4).
 ///
 /// The resulting bytes are meant for blob storage (R2), not URL encoding.
+/// Format: `[version_u8] [lz4_compressed_postcard_bytes...]`
 pub fn encode_snapshot(
     ws: &WorkspaceConfig,
     pane_data: &[SnapshotPaneData],
@@ -577,12 +706,27 @@ pub fn encode_snapshot(
     };
 
     let bytes = postcard::to_allocvec(&full).map_err(|e| WorkspaceError::Encode(e.to_string()))?;
-    Ok(lz4_flex::compress_prepend_size(&bytes))
+    let compressed = lz4_flex::compress_prepend_size(&bytes);
+
+    let mut out = Vec::with_capacity(1 + compressed.len());
+    out.push(SNAPSHOT_BLOB_VERSION);
+    out.extend_from_slice(&compressed);
+    Ok(out)
 }
 
 /// Decode a full snapshot from compressed binary.
+///
+/// Expected format: `[version_u8] [lz4_compressed_postcard_bytes...]`
 pub fn decode_snapshot(bytes: &[u8]) -> Result<Snapshot, WorkspaceError> {
-    let decompressed = lz4_flex::decompress_size_prepended(bytes)
+    let (&version, payload) = bytes
+        .split_first()
+        .ok_or_else(|| WorkspaceError::Decode("empty snapshot blob".into()))?;
+
+    if version != SNAPSHOT_BLOB_VERSION {
+        return Err(WorkspaceError::UnsupportedSnapshotVersion(version));
+    }
+
+    let decompressed = lz4_flex::decompress_size_prepended(payload)
         .map_err(|e| WorkspaceError::Decode(e.to_string()))?;
 
     let full: CompactFullSnapshot =
@@ -815,6 +959,92 @@ fn decode_sql_pane(pane: CompactSqlPane) -> SnapshotSqlPane {
     }
 }
 
+fn encode_phase_timing(p: &SnapshotPhaseTiming) -> CompactPhaseTiming {
+    CompactPhaseTiming {
+        min_us: p.min_us,
+        max_us: p.max_us,
+        mean_us: p.mean_us,
+        median_us: p.median_us,
+        pct: p.percent_of_total as f32,
+    }
+}
+
+fn decode_phase_timing(p: CompactPhaseTiming) -> SnapshotPhaseTiming {
+    SnapshotPhaseTiming {
+        min_us: p.min_us,
+        max_us: p.max_us,
+        mean_us: p.mean_us,
+        median_us: p.median_us,
+        percent_of_total: p.pct as f64,
+    }
+}
+
+fn encode_benchmark_data(b: &SnapshotBenchmarkData) -> CompactBenchmarkData {
+    CompactBenchmarkData {
+        iterations: b.iterations as u32,
+        rows_per_iteration: b.rows_per_iteration,
+        logical: encode_phase_timing(&b.logical_planning),
+        physical: encode_phase_timing(&b.physical_planning),
+        execution: encode_phase_timing(&b.execution),
+        total: encode_phase_timing(&b.total),
+    }
+}
+
+fn decode_benchmark_data(b: CompactBenchmarkData) -> SnapshotBenchmarkData {
+    SnapshotBenchmarkData {
+        iterations: b.iterations as u64,
+        rows_per_iteration: b.rows_per_iteration,
+        logical_planning: decode_phase_timing(b.logical),
+        physical_planning: decode_phase_timing(b.physical),
+        execution: decode_phase_timing(b.execution),
+        total: decode_phase_timing(b.total),
+    }
+}
+
+fn encode_describe_data(d: &SnapshotDescribeData) -> CompactDescribeData {
+    CompactDescribeData {
+        table_name: d.table_name.clone(),
+        total_rows: d.total_rows,
+        columns: d
+            .columns
+            .iter()
+            .map(|c| CompactColumnStats {
+                name: c.name.clone(),
+                data_type: c.data_type.clone(),
+                count: c.count,
+                null_count: c.null_count,
+                distinct_count: c.distinct_count,
+                min: c.min.clone(),
+                max: c.max.clone(),
+                mean: c.mean,
+            })
+            .collect(),
+        elapsed_ms: d.elapsed_ms,
+    }
+}
+
+fn decode_describe_data(d: CompactDescribeData) -> SnapshotDescribeData {
+    SnapshotDescribeData {
+        table_name: d.table_name,
+        total_rows: d.total_rows,
+        columns: d
+            .columns
+            .into_iter()
+            .map(|c| SnapshotColumnStats {
+                name: c.name,
+                data_type: c.data_type,
+                count: c.count,
+                null_count: c.null_count,
+                distinct_count: c.distinct_count,
+                min: c.min,
+                max: c.max,
+                mean: c.mean,
+            })
+            .collect(),
+        elapsed_ms: d.elapsed_ms,
+    }
+}
+
 fn encode_sql_cell(cell: &SnapshotQueryCell) -> CompactSqlCell {
     CompactSqlCell {
         kind: match cell.kind {
@@ -822,6 +1052,8 @@ fn encode_sql_cell(cell: &SnapshotQueryCell) -> CompactSqlCell {
             SnapshotCellKind::Info => CompactCellKind::Info,
             SnapshotCellKind::Diff => CompactCellKind::Diff,
             SnapshotCellKind::Explain => CompactCellKind::Explain,
+            SnapshotCellKind::Benchmark => CompactCellKind::Benchmark,
+            SnapshotCellKind::Describe => CompactCellKind::Describe,
         },
         sql: cell.sql.clone(),
         columns: encode_table_columns(&cell.columns),
@@ -831,6 +1063,8 @@ fn encode_sql_cell(cell: &SnapshotQueryCell) -> CompactSqlCell {
         error: cell.error.clone(),
         plan: cell.plan.as_ref().map(encode_plan_node),
         diff: cell.diff.as_ref().map(encode_diff_data),
+        benchmark: cell.benchmark.as_ref().map(encode_benchmark_data),
+        describe: cell.describe.as_ref().map(encode_describe_data),
     }
 }
 
@@ -841,6 +1075,8 @@ fn decode_sql_cell(cell: CompactSqlCell) -> SnapshotQueryCell {
             CompactCellKind::Info => SnapshotCellKind::Info,
             CompactCellKind::Diff => SnapshotCellKind::Diff,
             CompactCellKind::Explain => SnapshotCellKind::Explain,
+            CompactCellKind::Benchmark => SnapshotCellKind::Benchmark,
+            CompactCellKind::Describe => SnapshotCellKind::Describe,
         },
         sql: cell.sql,
         columns: decode_table_columns(cell.columns),
@@ -850,6 +1086,8 @@ fn decode_sql_cell(cell: CompactSqlCell) -> SnapshotQueryCell {
         error: cell.error,
         plan: cell.plan.map(decode_plan_node),
         diff: cell.diff.map(decode_diff_data),
+        benchmark: cell.benchmark.map(decode_benchmark_data),
+        describe: cell.describe.map(decode_describe_data),
     }
 }
 
@@ -1545,6 +1783,8 @@ mod tests {
                     error: None,
                     plan: None,
                     diff: None,
+                    benchmark: None,
+                    describe: None,
                 },
                 // Info cell
                 SnapshotQueryCell {
@@ -1557,6 +1797,8 @@ mod tests {
                     error: None,
                     plan: None,
                     diff: None,
+                    benchmark: None,
+                    describe: None,
                 },
                 // Diff cell
                 SnapshotQueryCell {
@@ -1568,6 +1810,8 @@ mod tests {
                     stats: None,
                     error: None,
                     plan: None,
+                    benchmark: None,
+                    describe: None,
                     diff: Some(SnapshotDiffData {
                         left_name: "staging".to_string(),
                         right_name: "production".to_string(),
@@ -1621,6 +1865,93 @@ mod tests {
                         }),
                     }),
                     diff: None,
+                    benchmark: None,
+                    describe: None,
+                },
+                // Benchmark cell
+                SnapshotQueryCell {
+                    kind: SnapshotCellKind::Benchmark,
+                    sql: "/bench 10 SELECT 1 + 1".to_string(),
+                    columns: Vec::new(),
+                    rows: Vec::new(),
+                    total_rows: 0,
+                    stats: None,
+                    error: None,
+                    plan: None,
+                    diff: None,
+                    benchmark: Some(SnapshotBenchmarkData {
+                        iterations: 10,
+                        rows_per_iteration: 1,
+                        logical_planning: SnapshotPhaseTiming {
+                            min_us: 50,
+                            max_us: 120,
+                            mean_us: 75,
+                            median_us: 70,
+                            percent_of_total: 2.5,
+                        },
+                        physical_planning: SnapshotPhaseTiming {
+                            min_us: 100,
+                            max_us: 200,
+                            mean_us: 140,
+                            median_us: 130,
+                            percent_of_total: 4.7,
+                        },
+                        execution: SnapshotPhaseTiming {
+                            min_us: 2000,
+                            max_us: 3500,
+                            mean_us: 2800,
+                            median_us: 2700,
+                            percent_of_total: 92.8,
+                        },
+                        total: SnapshotPhaseTiming {
+                            min_us: 2200,
+                            max_us: 3800,
+                            mean_us: 3015,
+                            median_us: 2900,
+                            percent_of_total: 100.0,
+                        },
+                    }),
+                    describe: None,
+                },
+                // Describe cell
+                SnapshotQueryCell {
+                    kind: SnapshotCellKind::Describe,
+                    sql: "/describe test_table".to_string(),
+                    columns: Vec::new(),
+                    rows: Vec::new(),
+                    total_rows: 0,
+                    stats: None,
+                    error: None,
+                    plan: None,
+                    diff: None,
+                    benchmark: None,
+                    describe: Some(SnapshotDescribeData {
+                        table_name: "test_table".to_string(),
+                        total_rows: 1000,
+                        columns: vec![
+                            SnapshotColumnStats {
+                                name: "id".to_string(),
+                                data_type: "Int32".to_string(),
+                                count: 1000,
+                                null_count: 0,
+                                distinct_count: 1000,
+                                min: Some("1".to_string()),
+                                max: Some("1000".to_string()),
+                                mean: Some(500.5),
+                            },
+                            SnapshotColumnStats {
+                                name: "name".to_string(),
+                                data_type: "Utf8".to_string(),
+                                count: 990,
+                                null_count: 10,
+                                distinct_count: 850,
+                                min: Some("Aaron".to_string()),
+                                max: Some("Zoe".to_string()),
+                                mean: None,
+                            },
+                        ],
+                        elapsed_ms: 42,
+                    }),
                 },
             ],
         }
@@ -1642,7 +1973,7 @@ mod tests {
             .sql_pane
             .as_ref()
             .unwrap();
-        assert_eq!(sql.cells.len(), 4);
+        assert_eq!(sql.cells.len(), 6);
 
         // Query cell
         assert_eq!(sql.cells[0].kind, SnapshotCellKind::Query);
@@ -1652,6 +1983,7 @@ mod tests {
         assert_eq!(sql.cells[0].total_rows, 2);
         assert!(sql.cells[0].stats.is_some());
         assert!(sql.cells[0].diff.is_none());
+        assert!(sql.cells[0].benchmark.is_none());
 
         // Info cell
         assert_eq!(sql.cells[1].kind, SnapshotCellKind::Info);
@@ -1677,6 +2009,32 @@ mod tests {
         let plan = sql.cells[3].plan.as_ref().unwrap();
         assert_eq!(plan.operator, "TableScan");
         assert!(plan.metrics.is_some());
+
+        // Benchmark cell
+        assert_eq!(sql.cells[4].kind, SnapshotCellKind::Benchmark);
+        assert_eq!(sql.cells[4].sql, "/bench 10 SELECT 1 + 1");
+        let bench = sql.cells[4].benchmark.as_ref().unwrap();
+        assert_eq!(bench.iterations, 10);
+        assert_eq!(bench.rows_per_iteration, 1);
+        assert_eq!(bench.logical_planning.min_us, 50);
+        assert_eq!(bench.execution.median_us, 2700);
+        assert!((bench.execution.percent_of_total - 92.8).abs() < 0.01);
+
+        // Describe cell
+        assert_eq!(sql.cells[5].kind, SnapshotCellKind::Describe);
+        assert_eq!(sql.cells[5].sql, "/describe test_table");
+        let desc = sql.cells[5].describe.as_ref().unwrap();
+        assert_eq!(desc.table_name, "test_table");
+        assert_eq!(desc.total_rows, 1000);
+        assert_eq!(desc.columns.len(), 2);
+        assert_eq!(desc.columns[0].name, "id");
+        assert_eq!(desc.columns[0].count, 1000);
+        assert_eq!(desc.columns[0].null_count, 0);
+        assert_eq!(desc.columns[0].mean, Some(500.5));
+        assert_eq!(desc.columns[1].name, "name");
+        assert_eq!(desc.columns[1].null_count, 10);
+        assert!(desc.columns[1].mean.is_none());
+        assert_eq!(desc.elapsed_ms, 42);
     }
 
     #[test]
@@ -1734,6 +2092,8 @@ mod tests {
                         changed: 0,
                     }),
                 }),
+                benchmark: None,
+                describe: None,
             }],
         };
 
@@ -1757,5 +2117,33 @@ mod tests {
         assert_eq!(sd.columns[1].status, SnapshotColumnDiffStatus::RightOnly);
         assert_eq!(sd.matching, 1);
         assert_eq!(sd.right_only, 1);
+    }
+
+    #[test]
+    fn snapshot_blob_starts_with_version_byte() {
+        let (ws, pane_data) = make_test_workspace();
+        let bytes = encode_snapshot(&ws, &pane_data, 1700000000, None, None).unwrap();
+        assert_eq!(bytes[0], SNAPSHOT_BLOB_VERSION);
+    }
+
+    #[test]
+    fn snapshot_unknown_version_rejected() {
+        let (ws, pane_data) = make_test_workspace();
+        let mut bytes = encode_snapshot(&ws, &pane_data, 1700000000, None, None).unwrap();
+        bytes[0] = 99;
+        let err = decode_snapshot(&bytes).unwrap_err();
+        assert!(
+            matches!(err, WorkspaceError::UnsupportedSnapshotVersion(99)),
+            "expected UnsupportedSnapshotVersion(99), got: {err}"
+        );
+    }
+
+    #[test]
+    fn snapshot_empty_blob_rejected() {
+        let err = decode_snapshot(&[]).unwrap_err();
+        assert!(
+            matches!(err, WorkspaceError::Decode(_)),
+            "expected Decode error for empty blob, got: {err}"
+        );
     }
 }

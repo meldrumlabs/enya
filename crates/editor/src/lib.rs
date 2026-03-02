@@ -51,12 +51,12 @@ pub mod workspace;
 /// GitHub authentication via the Authorization Code flow.
 pub mod github_auth;
 
+/// Platform-specific integrations (macOS vibrancy, URL schemes, etc.)
+#[cfg(target_os = "macos")]
+pub mod platform;
+
 /// Plugin system for extending editor functionality.
 pub mod plugin;
-
-/// Platform-specific integration (URL schemes, native APIs, etc.).
-#[cfg(not(target_arch = "wasm32"))]
-pub mod platform;
 
 pub use plugin::{
     Plugin, PluginCapabilities, PluginContext, PluginError, PluginId, PluginInfo, PluginRegistry,
@@ -115,17 +115,27 @@ pub fn run_native_app(
     #[cfg(target_os = "macos")]
     platform::init_url_handler();
 
+    #[allow(unused_mut)]
+    let mut viewport = egui::ViewportBuilder::default()
+        .with_inner_size([1280.0, 800.0])
+        .with_min_inner_size([800.0, 600.0])
+        .with_icon(util::png_to_icon_data(
+            &include_bytes!("../assets/logo.png")[..],
+        ))
+        .with_titlebar_shown(false)
+        .with_titlebar_buttons_shown(false)
+        .with_fullsize_content_view(true)
+        .with_app_id("Enya");
+
+    // Enable window transparency on macOS so the NSVisualEffectView vibrancy
+    // shows through the semi-transparent titlebar.
+    #[cfg(target_os = "macos")]
+    {
+        viewport = viewport.with_transparent(true);
+    }
+
     let native_options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default()
-            .with_inner_size([1280.0, 800.0])
-            .with_min_inner_size([800.0, 600.0])
-            .with_icon(util::png_to_icon_data(
-                &include_bytes!("../assets/logo.png")[..],
-            ))
-            .with_titlebar_shown(false)
-            .with_titlebar_buttons_shown(false)
-            .with_fullsize_content_view(true)
-            .with_app_id("Enya"),
+        viewport,
         ..Default::default()
     };
 

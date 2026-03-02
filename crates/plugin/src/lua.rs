@@ -7,7 +7,7 @@
 //! # Example Lua Plugin
 //!
 //! ```lua
-//! -- ~/.config/enya/plugins/my-plugin.lua
+//! -- ~/.enya/plugins/my-plugin.lua
 //!
 //! -- Plugin metadata (required)
 //! plugin = {
@@ -1786,7 +1786,7 @@ impl Plugin for LuaPlugin {
 
 /// Example Lua plugin template.
 pub const EXAMPLE_LUA_PLUGIN: &str = r#"-- Example Enya Lua Plugin
--- Place this file in ~/.config/enya/plugins/
+-- Place this file in ~/.enya/plugins/
 
 -- Plugin metadata (required)
 plugin = {

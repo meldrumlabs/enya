@@ -2,7 +2,7 @@
 -- Demonstrates fetching data via HTTP and displaying in a custom table pane
 --
 -- Usage:
--- 1. Copy this file to ~/.config/enya/plugins/
+-- 1. Copy this file to ~/.enya/plugins/
 -- 2. Restart Enya
 -- 3. Run :github-issues <owner>/<repo> (e.g., :github-issues rust-lang/rust)
 -- 4. Press Space+g+i to show issues for the last fetched repo

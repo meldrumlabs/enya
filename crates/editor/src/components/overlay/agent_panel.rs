@@ -172,7 +172,7 @@ impl AgentPanel {
             search_query: String::new(),
             search_matches: Vec::new(),
             search_match_idx: 0,
-            conversation_store: super::conversation_store::ConversationStore::new(),
+            conversation_store: super::conversation_store::ConversationStore::new(None),
             pending_diff_viewer: None,
             keyboard_disabled: false,
             mention_popup: MentionPopup::new(),
@@ -196,6 +196,12 @@ impl AgentPanel {
     #[cfg(target_arch = "wasm32")]
     pub fn new() -> Self {
         Self::new_common()
+    }
+
+    /// Update the workspace name for conversation storage scoping.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn set_conversation_workspace_name(&mut self, name: Option<String>) {
+        self.conversation_store.set_workspace_name(name);
     }
 
     /// Set the editor context for prompt injection.
@@ -326,7 +332,7 @@ impl AgentPanel {
         self.scroll_to_bottom = true;
         self.focus_input = true;
 
-        log::info!(
+        log::debug!(
             "Imported conversation handoff: {} messages",
             self.messages.len()
         );
@@ -353,7 +359,7 @@ impl AgentPanel {
         {
             msg.inline_blocks.push(content);
             self.scroll_to_bottom = true;
-            log::info!("Added inline content to agent panel message");
+            log::debug!("Added inline content to agent panel message");
         } else {
             log::warn!("No assistant message found to inject inline content");
         }
@@ -2496,11 +2502,7 @@ impl AgentPanel {
                                             (value.as_str(), self.theme.text_secondary())
                                         };
                                         // Truncate long values
-                                        let truncated = if display.len() > 40 {
-                                            format!("{}...", &display[..37])
-                                        } else {
-                                            display.to_string()
-                                        };
+                                        let truncated = crate::components::util::text_formatting::truncate_with_ellipsis(display, 40);
                                         let label = RichText::new(truncated)
                                             .color(color)
                                             .font(typography::monospace(typography::SM));

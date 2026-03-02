@@ -56,11 +56,9 @@ impl ConversationThread {
         if let Some(msg) = self.messages.iter().find(|m| m.role == MessageRole::User) {
             let first_line = msg.content.lines().next().unwrap_or("").trim();
             if !first_line.is_empty() {
-                self.name = if first_line.len() > 40 {
-                    format!("{}...", &first_line[..37])
-                } else {
-                    first_line.to_string()
-                };
+                self.name = crate::components::util::text_formatting::truncate_with_ellipsis(
+                    first_line, 40,
+                );
             }
         }
     }
@@ -78,16 +76,21 @@ pub struct ConversationStore {
     pub renaming: bool,
     /// Buffer for the rename text input.
     pub rename_buf: String,
+    /// Workspace name for scoped conversation storage (native only).
+    #[cfg(not(target_arch = "wasm32"))]
+    workspace_name: Option<String>,
 }
 
 impl Default for ConversationStore {
     fn default() -> Self {
-        Self::new()
+        Self::new(None)
     }
 }
 
 impl ConversationStore {
-    pub fn new() -> Self {
+    pub fn new(
+        #[cfg_attr(target_arch = "wasm32", allow(unused))] workspace_name: Option<String>,
+    ) -> Self {
         #[allow(unused_mut)]
         let mut store = Self {
             threads: Vec::new(),
@@ -95,11 +98,22 @@ impl ConversationStore {
             picker_open: false,
             renaming: false,
             rename_buf: String::new(),
+            #[cfg(not(target_arch = "wasm32"))]
+            workspace_name,
         };
         // Load saved threads on native
         #[cfg(not(target_arch = "wasm32"))]
         store.load_from_disk();
         store
+    }
+
+    /// Update the workspace name and reload conversations from the new location.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn set_workspace_name(&mut self, name: Option<String>) {
+        self.workspace_name = name;
+        self.threads.clear();
+        self.active_idx = None;
+        self.load_from_disk();
     }
 
     /// Get the active thread, if any.
@@ -139,7 +153,7 @@ impl ConversationStore {
         #[cfg(not(target_arch = "wasm32"))]
         if let Some(id) = &thread_id {
             if let Some(thread) = self.threads.iter().find(|t| &t.id == id) {
-                Self::save_thread_file(thread);
+                self.save_thread_file(thread);
             }
         }
     }
@@ -168,7 +182,7 @@ impl ConversationStore {
         }
         // Remove file on native
         #[cfg(not(target_arch = "wasm32"))]
-        Self::delete_file(&id);
+        self.delete_file(&id);
     }
 
     /// Save the active thread to disk (native only).
@@ -178,8 +192,11 @@ impl ConversationStore {
         }
         self.sort_threads();
         #[cfg(not(target_arch = "wasm32"))]
-        if let Some(thread) = self.active_thread() {
-            Self::save_thread_file(thread);
+        if let Some(idx) = self.active_idx {
+            if let Some(thread) = self.threads.get(idx) {
+                let thread = thread.clone();
+                self.save_thread_file(&thread);
+            }
         }
     }
 
@@ -201,16 +218,13 @@ impl ConversationStore {
     // ── Native persistence ──────────────────────────────────────────
 
     #[cfg(not(target_arch = "wasm32"))]
-    fn conversations_dir() -> std::path::PathBuf {
-        let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
-        let dir = cwd.join(".enya").join("conversations");
-        let _ = std::fs::create_dir_all(&dir);
-        dir
+    fn conversations_dir(&self) -> std::path::PathBuf {
+        enya_config::conversations_dir(self.workspace_name.as_deref())
     }
 
     #[cfg(not(target_arch = "wasm32"))]
     fn load_from_disk(&mut self) {
-        let dir = Self::conversations_dir();
+        let dir = self.conversations_dir();
         let entries = match std::fs::read_dir(&dir) {
             Ok(e) => e,
             Err(_) => return,
@@ -232,17 +246,24 @@ impl ConversationStore {
     }
 
     #[cfg(not(target_arch = "wasm32"))]
-    fn save_thread_file(thread: &ConversationThread) {
-        let dir = Self::conversations_dir();
+    fn save_thread_file(&self, thread: &ConversationThread) {
+        let dir = self.conversations_dir();
         let path = dir.join(format!("{}.json", thread.id));
-        if let Ok(data) = serde_json::to_string_pretty(thread) {
-            let _ = std::fs::write(path, data);
+        match serde_json::to_string_pretty(thread) {
+            Ok(data) => {
+                if let Err(e) = std::fs::write(&path, data) {
+                    log::warn!("Failed to save conversation {}: {e}", thread.id);
+                }
+            }
+            Err(e) => {
+                log::warn!("Failed to serialize conversation {}: {e}", thread.id);
+            }
         }
     }
 
     #[cfg(not(target_arch = "wasm32"))]
-    fn delete_file(id: &str) {
-        let dir = Self::conversations_dir();
+    fn delete_file(&self, id: &str) {
+        let dir = self.conversations_dir();
         let path = dir.join(format!("{id}.json"));
         let _ = std::fs::remove_file(path);
     }

@@ -312,11 +312,8 @@ impl egui_tiles::Behavior<Box<dyn Component>> for TreeBehavior {
                 let query_border_color = accent_color.gamma_multiply(0.3);
 
                 // Truncate query if too long
-                let display_query = if query.len() > 60 {
-                    format!("{}...", &query[..57])
-                } else {
-                    query.clone()
-                };
+                let display_query =
+                    crate::components::util::text_formatting::truncate_with_ellipsis(query, 60);
 
                 // Calculate text layout
                 let font_id = egui::FontId::monospace(11.0);

@@ -24,17 +24,26 @@ pub fn normalize_unicode(text: &str) -> String {
         .collect()
 }
 
+/// Truncate a string to fit within `max_len` characters, appending `...` if
+/// truncated. Uses char boundaries so it is safe with multi-byte UTF-8.
+pub fn truncate_with_ellipsis(s: &str, max_len: usize) -> String {
+    if s.chars().count() <= max_len {
+        s.to_string()
+    } else if max_len > 3 {
+        let truncated: String = s.chars().take(max_len - 3).collect();
+        format!("{truncated}...")
+    } else {
+        s.chars().take(max_len).collect()
+    }
+}
+
 /// Truncate text for display, taking only the first line.
 ///
 /// If the first line exceeds `max_len`, it is truncated with an ellipsis.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn truncate_first_line(text: &str, max_len: usize) -> String {
     let first_line = text.lines().next().unwrap_or(text);
-    if first_line.len() > max_len {
-        format!("{}...", &first_line[..max_len - 3])
-    } else {
-        first_line.to_string()
-    }
+    truncate_with_ellipsis(first_line, max_len)
 }
 
 /// Truncate a file path to show the suffix (filename with parent context).
@@ -51,8 +60,16 @@ pub fn truncate_path_suffix(path: &str, max_len: usize) -> String {
     // Try to show as much of the path suffix as possible
     let parts: Vec<&str> = path.split('/').collect();
     if parts.len() <= 1 {
-        // No slashes, just truncate normally
-        return format!("...{}", &path[path.len().saturating_sub(max_len - 3)..]);
+        // No slashes, just truncate normally — show the tail
+        let suffix: String = path
+            .chars()
+            .rev()
+            .take(max_len.saturating_sub(3))
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect();
+        return format!("...{suffix}");
     }
 
     // Start from the filename and add parent directories until we hit the limit

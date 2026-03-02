@@ -52,6 +52,7 @@ allow = [
   "OpenSSL",                        # https://www.openssl.org/source/license.html - used by aws-lc-sys (rustls backend)
   "Unicode-3.0",                    # https://www.unicode.org/license.txt
   "Zlib",                           # https://tldrlegal.com/license/zlib-libpng-license-(zlib)
+  "bzip2-1.0.6",                    # https://sourceware.org/bzip2/ - used by libbz2-rs-sys (bzip2 compression)
   "CDLA-Permissive-2.0",
 ]
 exceptions = []

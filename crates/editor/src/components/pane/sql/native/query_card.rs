@@ -9,6 +9,7 @@ use enya_datafusion::arrow::array::RecordBatch;
 use enya_datafusion::arrow::datatypes::SchemaRef;
 use enya_datafusion::format_array_value;
 
+use super::super::rendering::{self, ColumnRow, PhaseRow};
 use super::plan_view::PlanViewer;
 use super::types::{Cell, CellViewState, QueryStatus};
 use crate::components::OverlayColors;
@@ -18,7 +19,7 @@ use crate::ui::theme::AppTheme;
 use crate::ui::typography;
 
 /// Number of rows displayed per page in table views.
-const ROWS_PER_PAGE: usize = 50;
+pub(super) const ROWS_PER_PAGE: usize = 50;
 
 /// Actions returned by card rendering for the caller to apply.
 pub(super) enum CardAction {
@@ -32,6 +33,12 @@ pub(super) enum CardAction {
     Delete,
     /// Open the fullscreen table overlay.
     ExpandTable,
+    /// Cancel the currently running query.
+    Cancel,
+    /// Move to the next result page.
+    NextPage,
+    /// Move to the previous result page.
+    PrevPage,
 }
 
 /// Render the result card (always expanded).
@@ -83,6 +90,7 @@ fn render_expanded_card(
     // Handle keyboard shortcuts only when input bar doesn't have focus
     if !overlay_blocks_input && !input_has_focus {
         let mut should_collapse = false;
+        let mut should_cancel = false;
         let mut should_delete = false;
         let mut next_page = false;
         let mut prev_page = false;
@@ -94,7 +102,11 @@ fn render_expanded_card(
 
         ui.ctx().input_mut(|i| {
             if i.consume_key(egui::Modifiers::NONE, egui::Key::Escape) {
-                should_collapse = true;
+                if cell.status() == QueryStatus::Running {
+                    should_cancel = true;
+                } else {
+                    should_collapse = true;
+                }
             }
             if i.consume_key(egui::Modifiers::NONE, egui::Key::X) {
                 should_delete = true;
@@ -144,6 +156,9 @@ fn render_expanded_card(
             }
         });
 
+        if should_cancel {
+            actions.push(CardAction::Cancel);
+        }
         if should_collapse {
             actions.push(CardAction::Collapse);
         }
@@ -302,6 +317,26 @@ fn render_expanded_card(
                             if chevron_resp.hovered() {
                                 ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
                             }
+
+                            // Cancel button (only when running)
+                            if cell.status() == QueryStatus::Running {
+                                ui.add_space(8.0);
+                                let cancel_resp = ui.add(
+                                    egui::Label::new(
+                                        RichText::new(action::CANCEL)
+                                            .color(theme.semantic_error().gamma_multiply(0.7))
+                                            .size(11.0),
+                                    )
+                                    .sense(egui::Sense::click()),
+                                );
+                                if cancel_resp.clicked() {
+                                    actions.push(CardAction::Cancel);
+                                }
+                                if cancel_resp.hovered() {
+                                    ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                                    cancel_resp.on_hover_text("Cancel query (Esc)");
+                                }
+                            }
                         });
                     });
                 });
@@ -336,7 +371,14 @@ fn render_expanded_card(
                 egui::Stroke::new(1.0, colors.separator),
             );
 
-            if is_explain {
+            let is_benchmark = matches!(cell.kind, super::types::CellKind::Benchmark(_));
+            let is_describe = matches!(cell.kind, super::types::CellKind::Describe(_));
+
+            if is_benchmark {
+                render_benchmark_card(ui, cell, theme);
+            } else if is_describe {
+                render_describe_card(ui, cell, theme);
+            } else if is_explain {
                 // Explain cells always show the plan directly
                 render_inline_plan(ui, cell, plan_viewer, theme, overlay_blocks_input);
             } else if is_query {
@@ -360,7 +402,7 @@ fn render_expanded_card(
             }
 
             // === Footer ===
-            render_card_footer(ui, cell, view_state, theme, &colors);
+            render_card_footer(ui, cell, view_state, theme, &colors, &mut actions);
         });
 
     actions
@@ -600,7 +642,12 @@ fn render_inline_table(
                 });
 
             // === Scrollable data body (both directions) ===
-            let body_max_height = (400.0 - header_height).max(100.0);
+            let avail = ui.available_height();
+            let body_max_height = if avail.is_finite() && avail > 0.0 {
+                (avail - header_height - 40.0).clamp(100.0, 600.0)
+            } else {
+                (400.0 - header_height).max(100.0)
+            };
             let body_scroll_output = egui::ScrollArea::both()
                 .id_salt(("card_table_body", cell_idx))
                 .scroll_offset(egui::vec2(stored_h_offset, stored_offset.y))
@@ -679,7 +726,11 @@ fn render_inline_table(
                                 } else {
                                     let max_chars = ((col_width - 8.0) / 7.0) as usize;
                                     let display_val = if value.len() > max_chars && max_chars > 3 {
-                                        format!("{}…", &value[..max_chars.saturating_sub(1)])
+                                        let truncated: String = value
+                                            .chars()
+                                            .take(max_chars.saturating_sub(1))
+                                            .collect();
+                                        format!("{truncated}…")
                                     } else {
                                         value
                                     };
@@ -739,6 +790,243 @@ fn render_inline_plan(
         });
 }
 
+/// Render a benchmark results card with progress or stats.
+fn render_benchmark_card(ui: &mut egui::Ui, cell: &Cell, theme: AppTheme) {
+    let text_secondary = theme.text_secondary();
+    let accent = theme.accent_primary();
+
+    if let super::types::CellKind::Benchmark(bench) = &cell.kind {
+        match bench.status {
+            QueryStatus::Running => {
+                egui::Frame::new()
+                    .fill(theme.bg_base())
+                    .inner_margin(egui::Margin::symmetric(16, 12))
+                    .show(ui, |ui| {
+                        // Show progress
+                        ui.horizontal(|ui| {
+                            ui.add(egui::Spinner::new().color(accent).size(14.0));
+                            ui.add_space(8.0);
+                            if let Some((current, total)) = bench.progress {
+                                ui.label(
+                                    RichText::new(format!("Iteration {current}/{total}"))
+                                        .color(theme.text_primary())
+                                        .size(12.0)
+                                        .monospace(),
+                                );
+                                if let Some(last) = bench.last_duration {
+                                    ui.add_space(12.0);
+                                    let colors = OverlayColors::new(theme);
+                                    render_stat_badge_with_icon(
+                                        ui,
+                                        time::TIMER,
+                                        &format!(
+                                            "last: {}",
+                                            enya_datafusion::format_duration(last)
+                                        ),
+                                        &colors,
+                                    );
+                                }
+                            } else {
+                                ui.label(
+                                    RichText::new("Starting benchmark...")
+                                        .color(text_secondary)
+                                        .size(11.0),
+                                );
+                            }
+                        });
+
+                        // Progress bar
+                        if let Some((current, total)) = bench.progress {
+                            ui.add_space(8.0);
+                            let progress = current as f32 / total as f32;
+                            let bar = egui::ProgressBar::new(progress)
+                                .desired_width(ui.available_width().max(1.0));
+                            ui.add(bar);
+                        }
+                    });
+            }
+            QueryStatus::Completed => {
+                if let Some(stats) = &bench.stats {
+                    render_benchmark_stats_bar(ui, stats, theme);
+
+                    // Separator
+                    let colors = OverlayColors::new(theme);
+                    ui.painter().hline(
+                        ui.available_rect_before_wrap().x_range(),
+                        ui.cursor().top(),
+                        egui::Stroke::new(1.0, colors.separator),
+                    );
+
+                    render_benchmark_phase_table(ui, stats, theme);
+                }
+            }
+            QueryStatus::Failed | QueryStatus::Cancelled => {
+                // Error already shown by the outer card
+            }
+        }
+    }
+}
+
+/// Render the stats bar for completed benchmarks.
+fn render_benchmark_stats_bar(
+    ui: &mut egui::Ui,
+    stats: &enya_datafusion::BenchmarkStats,
+    theme: AppTheme,
+) {
+    rendering::render_stats_bar_frame(ui, theme, |ui, colors| {
+        if stats.rows_per_iteration > 0 {
+            render_stat_badge(
+                ui,
+                &format!(
+                    "{} rows/iter",
+                    rendering::format_number(stats.rows_per_iteration as u64)
+                ),
+                colors,
+            );
+            ui.add_space(4.0);
+        }
+
+        render_stat_badge_with_icon(
+            ui,
+            time::TIMER,
+            &format!(
+                "median: {}",
+                enya_datafusion::format_duration(stats.total.median)
+            ),
+            colors,
+        );
+        ui.add_space(4.0);
+
+        render_stat_badge(ui, &format!("{} iterations", stats.iterations), colors);
+    });
+}
+
+/// Render the phase timing table for completed benchmarks.
+fn render_benchmark_phase_table(
+    ui: &mut egui::Ui,
+    stats: &enya_datafusion::BenchmarkStats,
+    theme: AppTheme,
+) {
+    let fmt = |t: &enya_datafusion::PhaseTiming| -> PhaseRow<'_> {
+        PhaseRow {
+            name: "", // set below
+            values: [t.min, t.median, t.mean, t.max].map(enya_datafusion::format_duration),
+            percent: Some(t.percent_of_total),
+        }
+    };
+
+    let mut rows = [
+        fmt(&stats.logical_planning),
+        fmt(&stats.physical_planning),
+        fmt(&stats.execution),
+        fmt(&stats.total),
+    ];
+    let names = [
+        "Logical Planning",
+        "Physical Planning",
+        "Execution",
+        "Total",
+    ];
+    for (row, name) in rows.iter_mut().zip(names) {
+        row.name = name;
+    }
+    rows[3].percent = None; // suppress % for Total
+
+    rendering::render_phase_table(ui, &rows, theme);
+}
+
+/// Render a describe results card with stats or spinner.
+fn render_describe_card(ui: &mut egui::Ui, cell: &Cell, theme: AppTheme) {
+    let text_secondary = theme.text_secondary();
+    let accent = theme.accent_primary();
+
+    if let super::types::CellKind::Describe(desc) = &cell.kind {
+        match desc.status {
+            QueryStatus::Running => {
+                egui::Frame::new()
+                    .fill(theme.bg_base())
+                    .inner_margin(egui::Margin::symmetric(16, 12))
+                    .show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            ui.add(egui::Spinner::new().color(accent).size(14.0));
+                            ui.add_space(8.0);
+                            ui.label(
+                                RichText::new("Computing column statistics...")
+                                    .color(text_secondary)
+                                    .size(11.0),
+                            );
+                        });
+                    });
+            }
+            QueryStatus::Completed => {
+                if let Some(stats) = &desc.stats {
+                    render_describe_stats_bar(ui, stats, theme);
+
+                    let colors = OverlayColors::new(theme);
+                    ui.painter().hline(
+                        ui.available_rect_before_wrap().x_range(),
+                        ui.cursor().top(),
+                        egui::Stroke::new(1.0, colors.separator),
+                    );
+
+                    render_describe_table(ui, stats, theme);
+                }
+            }
+            QueryStatus::Failed | QueryStatus::Cancelled => {}
+        }
+    }
+}
+
+/// Render the stats bar for completed describe.
+fn render_describe_stats_bar(
+    ui: &mut egui::Ui,
+    stats: &enya_datafusion::DescribeStats,
+    theme: AppTheme,
+) {
+    rendering::render_stats_bar_frame(ui, theme, |ui, colors| {
+        render_stat_badge_with_icon(
+            ui,
+            time::TIMER,
+            &enya_datafusion::format_duration(stats.elapsed),
+            colors,
+        );
+        ui.add_space(4.0);
+
+        render_stat_badge(ui, &format!("{} columns", stats.columns.len()), colors);
+        ui.add_space(4.0);
+
+        render_stat_badge(
+            ui,
+            &format!("{} rows", rendering::format_number(stats.total_rows as u64)),
+            colors,
+        );
+    });
+}
+
+/// Render the column statistics table.
+fn render_describe_table(
+    ui: &mut egui::Ui,
+    stats: &enya_datafusion::DescribeStats,
+    theme: AppTheme,
+) {
+    let rows: Vec<ColumnRow<'_>> = stats
+        .columns
+        .iter()
+        .map(|col| ColumnRow {
+            name: &col.name,
+            data_type: &col.data_type,
+            count: rendering::format_number(col.count as u64),
+            null_count: rendering::format_number(col.null_count as u64),
+            distinct_count: rendering::format_number(col.distinct_count as u64),
+            min: col.min.as_deref(),
+            max: col.max.as_deref(),
+            mean: col.mean,
+        })
+        .collect();
+
+    rendering::render_column_stats_table(ui, &rows, theme);
+}
+
 /// Render the card footer with pagination controls and keyboard hints.
 fn render_card_footer(
     ui: &mut egui::Ui,
@@ -746,6 +1034,7 @@ fn render_card_footer(
     view_state: &CellViewState,
     _theme: AppTheme,
     colors: &OverlayColors,
+    actions: &mut Vec<CardAction>,
 ) {
     let rows_per_page = ROWS_PER_PAGE;
     let total_rows: usize = cell.batches().iter().map(|b| b.num_rows()).sum();
@@ -762,12 +1051,29 @@ fn render_card_footer(
     ui.horizontal(|ui| {
         ui.add_space(12.0);
 
+        // Left side: row range indicator for query cells
+        let is_query = matches!(cell.kind, super::types::CellKind::Query(_));
+        if is_query && total_rows > 0 {
+            let start = view_state.table_page * rows_per_page + 1;
+            let end = ((view_state.table_page + 1) * rows_per_page).min(total_rows);
+            let total_fmt = rendering::format_number(total_rows as u64);
+            ui.label(
+                RichText::new(format!("Rows {start}\u{2013}{end} of {total_fmt}"))
+                    .color(colors.muted_text)
+                    .font(typography::proportional(typography::XS)),
+            );
+        }
+
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             ui.add_space(12.0);
 
             // Keyboard hints
             let is_explain = matches!(cell.kind, super::types::CellKind::Explain(_));
-            let hints = if is_explain {
+            let is_benchmark = matches!(cell.kind, super::types::CellKind::Benchmark(_));
+            let is_describe = matches!(cell.kind, super::types::CellKind::Describe(_));
+            let hints = if is_benchmark || is_describe {
+                "\u{2318}C copy \u{00B7} x close \u{00B7} Esc"
+            } else if is_explain {
                 "j/k nav \u{00B7} h/l fold \u{00B7} \u{2318}C copy \u{00B7} x close \u{00B7} Esc"
             } else {
                 "hjkl scroll \u{00B7} [/] page \u{00B7} gg/G first/last \u{00B7} \u{2318}C copy \u{00B7} S share \u{00B7} x close \u{00B7} Esc"
@@ -778,9 +1084,27 @@ fn render_card_footer(
                     .font(typography::proportional(typography::XS)),
             );
 
-            // Pagination
+            // Pagination with clickable buttons
             if !is_explain && total_pages > 1 {
                 ui.add_space(12.0);
+
+                // Next page button (right-to-left: appears rightmost)
+                if view_state.table_page < total_pages - 1 {
+                    let next_resp = ui.add(
+                        egui::Label::new(
+                            RichText::new(nav::FORWARD)
+                                .color(colors.muted_text)
+                                .size(11.0),
+                        )
+                        .sense(egui::Sense::click()),
+                    );
+                    if next_resp.clicked() {
+                        actions.push(CardAction::NextPage);
+                    }
+                    if next_resp.hovered() {
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                    }
+                }
 
                 // Page indicator
                 ui.label(
@@ -792,6 +1116,24 @@ fn render_card_footer(
                     .color(colors.muted_text)
                     .font(typography::proportional(typography::SM)),
                 );
+
+                // Prev page button
+                if view_state.table_page > 0 {
+                    let prev_resp = ui.add(
+                        egui::Label::new(
+                            RichText::new(nav::BACK)
+                                .color(colors.muted_text)
+                                .size(11.0),
+                        )
+                        .sense(egui::Sense::click()),
+                    );
+                    if prev_resp.clicked() {
+                        actions.push(CardAction::PrevPage);
+                    }
+                    if prev_resp.hovered() {
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                    }
+                }
             }
         });
     });

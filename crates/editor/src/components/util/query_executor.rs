@@ -247,7 +247,7 @@ impl QueryExecutor {
         if let Some(result) = self.health_check_manager.poll() {
             match result {
                 Ok(info) => {
-                    log::info!(
+                    log::debug!(
                         "Health check passed: {} v{}",
                         info.backend_type,
                         info.version
@@ -507,7 +507,7 @@ impl QueryExecutor {
             }
             Backend::Prometheus(endpoint) => {
                 if let Some(client) = &self.prometheus_client {
-                    log::info!(
+                    log::debug!(
                         "Executing Prometheus query for pane {}: metric '{}': {} (endpoint: {})",
                         pane_id,
                         params.metric,
@@ -543,7 +543,7 @@ impl QueryExecutor {
                         // Compute visualization suggestion based on result characteristics
                         let chars = ResultCharacteristics::from_response(&response);
                         let suggested_viz = suggest_visualization(&chars);
-                        log::info!(
+                        log::debug!(
                             "{backend_name} query completed for pane {pane_id}: {series_count} groups, {point_count} total points (suggested: {suggested_viz:?})"
                         );
 

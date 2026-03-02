@@ -24,8 +24,8 @@ use crate::command::{CommandReceiver, CommandSender, UICommand, UICommandSender,
 #[cfg(not(target_arch = "wasm32"))]
 use crate::components::util::ManifestFetcher;
 use crate::components::{
-    Notification, NotificationLevel, NotificationManager, SettingsPage, SettingsPageResult,
-    Sparkline, StatusLine, StatusMode,
+    Diagnostic, DiagnosticSource, Notification, NotificationLevel, NotificationManager,
+    SettingsPage, SettingsPageResult, Sparkline, StatusLine, StatusMode,
 };
 #[cfg(not(target_arch = "wasm32"))]
 use crate::components::{UpdateBanner, UpdateBannerAction};
@@ -132,6 +132,10 @@ pub struct EnyaApp {
 
     // Whether we've already attempted to auto-restore the last workspace on startup
     checked_auto_restore: bool,
+
+    // Track last dark/light state for macOS vibrancy appearance sync
+    #[cfg(target_os = "macos")]
+    last_theme_is_dark: bool,
 }
 
 impl EnyaApp {
@@ -220,7 +224,7 @@ impl EnyaApp {
         // Collect plugin errors to surface in diagnostics pane
         let mut plugin_errors: Vec<String> = Vec::new();
 
-        // Load external plugins from ~/.config/enya/plugins/ (native only)
+        // Load external plugins from ~/.enya/plugins/ (native only)
         #[cfg(not(target_arch = "wasm32"))]
         {
             use crate::plugin::{Plugin, PluginLoader};
@@ -391,6 +395,12 @@ impl EnyaApp {
                 .set_active_category(crate::components::settings_page::SettingsCategory::Profile);
         }
 
+        // Apply macOS window vibrancy for translucent titlebar effect
+        #[cfg(target_os = "macos")]
+        let initial_is_dark = state.theme.is_dark();
+        #[cfg(target_os = "macos")]
+        crate::platform::macos::apply_vibrancy(cc, initial_is_dark);
+
         Self {
             state,
             workspace,
@@ -434,6 +444,8 @@ impl EnyaApp {
             #[cfg(not(target_arch = "wasm32"))]
             startup_snapshot: None,
             checked_auto_restore: false,
+            #[cfg(target_os = "macos")]
+            last_theme_is_dark: initial_is_dark,
         }
     }
 
@@ -1274,7 +1286,7 @@ impl EnyaApp {
                     if project.is_none() {
                         self.save_workspace(name.as_deref());
                     } else if let Some(ref ws_name) = name {
-                        self.workspace.loaded_name = Some(ws_name.clone());
+                        self.workspace.set_loaded_name(Some(ws_name.clone()));
                         self.notifications.notify(Notification::new(
                             format!(
                                 "Project created: {}",
@@ -1518,16 +1530,19 @@ impl EnyaApp {
                     } else {
                         &health.git_hash
                     };
-                    self.notifications.notify(Notification::new(
-                        format!("Connected to agent v{} ({})", health.version, short_hash),
-                        NotificationLevel::Success,
-                    ));
+                    self.workspace.add_diagnostic(
+                        Diagnostic::info(format!(
+                            "Connected to agent v{} ({})",
+                            health.version, short_hash
+                        ))
+                        .with_source(DiagnosticSource::DataConnection),
+                    );
                 }
                 Err(e) => {
-                    self.notifications.notify(Notification::new(
-                        format!("Connection failed: {e}"),
-                        NotificationLevel::Error,
-                    ));
+                    self.workspace.add_diagnostic(
+                        Diagnostic::error(format!("Connection failed: {e}"))
+                            .with_source(DiagnosticSource::DataConnection),
+                    );
                 }
             }
         }
@@ -1716,15 +1731,7 @@ impl EnyaApp {
         }
 
         // Find and delete the plugin file
-        let Some(home_dir) = dirs::home_dir() else {
-            self.notifications.notify(Notification::new(
-                "Failed to remove plugin: could not find home directory",
-                NotificationLevel::Error,
-            ));
-            return;
-        };
-
-        let plugins_dir = home_dir.join(".config").join("enya").join("plugins");
+        let plugins_dir = enya_config::plugins_dir();
 
         // Look for .lua file with plugin name
         let plugin_file = plugins_dir.join(format!("{name}.lua"));
@@ -1761,24 +1768,7 @@ impl EnyaApp {
 
         let plugin_url = format!("{plugins_url}/{file}");
 
-        let Some(home_dir) = dirs::home_dir() else {
-            self.notifications.notify(Notification::new(
-                "Failed to install plugin: could not find home directory",
-                NotificationLevel::Error,
-            ));
-            return;
-        };
-
-        let plugins_dir = home_dir.join(".config").join("enya").join("plugins");
-
-        if let Err(e) = std::fs::create_dir_all(&plugins_dir) {
-            self.notifications.notify(Notification::new(
-                format!("Failed to create plugins directory: {e}"),
-                NotificationLevel::Error,
-            ));
-            return;
-        }
-
+        let plugins_dir = enya_config::plugins_dir();
         let plugin_path = plugins_dir.join(file);
 
         match ureq::get(&plugin_url).call() {
@@ -1898,6 +1888,25 @@ impl eframe::App for EnyaApp {
         eframe::set_value(storage, eframe::APP_KEY, &self.state);
     }
 
+    /// Background clear color. On macOS this is fully transparent so the
+    /// NSVisualEffectView vibrancy shows through the semi-transparent titlebar.
+    fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
+        #[cfg(target_os = "macos")]
+        {
+            [0.0, 0.0, 0.0, 0.0]
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            let bg = self.effective_theme().bg_base();
+            [
+                bg.r() as f32 / 255.0,
+                bg.g() as f32 / 255.0,
+                bg.b() as f32 / 255.0,
+                1.0,
+            ]
+        }
+    }
+
     /// Called each time the UI needs repainting, which may be many times per second.
     #[profiling::function]
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
@@ -1919,6 +1928,17 @@ impl eframe::App for EnyaApp {
 
         // Set theme for the context (use custom theme colors if active)
         ctx.set_visuals(self.current_visuals());
+
+        // Sync macOS window appearance when theme dark/light mode changes,
+        // so the vibrancy blur uses the correct tint.
+        #[cfg(target_os = "macos")]
+        {
+            let is_dark = self.effective_theme().is_dark();
+            if is_dark != self.last_theme_is_dark {
+                self.last_theme_is_dark = is_dark;
+                crate::platform::macos::sync_appearance(is_dark);
+            }
+        }
 
         // Handle screenshot events
         self.handle_screenshot_events(ctx);
@@ -1954,9 +1974,23 @@ impl eframe::App for EnyaApp {
             let theme = self.effective_theme();
             let titlebar_height = 32.0;
 
+            // On macOS, use a semi-transparent fill so the NSVisualEffectView
+            // vibrancy shows through the titlebar.
+            let titlebar_fill = {
+                #[cfg(target_os = "macos")]
+                {
+                    let bg = theme.bg_base();
+                    egui::Color32::from_rgba_unmultiplied(bg.r(), bg.g(), bg.b(), 180)
+                }
+                #[cfg(not(target_os = "macos"))]
+                {
+                    theme.bg_base()
+                }
+            };
+
             egui::TopBottomPanel::top("custom_titlebar")
                 .exact_height(titlebar_height)
-                .frame(egui::Frame::NONE.fill(theme.bg_base()))
+                .frame(egui::Frame::NONE.fill(titlebar_fill))
                 .show(ctx, |ui| {
                     ui.horizontal_centered(|ui| {
                         ui.add_space(8.0);
@@ -1965,66 +1999,117 @@ impl eframe::App for EnyaApp {
                         let button_size = 12.0;
                         let button_spacing = 8.0;
 
-                        // Close button (red)
-                        let close_color = egui::Color32::from_rgb(255, 95, 87);
+                        // Allocate all three button rects first, then check hover.
+                        // We must allocate before checking hover because
+                        // horizontal_centered adjusts vertical position and a
+                        // pre-computed rect would have the wrong Y coordinates.
                         let (close_rect, close_response) = ui.allocate_exact_size(
                             egui::vec2(button_size, button_size),
                             egui::Sense::click(),
                         );
-                        let close_color = if close_response.hovered() {
-                            close_color
+                        ui.add_space(button_spacing);
+                        let (min_rect, min_response) = ui.allocate_exact_size(
+                            egui::vec2(button_size, button_size),
+                            egui::Sense::click(),
+                        );
+                        ui.add_space(button_spacing);
+                        let (fs_rect, fs_response) = ui.allocate_exact_size(
+                            egui::vec2(button_size, button_size),
+                            egui::Sense::click(),
+                        );
+
+                        // Group-hover: show icons on all three when any is hovered
+                        let any_hovered = close_response.hovered()
+                            || min_response.hovered()
+                            || fs_response.hovered();
+                        let icon_color = egui::Color32::from_rgba_unmultiplied(60, 20, 20, 180);
+                        let icon_stroke = 1.5;
+
+                        // Close button (red)
+                        let close_base = egui::Color32::from_rgb(255, 95, 87);
+                        let close_color = if any_hovered {
+                            close_base
                         } else {
-                            close_color.gamma_multiply(0.7)
+                            close_base.gamma_multiply(0.7)
                         };
                         ui.painter().circle_filled(
                             close_rect.center(),
                             button_size / 2.0,
                             close_color,
                         );
+                        if any_hovered {
+                            let c = close_rect.center();
+                            let d = 2.5;
+                            ui.painter().line_segment(
+                                [c - egui::vec2(d, d), c + egui::vec2(d, d)],
+                                egui::Stroke::new(icon_stroke, icon_color),
+                            );
+                            ui.painter().line_segment(
+                                [c + egui::vec2(-d, d), c + egui::vec2(d, -d)],
+                                egui::Stroke::new(icon_stroke, icon_color),
+                            );
+                        }
                         if close_response.clicked() {
                             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                         }
 
-                        ui.add_space(button_spacing);
-
                         // Minimize button (yellow)
-                        let minimize_color = egui::Color32::from_rgb(255, 189, 46);
-                        let (min_rect, min_response) = ui.allocate_exact_size(
-                            egui::vec2(button_size, button_size),
-                            egui::Sense::click(),
-                        );
-                        let minimize_color = if min_response.hovered() {
-                            minimize_color
+                        let min_base = egui::Color32::from_rgb(255, 189, 46);
+                        let minimize_color = if any_hovered {
+                            min_base
                         } else {
-                            minimize_color.gamma_multiply(0.7)
+                            min_base.gamma_multiply(0.7)
                         };
                         ui.painter().circle_filled(
                             min_rect.center(),
                             button_size / 2.0,
                             minimize_color,
                         );
+                        if any_hovered {
+                            let c = min_rect.center();
+                            ui.painter().line_segment(
+                                [c - egui::vec2(3.0, 0.0), c + egui::vec2(3.0, 0.0)],
+                                egui::Stroke::new(icon_stroke, icon_color),
+                            );
+                        }
                         if min_response.clicked() {
                             ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
                         }
 
-                        ui.add_space(button_spacing);
-
-                        // Fullscreen button (uses theme accent)
-                        let fullscreen_color = theme.accent_primary();
-                        let (fs_rect, fs_response) = ui.allocate_exact_size(
-                            egui::vec2(button_size, button_size),
-                            egui::Sense::click(),
-                        );
-                        let fullscreen_color = if fs_response.hovered() {
-                            theme.accent_hover()
+                        // Fullscreen button (green, matching native macOS)
+                        let fs_base = egui::Color32::from_rgb(39, 201, 63);
+                        let fullscreen_color = if any_hovered {
+                            fs_base
                         } else {
-                            fullscreen_color.gamma_multiply(0.7)
+                            fs_base.gamma_multiply(0.7)
                         };
                         ui.painter().circle_filled(
                             fs_rect.center(),
                             button_size / 2.0,
                             fullscreen_color,
                         );
+                        if any_hovered {
+                            let c = fs_rect.center();
+                            let d = 2.5;
+                            let tl = c + egui::vec2(-d, -d);
+                            ui.painter().line_segment(
+                                [tl, tl + egui::vec2(2.5, 0.0)],
+                                egui::Stroke::new(icon_stroke, icon_color),
+                            );
+                            ui.painter().line_segment(
+                                [tl, tl + egui::vec2(0.0, 2.5)],
+                                egui::Stroke::new(icon_stroke, icon_color),
+                            );
+                            let br = c + egui::vec2(d, d);
+                            ui.painter().line_segment(
+                                [br, br + egui::vec2(-2.5, 0.0)],
+                                egui::Stroke::new(icon_stroke, icon_color),
+                            );
+                            ui.painter().line_segment(
+                                [br, br + egui::vec2(0.0, -2.5)],
+                                egui::Stroke::new(icon_stroke, icon_color),
+                            );
+                        }
                         if fs_response.clicked() {
                             self.is_fullscreen = !self.is_fullscreen;
                             ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(

@@ -255,7 +255,7 @@ impl AgentPanel {
                     // Parse commands from the response
                     let commands = super::agent_context::parse_commands(&self.response_text);
                     if !commands.is_empty() {
-                        log::info!("Parsed {} commands from agent response", commands.len());
+                        log::debug!("Parsed {} commands from agent response", commands.len());
                         self.pending_commands.extend(commands);
                     }
 

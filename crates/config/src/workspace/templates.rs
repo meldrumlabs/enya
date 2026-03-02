@@ -1,8 +1,7 @@
 //! Default workspace templates.
 //!
 //! This module contains the built-in workspace templates that ship with the editor,
-//! including tutorial workspaces that showcase different features and the atlas
-//! workspace for real-backend codebase integration.
+//! including tutorial workspaces that showcase different features.
 //!
 //! Tutorial workspaces use demo-mode metric names (see `enya_client::demo`) so
 //! they render realistic data without a real Prometheus backend.
@@ -155,36 +154,4 @@ children = [
   { type = "horizontal", children = [0, 1] },
   { type = "horizontal", children = [2, 3] },
 ]
-"#;
-
-/// Atlas workspace for Polygon's rust-app-atlas repository.
-/// Demonstrates codebase integration with alert rules and metric definitions.
-pub const ATLAS_WORKSPACE_TOML: &str = r#"[workspace]
-name = "atlas"
-description = "Atlas observability dashboard with codebase integration"
-endpoint = "http://localhost:9090"
-
-[git]
-url = "git@github.com:polygon-io/rust-app-atlas.git"
-branch = "main"
-language = "rust"
-
-[view]
-theme = "dark"
-
-[time]
-preset = "1h"
-
-# Atlas Live Consumer metrics
-[[panes]]
-query = "sum(rate(atlas_live_consumer_errors_total[5m])) by (status)"
-name = "Live Consumer Errors"
-tag = "Critical"
-visualization = "time_series"
-granularity = "1m"
-
-# Layout: Single pane for now
-[layout]
-type = "horizontal"
-children = [0]
 "#;

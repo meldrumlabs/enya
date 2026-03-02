@@ -19,23 +19,27 @@ pub mod workspace;
 
 // Re-export all public types at crate root for convenience
 pub use workspace::snapshot::{
-    Snapshot, SnapshotCellKind, SnapshotColumnDiffStatus, SnapshotConversation, SnapshotDiffData,
+    Snapshot, SnapshotBenchmarkData, SnapshotCellKind, SnapshotColumnDiffStatus,
+    SnapshotColumnStats, SnapshotConversation, SnapshotDescribeData, SnapshotDiffData,
     SnapshotDiffFile, SnapshotDiffLine, SnapshotDiffLineKind, SnapshotDiffStats, SnapshotDiffType,
     SnapshotInlineChart, SnapshotInlineContent, SnapshotInlineDiff, SnapshotInlineSearchResults,
     SnapshotInlineSource, SnapshotInlineTable, SnapshotMessage, SnapshotMessageRole,
-    SnapshotOperatorMetrics, SnapshotPlanNode, SnapshotQueryCell, SnapshotQueryStats,
-    SnapshotSchemaDiff, SnapshotSchemaDiffColumn, SnapshotSearchResultItem, SnapshotSqlPane,
-    SnapshotTableColumn,
+    SnapshotOperatorMetrics, SnapshotPhaseTiming, SnapshotPlanNode, SnapshotQueryCell,
+    SnapshotQueryStats, SnapshotSchemaDiff, SnapshotSchemaDiffColumn, SnapshotSearchResultItem,
+    SnapshotSqlPane, SnapshotTableColumn,
 };
 pub use workspace::{
-    ATLAS_WORKSPACE_TOML, ConnectionConfig, GOLDEN_SIGNALS_TOML, GitConfig, INFRASTRUCTURE_TOML,
-    LayoutConfig, LayoutContainer, LayoutNode, LayoutType, LogsConfig, MULTI_SERVICE_TOML,
-    MetricsConfig, PaneConfig, PluginsConfig, RefreshInterval, SnapshotMeta, SnapshotPaneData,
-    SnapshotSeries, TimeConfig, TracingConfig, ViewConfig, WORKSPACE_VERSION, WorkspaceConfig,
-    WorkspaceError, WorkspaceMeta,
+    ConnectionConfig, GOLDEN_SIGNALS_TOML, GitConfig, INFRASTRUCTURE_TOML, LayoutConfig,
+    LayoutContainer, LayoutNode, LayoutType, LogsConfig, MULTI_SERVICE_TOML, MetricsConfig,
+    PaneConfig, PluginsConfig, RefreshInterval, SnapshotMeta, SnapshotPaneData, SnapshotSeries,
+    TimeConfig, TracingConfig, ViewConfig, WORKSPACE_VERSION, WorkspaceConfig, WorkspaceError,
+    WorkspaceMeta,
 };
 
 pub use daemon::{Config, Datasource, Datasources, Server};
 
 #[cfg(not(target_arch = "wasm32"))]
-pub use dir::{config_path, enya_dir, list_workspaces, resolve_workspace_path, workspace_dir};
+pub use dir::{
+    config_path, conversations_dir, enya_dir, index_dir, list_workspaces, plugins_dir,
+    resolve_workspace_path, workspace_dir,
+};
