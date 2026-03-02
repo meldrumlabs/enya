@@ -793,11 +793,8 @@ pub fn render_data_diff_content(ui: &mut egui::Ui, theme: AppTheme, diff_result:
             |ui| {
                 ui.add_space(4.0);
                 for col in &table_diff.columns {
-                    let display_name = if col.len() > 12 {
-                        format!("{}…", &col[..11])
-                    } else {
-                        col.clone()
-                    };
+                    let display_name =
+                        crate::components::util::text_formatting::truncate_with_ellipsis(col, 12);
                     ui.add_sized(
                         [col_width, row_height],
                         egui::Label::new(
@@ -817,11 +814,8 @@ pub fn render_data_diff_content(ui: &mut egui::Ui, theme: AppTheme, diff_result:
             |ui| {
                 ui.add_space(4.0);
                 for col in &table_diff.columns {
-                    let display_name = if col.len() > 12 {
-                        format!("{}…", &col[..11])
-                    } else {
-                        col.clone()
-                    };
+                    let display_name =
+                        crate::components::util::text_formatting::truncate_with_ellipsis(col, 12);
                     ui.add_sized(
                         [col_width, row_height],
                         egui::Label::new(

@@ -2879,11 +2879,9 @@ impl Workspace {
                         .with_metric_name(metric.clone());
                 } else if !query.is_empty() {
                     // Use first 50 chars of query as title
-                    let title = if query.len() > 50 {
-                        format!("{}...", &query[..50])
-                    } else {
-                        query
-                    };
+                    let title = crate::components::util::text_formatting::truncate_with_ellipsis(
+                        &query, 50,
+                    );
                     info = info.with_title(title);
                 }
                 return Some(info);

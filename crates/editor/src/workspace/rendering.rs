@@ -127,7 +127,8 @@ impl Workspace {
         let pane_spacing = 12.0;
         let rows = pane_count.div_ceil(columns);
 
-        let pane_width = (available.x - (columns as f32 - 1.0) * pane_spacing) / columns as f32;
+        let pane_width =
+            ((available.x - (columns as f32 - 1.0) * pane_spacing) / columns as f32).max(1.0);
         // Calculate pane height - account for headers
         let total_header_height = rows as f32 * header_height;
         let total_spacing = (rows as f32 - 1.0) * pane_spacing;

@@ -704,11 +704,7 @@ impl AgentCommand {
 
 /// Truncate a string to a maximum length, adding "..." if truncated.
 fn truncate_str(s: &str, max_len: usize) -> String {
-    if s.len() <= max_len {
-        s.to_string()
-    } else {
-        format!("{}...", &s[..max_len.saturating_sub(3)])
-    }
+    crate::components::util::text_formatting::truncate_with_ellipsis(s, max_len)
 }
 
 /// Parse agent commands from a response text.
