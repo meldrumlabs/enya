@@ -56,11 +56,9 @@ impl ConversationThread {
         if let Some(msg) = self.messages.iter().find(|m| m.role == MessageRole::User) {
             let first_line = msg.content.lines().next().unwrap_or("").trim();
             if !first_line.is_empty() {
-                self.name = if first_line.len() > 40 {
-                    format!("{}...", &first_line[..37])
-                } else {
-                    first_line.to_string()
-                };
+                self.name = crate::components::util::text_formatting::truncate_with_ellipsis(
+                    first_line, 40,
+                );
             }
         }
     }
@@ -251,8 +249,15 @@ impl ConversationStore {
     fn save_thread_file(&self, thread: &ConversationThread) {
         let dir = self.conversations_dir();
         let path = dir.join(format!("{}.json", thread.id));
-        if let Ok(data) = serde_json::to_string_pretty(thread) {
-            let _ = std::fs::write(path, data);
+        match serde_json::to_string_pretty(thread) {
+            Ok(data) => {
+                if let Err(e) = std::fs::write(&path, data) {
+                    log::warn!("Failed to save conversation {}: {e}", thread.id);
+                }
+            }
+            Err(e) => {
+                log::warn!("Failed to serialize conversation {}: {e}", thread.id);
+            }
         }
     }
 

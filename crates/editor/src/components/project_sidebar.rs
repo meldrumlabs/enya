@@ -925,12 +925,7 @@ impl ProjectSidebar {
 
 /// Rough text truncation based on estimated character width.
 fn truncate_text(text: &str, max_width: f32, avg_char_width: f32) -> String {
+    use crate::components::util::text_formatting::truncate_with_ellipsis;
     let max_chars = (max_width / avg_char_width) as usize;
-    if text.len() <= max_chars {
-        text.to_string()
-    } else if max_chars > 3 {
-        format!("{}...", &text[..max_chars - 3])
-    } else {
-        "...".to_string()
-    }
+    truncate_with_ellipsis(text, max_chars)
 }

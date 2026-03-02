@@ -2502,11 +2502,7 @@ impl AgentPanel {
                                             (value.as_str(), self.theme.text_secondary())
                                         };
                                         // Truncate long values
-                                        let truncated = if display.len() > 40 {
-                                            format!("{}...", &display[..37])
-                                        } else {
-                                            display.to_string()
-                                        };
+                                        let truncated = crate::components::util::text_formatting::truncate_with_ellipsis(display, 40);
                                         let label = RichText::new(truncated)
                                             .color(color)
                                             .font(typography::monospace(typography::SM));

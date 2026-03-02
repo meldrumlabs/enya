@@ -249,11 +249,10 @@ impl HeatmapViz {
                             .get(row_idx)
                             .map(|s| s.as_str())
                             .unwrap_or("");
-                        let truncated = if label.len() > 8 {
-                            format!("{}...", &label[..5])
-                        } else {
-                            label.to_string()
-                        };
+                        let truncated =
+                            crate::components::util::text_formatting::truncate_with_ellipsis(
+                                label, 8,
+                            );
                         ui.add_sized(
                             [label_space - 8.0, cell_height],
                             egui::Label::new(

@@ -273,7 +273,8 @@ impl UpdateChecker {
             .arg(&mount_point)
             .output()
             .await;
-        let _ = std::fs::create_dir_all(&mount_point);
+        std::fs::create_dir_all(&mount_point)
+            .map_err(|e| format!("Failed to create mount point: {e}"))?;
 
         let mount_output = tokio::process::Command::new("hdiutil")
             .arg("attach")
@@ -287,7 +288,9 @@ impl UpdateChecker {
             .map_err(|e| format!("hdiutil attach failed: {e}"))?;
 
         if !mount_output.status.success() {
-            let _ = std::fs::remove_file(&dmg_path);
+            if let Err(e) = std::fs::remove_file(&dmg_path) {
+                log::warn!("Failed to clean up DMG after mount failure: {e}");
+            }
             let stderr = String::from_utf8_lossy(&mount_output.stderr);
             return Err(format!("hdiutil attach failed: {stderr}"));
         }
@@ -295,7 +298,12 @@ impl UpdateChecker {
         // Copy Enya.app from DMG using ditto (preserves code signatures + xattrs)
         log::info!("Copying app bundle from DMG");
         let source_app = mount_point.join("Enya.app");
-        let _ = std::fs::remove_dir_all(&staged_path);
+        if let Err(e) = std::fs::remove_dir_all(&staged_path) {
+            // NotFound is fine — there was nothing to clean up
+            if e.kind() != std::io::ErrorKind::NotFound {
+                log::warn!("Failed to remove stale staged bundle: {e}");
+            }
+        }
 
         let ditto_output = tokio::process::Command::new("ditto")
             .arg(&source_app)
@@ -310,28 +318,47 @@ impl UpdateChecker {
             .arg(&mount_point)
             .output()
             .await;
-        let _ = std::fs::remove_file(&dmg_path);
-        let _ = std::fs::remove_dir(&mount_point);
+        if let Err(e) = std::fs::remove_file(&dmg_path) {
+            log::warn!("Failed to clean up DMG: {e}");
+        }
+        if let Err(e) = std::fs::remove_dir(&mount_point) {
+            log::warn!("Failed to clean up mount point: {e}");
+        }
 
         if !ditto_output.status.success() {
-            let _ = std::fs::remove_dir_all(&staged_path);
+            if let Err(e) = std::fs::remove_dir_all(&staged_path) {
+                log::warn!("Failed to clean up staged bundle after ditto failure: {e}");
+            }
             let stderr = String::from_utf8_lossy(&ditto_output.stderr);
             return Err(format!("ditto failed: {stderr}"));
         }
 
-        // Atomic bundle swap:
-        // Rename current Enya.app → Enya.app.old (macOS allows renaming dirs
-        // containing running binaries; the process keeps its open inode)
+        // Bundle swap:
+        // Rename current Enya.app → Enya.app.old, then staged → Enya.app.
+        // macOS allows renaming dirs containing running binaries; the process
+        // keeps its open inode. If the second rename fails, we roll back.
         log::info!("Swapping app bundles");
-        let _ = std::fs::remove_dir_all(&old_path);
+        if let Err(e) = std::fs::remove_dir_all(&old_path) {
+            if e.kind() != std::io::ErrorKind::NotFound {
+                log::warn!("Failed to remove old backup bundle: {e}");
+            }
+        }
 
         std::fs::rename(&app_bundle, &old_path)
             .map_err(|e| format!("Failed to move current .app to .old: {e}"))?;
 
         if let Err(e) = std::fs::rename(&staged_path, &app_bundle) {
             // Rollback: restore the old bundle
-            let _ = std::fs::rename(&old_path, &app_bundle);
-            let _ = std::fs::remove_dir_all(&staged_path);
+            if let Err(rollback_err) = std::fs::rename(&old_path, &app_bundle) {
+                log::error!(
+                    "CRITICAL: Failed to roll back after update failure. \
+                     Original error: {e}, rollback error: {rollback_err}. \
+                     The app bundle may need manual restoration from {old_path:?}."
+                );
+            }
+            if let Err(e) = std::fs::remove_dir_all(&staged_path) {
+                log::warn!("Failed to clean up staged bundle after rollback: {e}");
+            }
             return Err(format!("Failed to install staged .app: {e}"));
         }
 

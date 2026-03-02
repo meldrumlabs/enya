@@ -679,7 +679,11 @@ fn render_inline_table(
                                 } else {
                                     let max_chars = ((col_width - 8.0) / 7.0) as usize;
                                     let display_val = if value.len() > max_chars && max_chars > 3 {
-                                        format!("{}…", &value[..max_chars.saturating_sub(1)])
+                                        let truncated: String = value
+                                            .chars()
+                                            .take(max_chars.saturating_sub(1))
+                                            .collect();
+                                        format!("{truncated}…")
                                     } else {
                                         value
                                     };

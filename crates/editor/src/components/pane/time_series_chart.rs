@@ -271,7 +271,7 @@ impl Series {
                 }
             }
             // Fallback: just truncate
-            Cow::Owned(format!("{}…", &name[..17]))
+            Cow::Owned(crate::components::util::text_formatting::truncate_with_ellipsis(name, 20))
         }
     }
 }

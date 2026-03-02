@@ -2339,13 +2339,16 @@ impl SqlPane {
                                     } else {
                                         // Truncate long values
                                         let max_chars = ((col_width - 8.0) / 7.0) as usize;
-                                        let display_val = if value.len() > max_chars
-                                            && max_chars > 3
-                                        {
-                                            format!("{}…", &value[..max_chars.saturating_sub(1)])
-                                        } else {
-                                            value
-                                        };
+                                        let display_val =
+                                            if value.len() > max_chars && max_chars > 3 {
+                                                let truncated: String = value
+                                                    .chars()
+                                                    .take(max_chars.saturating_sub(1))
+                                                    .collect();
+                                                format!("{truncated}…")
+                                            } else {
+                                                value
+                                            };
 
                                         ui.painter().text(
                                             cell_rect.left_center() + egui::vec2(8.0, 0.0),
@@ -2597,11 +2600,8 @@ impl SqlPane {
             ui.add_space(16.0);
 
             // SQL query preview (truncated)
-            let sql_preview = if sql_query.len() > 50 {
-                format!("{}...", &sql_query[..50])
-            } else {
-                sql_query.clone()
-            };
+            let sql_preview =
+                crate::components::util::text_formatting::truncate_with_ellipsis(&sql_query, 50);
             ui.label(
                 RichText::new(&sql_preview)
                     .color(colors.faint_text)
