@@ -54,7 +54,6 @@ simple_logger = { workspace = true }
 mimalloc = { workspace = true }
 rustls = { workspace = true }
 # System utilities for file/folder operations
-dirs = "5.0"
 open = "5.3"
 # Clipboard access for plugin system
 arboard = "3.4"

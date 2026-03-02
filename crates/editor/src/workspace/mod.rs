@@ -505,6 +505,13 @@ impl Workspace {
         self.loaded_name.as_deref()
     }
 
+    /// Set the loaded workspace name and update conversation storage scope.
+    pub(crate) fn set_loaded_name(&mut self, name: Option<String>) {
+        self.loaded_name = name.clone();
+        #[cfg(not(target_arch = "wasm32"))]
+        self.agent_panel.set_conversation_workspace_name(name);
+    }
+
     /// Whether the workspace has any panes.
     pub fn has_panes(&self) -> bool {
         !self.get_pane_tile_ids().is_empty()
@@ -1332,14 +1339,11 @@ impl Workspace {
         self.plugins_overlay.set_theme(self.theme());
         match self.plugins_overlay.show(ctx) {
             PluginsOverlayResult::OpenPluginDirectory => {
-                // Open the plugin directory in the system file manager
                 #[cfg(not(target_arch = "wasm32"))]
                 {
-                    if let Some(dir) = dirs::home_dir() {
-                        let plugin_dir = dir.join(".config").join("enya").join("plugins");
-                        if let Err(e) = open::that(&plugin_dir) {
-                            log::warn!("Failed to open plugin directory: {e}");
-                        }
+                    let plugin_dir = enya_config::plugins_dir();
+                    if let Err(e) = open::that(&plugin_dir) {
+                        log::warn!("Failed to open plugin directory: {e}");
                     }
                 }
             }
@@ -1568,7 +1572,7 @@ impl Workspace {
                 self.show_landing = false;
                 if let Ok(config) = WorkspaceConfig::from_toml(GOLDEN_SIGNALS_TOML) {
                     self.load_workspace_config(&config);
-                    self.loaded_name = Some("quick-start".to_string());
+                    self.set_loaded_name(Some("quick-start".to_string()));
                 }
                 self.tutorial_overlay.open();
                 ctx.request_repaint();
@@ -1681,14 +1685,11 @@ impl Workspace {
         self.plugins_overlay.set_theme(self.theme());
         match self.plugins_overlay.show(ctx) {
             PluginsOverlayResult::OpenPluginDirectory => {
-                // Open the plugin directory in the system file manager
                 #[cfg(not(target_arch = "wasm32"))]
                 {
-                    if let Some(dir) = dirs::home_dir() {
-                        let plugin_dir = dir.join(".config").join("enya").join("plugins");
-                        if let Err(e) = open::that(&plugin_dir) {
-                            log::warn!("Failed to open plugin directory: {e}");
-                        }
+                    let plugin_dir = enya_config::plugins_dir();
+                    if let Err(e) = open::that(&plugin_dir) {
+                        log::warn!("Failed to open plugin directory: {e}");
                     }
                 }
             }

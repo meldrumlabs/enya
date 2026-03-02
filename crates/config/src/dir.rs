@@ -1,6 +1,7 @@
 //! Workspace directory discovery and listing (native only).
 
-use std::path::PathBuf;
+use std::hash::{DefaultHasher, Hash, Hasher};
+use std::path::{Path, PathBuf};
 
 use crate::WorkspaceConfig;
 
@@ -71,6 +72,48 @@ pub fn config_path() -> PathBuf {
 pub fn enya_dir() -> PathBuf {
     let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
     let dir = PathBuf::from(&home).join(".enya");
+    let _ = std::fs::create_dir_all(&dir);
+    dir
+}
+
+/// Get the user plugins directory (`~/.enya/plugins/`).
+///
+/// Creates the directory if it doesn't exist.
+pub fn plugins_dir() -> PathBuf {
+    let dir = enya_dir().join("plugins");
+    let _ = std::fs::create_dir_all(&dir);
+    dir
+}
+
+/// Get the search index directory for a repository (`~/.enya/indexes/{name}-{hash}/`).
+///
+/// Derives a stable, readable subdirectory name from the repo path using
+/// the last path component plus a short hash of the full path.
+///
+/// Unlike other `*_dir()` helpers, this does **not** create the directory —
+/// callers (e.g. Tantivy `create()`) are responsible for creating it so that
+/// `open_or_create` can distinguish "no index yet" from "index exists".
+pub fn index_dir(repo_path: &Path) -> PathBuf {
+    let repo_name = repo_path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("repo");
+
+    let mut hasher = DefaultHasher::new();
+    repo_path.hash(&mut hasher);
+    let hash = hasher.finish();
+
+    let key = format!("{repo_name}-{hash:016x}");
+    enya_dir().join("indexes").join(key)
+}
+
+/// Get the conversations directory for a workspace (`~/.enya/conversations/{key}/`).
+///
+/// Uses the workspace name as subdirectory key, falling back to `"default"`.
+/// Creates the directory if it doesn't exist.
+pub fn conversations_dir(workspace_name: Option<&str>) -> PathBuf {
+    let key = workspace_name.unwrap_or("default");
+    let dir = enya_dir().join("conversations").join(key);
     let _ = std::fs::create_dir_all(&dir);
     dir
 }

@@ -172,7 +172,7 @@ impl AgentPanel {
             search_query: String::new(),
             search_matches: Vec::new(),
             search_match_idx: 0,
-            conversation_store: super::conversation_store::ConversationStore::new(),
+            conversation_store: super::conversation_store::ConversationStore::new(None),
             pending_diff_viewer: None,
             keyboard_disabled: false,
             mention_popup: MentionPopup::new(),
@@ -196,6 +196,12 @@ impl AgentPanel {
     #[cfg(target_arch = "wasm32")]
     pub fn new() -> Self {
         Self::new_common()
+    }
+
+    /// Update the workspace name for conversation storage scoping.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn set_conversation_workspace_name(&mut self, name: Option<String>) {
+        self.conversation_store.set_workspace_name(name);
     }
 
     /// Set the editor context for prompt injection.

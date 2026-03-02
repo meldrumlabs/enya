@@ -187,8 +187,7 @@ impl PluginsOverlay {
             #[cfg(not(target_arch = "wasm32"))]
             pending_open_file_opener: false,
             #[cfg(not(target_arch = "wasm32"))]
-            plugin_directory: dirs::home_dir()
-                .map(|d| d.join(".config").join("enya").join("plugins")),
+            plugin_directory: Some(enya_config::plugins_dir()),
         }
     }
 

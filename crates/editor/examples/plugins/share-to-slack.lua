@@ -7,7 +7,7 @@
 -- 2. Set SLACK_WEBHOOK_URL or DISCORD_WEBHOOK_URL environment variable
 --
 -- Usage:
--- 1. Copy this file to ~/.config/enya/plugins/
+-- 1. Copy this file to ~/.enya/plugins/
 -- 2. Restart Enya
 -- 3. Focus on a pane you want to share
 -- 4. Type :share-slack [message] to share to Slack
