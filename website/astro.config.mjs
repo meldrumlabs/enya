@@ -52,7 +52,9 @@ export default defineConfig({
 				},
 			],
 			plugins: [
-				starlightLinksValidator(),
+				starlightLinksValidator({
+					exclude: ['/editor'],
+				}),
 				starlightLlmsTxt(),
 			],
 			sidebar: [
