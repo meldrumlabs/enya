@@ -28,11 +28,11 @@ pub use workspace::snapshot::{
     SnapshotTableColumn,
 };
 pub use workspace::{
-    ATLAS_WORKSPACE_TOML, ConnectionConfig, GOLDEN_SIGNALS_TOML, GitConfig, INFRASTRUCTURE_TOML,
-    LayoutConfig, LayoutContainer, LayoutNode, LayoutType, LogsConfig, MULTI_SERVICE_TOML,
-    MetricsConfig, PaneConfig, PluginsConfig, RefreshInterval, SnapshotMeta, SnapshotPaneData,
-    SnapshotSeries, TimeConfig, TracingConfig, ViewConfig, WORKSPACE_VERSION, WorkspaceConfig,
-    WorkspaceError, WorkspaceMeta,
+    ConnectionConfig, GOLDEN_SIGNALS_TOML, GitConfig, INFRASTRUCTURE_TOML, LayoutConfig,
+    LayoutContainer, LayoutNode, LayoutType, LogsConfig, MULTI_SERVICE_TOML, MetricsConfig,
+    PaneConfig, PluginsConfig, RefreshInterval, SnapshotMeta, SnapshotPaneData, SnapshotSeries,
+    TimeConfig, TracingConfig, ViewConfig, WORKSPACE_VERSION, WorkspaceConfig, WorkspaceError,
+    WorkspaceMeta,
 };
 
 pub use daemon::{Config, Datasource, Datasources, Server};

@@ -49,13 +49,10 @@ impl EnyaApp {
     /// Ensure the built-in tutorial and example workspaces exist on disk.
     ///
     /// Tutorial workspaces are always overwritten so template updates take
-    /// effect without users having to manually delete old files. The atlas
-    /// workspace (user-customizable) is only written if missing.
+    /// effect without users having to manually delete old files.
     #[cfg(not(target_arch = "wasm32"))]
     pub(super) fn ensure_default_workspace() {
-        use crate::workspace::{
-            ATLAS_WORKSPACE_TOML, GOLDEN_SIGNALS_TOML, INFRASTRUCTURE_TOML, MULTI_SERVICE_TOML,
-        };
+        use crate::workspace::{GOLDEN_SIGNALS_TOML, INFRASTRUCTURE_TOML, MULTI_SERVICE_TOML};
 
         let dir = Self::workspace_dir();
 
@@ -69,14 +66,6 @@ impl EnyaApp {
             let path = dir.join(format!("{name}.toml"));
             if let Err(e) = std::fs::write(&path, toml) {
                 log::warn!("Failed to write {name} workspace: {e}");
-            }
-        }
-
-        // Atlas — only create if missing (user may have customized it)
-        let atlas_path = dir.join("atlas.toml");
-        if !atlas_path.exists() {
-            if let Err(e) = std::fs::write(&atlas_path, ATLAS_WORKSPACE_TOML) {
-                log::warn!("Failed to create atlas workspace: {e}");
             }
         }
     }

@@ -1389,7 +1389,7 @@ All notable changes to the Enya editor will be documented in this file.
 - **Improved file filtering**: The indexer now excludes more common static asset directories (`dist`, `build`, `public`, `assets`) and skips minified files (`*.min.*`).
 - **Enhanced codebase status display**: The status bar now shows richer information when a codebase is configured:
   - During indexing: Shows language icon (Rust gear, Go gopher, Python logo, etc.) with the current file being indexed
-  - When ready: Shows repo name with language icon and metrics count (e.g., " rust-app-atlas | 42 metrics")
+  - When ready: Shows repo name with language icon and metrics count (e.g., " my-app | 42 metrics")
 
 ### Added
 
@@ -1573,11 +1573,6 @@ All notable changes to the Enya editor will be documented in this file.
   - New dependency: `tree-sitter-yaml` for YAML parsing (consistent with the Rust scanner)
 
 - **Go To section in which-key overlay**: The `?` help overlay now includes a "Go To" section documenting `gd` (go to metric definition) and `ga` (go to alert) shortcuts.
-
-- **Atlas example workspace**: Added a new built-in workspace template (`atlas.toml`) that demonstrates codebase integration with the `polygon-io/rust-app-atlas` repository. This workspace is created automatically in the `.enya/workspaces/` directory and includes:
-  - `[codebase]` configuration pointing to the Atlas git repository
-  - Sample pane querying `atlas_live_consumer_errors_total` metrics
-  - Prometheus endpoint configured for local development
 
 - **Function context in metric definitions**: The go-to-definition feature (`gd`) now shows the containing function name when viewing metric source code. For metrics inside impl blocks, the display shows `Type::function_name` format. This helps quickly understand which code path records a metric.
 
