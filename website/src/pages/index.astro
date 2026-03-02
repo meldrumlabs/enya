@@ -1398,12 +1398,8 @@ async fn main() -> Result<()> {
 
 			if (userAgent.indexOf('mac') !== -1 || platform.indexOf('mac') !== -1) {
 				return { name: 'macOS', download: 'https://github.com/meldrumlabs/enya/releases/latest/download/Enya.dmg' };
-			} else if (userAgent.indexOf('win') !== -1 || platform.indexOf('win') !== -1) {
-				return { name: 'Windows', download: 'https://github.com/meldrumlabs/enya/releases/latest' };
-			} else if (userAgent.indexOf('linux') !== -1 || platform.indexOf('linux') !== -1) {
-				return { name: 'Linux', download: 'https://github.com/meldrumlabs/enya/releases/latest' };
 			} else {
-				return { name: 'Your OS', download: 'https://github.com/meldrumlabs/enya/releases/latest' };
+				return { name: 'macOS', download: 'https://github.com/meldrumlabs/enya/releases/latest/download/Enya.dmg' };
 			}
 		}
 

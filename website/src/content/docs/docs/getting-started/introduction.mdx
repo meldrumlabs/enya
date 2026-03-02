@@ -20,23 +20,16 @@ Neovim meets Grafana, reimagined for human and agent collaboration. Enya is a ke
 
 ## Download
 
-Download Enya for your platform from [GitHub Releases](https://github.com/meldrumlabs/enya/releases/latest):
+Download Enya from [GitHub Releases](https://github.com/meldrumlabs/enya/releases/latest):
 
-- **[macOS](https://github.com/meldrumlabs/enya/releases/latest)** — macOS 10.15 or later
-- **[Windows](https://github.com/meldrumlabs/enya/releases/latest)** — Windows 10 or later
-- **[Linux](https://github.com/meldrumlabs/enya/releases/latest)** — AppImage, .deb, .rpm
+- **[macOS](https://github.com/meldrumlabs/enya/releases/latest/download/Enya.dmg)** — macOS 10.15 or later
+- **[Try in Browser](/editor)** — No install required (WASM)
 
 Or build from source with `cargo build --release`.
 
-## Connect to Prometheus
+## Panes
 
-Once Enya is running, connect to your Prometheus instance:
-
-1. Press `:` to open the command palette
-2. Type `connect http://localhost:9090` (or your Prometheus URL)
-3. Press Enter
-
-You should see "ONLINE" in the status bar once connected.
+Everything in Enya lives in a pane — metrics, logs, traces, SQL queries, and terminals. Panes tile automatically in an i3-style layout with splits and tabs.
 
 ## Basic Navigation
 
@@ -44,14 +37,12 @@ Enya uses vim-style navigation:
 
 | Key | Action |
 |-----|--------|
-| `H`/`J`/`K`/`L` | Move focus between panes |
+| `h`/`j`/`k`/`l` | Move focus between panes |
 | `:` | Open command palette |
-| `Space+m` | Open metrics finder |
+| `Space+f` | Open finder (metrics, alerts, commits) |
 | `?` | Show all keyboard shortcuts |
-| `e` | Edit focused pane query |
-| `Ctrl+Enter` | Run query |
+| `e` | Edit focused pane |
 
 ## Next Steps
 
-- **[Editor](/docs/editor/)** — Learn about key commands and features
 - **[Keyboard Reference](/docs/editor/keyboard-reference/)** — Complete keyboard shortcuts guide
