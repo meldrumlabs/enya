@@ -657,9 +657,19 @@ struct CompactFullSnapshot {
 // Encode / Decode
 // =============================================================================
 
+/// Version byte prepended to R2 blob snapshots.
+///
+/// The wire format is: `[version_u8] [lz4_compressed_postcard_bytes...]`
+///
+/// This allows the decoder to detect schema mismatches before attempting
+/// decompression, and lets us evolve the postcard schema by bumping the
+/// version and adding a new decode path.
+pub(crate) const SNAPSHOT_BLOB_VERSION: u8 = 1;
+
 /// Encode a full snapshot to compressed binary (postcard + LZ4).
 ///
 /// The resulting bytes are meant for blob storage (R2), not URL encoding.
+/// Format: `[version_u8] [lz4_compressed_postcard_bytes...]`
 pub fn encode_snapshot(
     ws: &WorkspaceConfig,
     pane_data: &[SnapshotPaneData],
@@ -696,12 +706,27 @@ pub fn encode_snapshot(
     };
 
     let bytes = postcard::to_allocvec(&full).map_err(|e| WorkspaceError::Encode(e.to_string()))?;
-    Ok(lz4_flex::compress_prepend_size(&bytes))
+    let compressed = lz4_flex::compress_prepend_size(&bytes);
+
+    let mut out = Vec::with_capacity(1 + compressed.len());
+    out.push(SNAPSHOT_BLOB_VERSION);
+    out.extend_from_slice(&compressed);
+    Ok(out)
 }
 
 /// Decode a full snapshot from compressed binary.
+///
+/// Expected format: `[version_u8] [lz4_compressed_postcard_bytes...]`
 pub fn decode_snapshot(bytes: &[u8]) -> Result<Snapshot, WorkspaceError> {
-    let decompressed = lz4_flex::decompress_size_prepended(bytes)
+    let (&version, payload) = bytes
+        .split_first()
+        .ok_or_else(|| WorkspaceError::Decode("empty snapshot blob".into()))?;
+
+    if version != SNAPSHOT_BLOB_VERSION {
+        return Err(WorkspaceError::UnsupportedSnapshotVersion(version));
+    }
+
+    let decompressed = lz4_flex::decompress_size_prepended(payload)
         .map_err(|e| WorkspaceError::Decode(e.to_string()))?;
 
     let full: CompactFullSnapshot =
@@ -2092,5 +2117,33 @@ mod tests {
         assert_eq!(sd.columns[1].status, SnapshotColumnDiffStatus::RightOnly);
         assert_eq!(sd.matching, 1);
         assert_eq!(sd.right_only, 1);
+    }
+
+    #[test]
+    fn snapshot_blob_starts_with_version_byte() {
+        let (ws, pane_data) = make_test_workspace();
+        let bytes = encode_snapshot(&ws, &pane_data, 1700000000, None, None).unwrap();
+        assert_eq!(bytes[0], SNAPSHOT_BLOB_VERSION);
+    }
+
+    #[test]
+    fn snapshot_unknown_version_rejected() {
+        let (ws, pane_data) = make_test_workspace();
+        let mut bytes = encode_snapshot(&ws, &pane_data, 1700000000, None, None).unwrap();
+        bytes[0] = 99;
+        let err = decode_snapshot(&bytes).unwrap_err();
+        assert!(
+            matches!(err, WorkspaceError::UnsupportedSnapshotVersion(99)),
+            "expected UnsupportedSnapshotVersion(99), got: {err}"
+        );
+    }
+
+    #[test]
+    fn snapshot_empty_blob_rejected() {
+        let err = decode_snapshot(&[]).unwrap_err();
+        assert!(
+            matches!(err, WorkspaceError::Decode(_)),
+            "expected Decode error for empty blob, got: {err}"
+        );
     }
 }
