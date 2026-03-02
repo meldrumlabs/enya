@@ -9,7 +9,15 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 // When compiling natively:
 #[cfg(not(target_arch = "wasm32"))]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    enya_editor::run_native_app(None, None)
+    // Parse --snapshot <id> for development testing without a signed .app bundle.
+    let mut snapshot = None;
+    let mut args = std::env::args().skip(1);
+    while let Some(arg) = args.next() {
+        if arg == "--snapshot" {
+            snapshot = args.next();
+        }
+    }
+    enya_editor::run_native_app(None, snapshot)
 }
 
 // When compiling to web using trunk:
