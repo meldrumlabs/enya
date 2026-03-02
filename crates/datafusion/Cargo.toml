@@ -24,7 +24,7 @@ datafusion = { version = "51", default-features = false, features = [
 
 # DFT session builder and extensions (S3, Delta Lake, etc.)
 # functions-parquet is required: datafusion-app unconditionally references it in local.rs
-datafusion-app = { path = "../../vendors/datafusion-app", default-features = false, features = ["functions-parquet"] }
+datafusion-app = { path = "../../vendor/datafusion-app", default-features = false, features = ["functions-parquet"] }
 
 # Arrow - minimal features (csv/json for file format support)
 arrow = { version = "57", default-features = false, features = [
