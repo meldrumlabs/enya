@@ -105,6 +105,7 @@ pub fn run_native_app(startup_workspace: Option<String>) -> Result<(), Box<dyn s
         Err(_) => panic!("failed to install CryptoProvider"),
     }
 
+    #[allow(unused_mut)]
     let mut viewport = egui::ViewportBuilder::default()
         .with_inner_size([1280.0, 800.0])
         .with_min_inner_size([800.0, 600.0])
