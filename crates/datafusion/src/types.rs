@@ -139,6 +139,40 @@ impl ExplainRequest {
     }
 }
 
+/// Request to benchmark a SQL query over multiple iterations.
+#[derive(Debug, Clone)]
+pub struct BenchmarkRequest {
+    /// Unique ID for this benchmark run.
+    pub id: QueryId,
+    /// SQL query text to benchmark.
+    pub sql: String,
+    /// Number of iterations to run.
+    pub iterations: usize,
+}
+
+impl BenchmarkRequest {
+    /// Create a new benchmark request with default iterations (10).
+    pub fn new(sql: impl Into<String>) -> Self {
+        Self {
+            id: QueryId::new(),
+            sql: sql.into(),
+            iterations: 10,
+        }
+    }
+
+    /// Set the number of iterations.
+    pub fn with_iterations(mut self, n: usize) -> Self {
+        self.iterations = n;
+        self
+    }
+
+    /// Use a specific query ID.
+    pub fn with_id(mut self, id: QueryId) -> Self {
+        self.id = id;
+        self
+    }
+}
+
 /// Result of a completed query.
 #[derive(Debug, Clone)]
 pub struct QueryResult {
@@ -179,6 +213,131 @@ pub struct ExecutionStats {
     pub bytes_scanned: usize,
     /// Number of partitions scanned.
     pub partitions_scanned: usize,
+}
+
+/// Timing statistics for a single benchmark phase (e.g., logical planning).
+#[derive(Debug, Clone)]
+pub struct PhaseTiming {
+    /// Minimum duration across all iterations.
+    pub min: Duration,
+    /// Maximum duration across all iterations.
+    pub max: Duration,
+    /// Mean duration across all iterations.
+    pub mean: Duration,
+    /// Median duration across all iterations.
+    pub median: Duration,
+    /// Percentage of total execution time (0.0–100.0).
+    pub percent_of_total: f64,
+}
+
+impl PhaseTiming {
+    /// Create from a `DurationsSummary` returned by the vendored dft crate.
+    fn from_dft(summary: &datafusion_app::local_benchmarks::DurationsSummary) -> Self {
+        Self {
+            min: summary.min,
+            max: summary.max,
+            mean: summary.mean,
+            median: summary.median,
+            percent_of_total: summary.percent_of_total,
+        }
+    }
+}
+
+/// Request to compute column-level statistics for a table.
+#[derive(Debug, Clone)]
+pub struct DescribeRequest {
+    /// Unique ID for this request.
+    pub id: QueryId,
+    /// Table name (possibly schema-qualified, e.g. "public.users").
+    pub table_name: String,
+}
+
+impl DescribeRequest {
+    /// Create a new describe request.
+    pub fn new(table_name: impl Into<String>) -> Self {
+        Self {
+            id: QueryId::new(),
+            table_name: table_name.into(),
+        }
+    }
+
+    /// Use a specific query ID.
+    pub fn with_id(mut self, id: QueryId) -> Self {
+        self.id = id;
+        self
+    }
+}
+
+/// Statistics for a single column from a `/describe` operation.
+#[derive(Debug, Clone)]
+pub struct ColumnStats {
+    /// Column name.
+    pub name: String,
+    /// Data type as string.
+    pub data_type: String,
+    /// Total non-null count.
+    pub count: usize,
+    /// Number of null values.
+    pub null_count: usize,
+    /// Number of distinct values.
+    pub distinct_count: usize,
+    /// Minimum value (cast to string), None for unsupported types.
+    pub min: Option<String>,
+    /// Maximum value (cast to string), None for unsupported types.
+    pub max: Option<String>,
+    /// Mean value (numeric columns only).
+    pub mean: Option<f64>,
+}
+
+/// Result of a table describe operation.
+#[derive(Debug, Clone)]
+pub struct DescribeStats {
+    /// Table name that was described.
+    pub table_name: String,
+    /// Total row count.
+    pub total_rows: usize,
+    /// Per-column statistics.
+    pub columns: Vec<ColumnStats>,
+    /// How long the describe took.
+    pub elapsed: Duration,
+}
+
+/// Aggregate benchmark statistics across all iterations.
+#[derive(Debug, Clone)]
+pub struct BenchmarkStats {
+    /// Number of iterations run.
+    pub iterations: usize,
+    /// Rows returned per iteration.
+    pub rows_per_iteration: usize,
+    /// Logical planning phase timings.
+    pub logical_planning: PhaseTiming,
+    /// Physical planning phase timings.
+    pub physical_planning: PhaseTiming,
+    /// Execution phase timings.
+    pub execution: PhaseTiming,
+    /// Total (end-to-end) timings.
+    pub total: PhaseTiming,
+}
+
+impl BenchmarkStats {
+    /// Convert from dft's `LocalBenchmarkStats` (which now has public fields).
+    pub fn from_dft(stats: &datafusion_app::local_benchmarks::LocalBenchmarkStats) -> Self {
+        let logical = stats.summarize(&stats.logical_planning_durations);
+        let physical = stats.summarize(&stats.physical_planning_durations);
+        let execution = stats.summarize(&stats.execution_durations);
+        let total = stats.summarize(&stats.total_durations);
+
+        let rows_per_iteration = stats.rows.first().copied().unwrap_or(0);
+
+        Self {
+            iterations: stats.runs,
+            rows_per_iteration,
+            logical_planning: PhaseTiming::from_dft(&logical),
+            physical_planning: PhaseTiming::from_dft(&physical),
+            execution: PhaseTiming::from_dft(&execution),
+            total: PhaseTiming::from_dft(&total),
+        }
+    }
 }
 
 /// A node in a query execution plan tree.
@@ -592,6 +751,23 @@ pub enum QueryEvent {
     Failed { id: QueryId, error: String },
     /// Query was cancelled.
     Cancelled { id: QueryId },
+    /// Benchmark iteration completed (progress update).
+    BenchmarkProgress {
+        id: QueryId,
+        iteration: usize,
+        total_iterations: usize,
+        last_duration: Duration,
+    },
+    /// Benchmark completed with aggregate statistics.
+    BenchmarkCompleted {
+        id: QueryId,
+        stats: Box<BenchmarkStats>,
+    },
+    /// Describe table completed with column statistics.
+    DescribeCompleted {
+        id: QueryId,
+        stats: Box<DescribeStats>,
+    },
 }
 
 impl QueryEvent {
@@ -603,7 +779,10 @@ impl QueryEvent {
             | Self::Progress { id, .. }
             | Self::Completed { id, .. }
             | Self::Failed { id, .. }
-            | Self::Cancelled { id, .. } => *id,
+            | Self::Cancelled { id, .. }
+            | Self::BenchmarkProgress { id, .. }
+            | Self::BenchmarkCompleted { id, .. }
+            | Self::DescribeCompleted { id, .. } => *id,
         }
     }
 }

@@ -2,7 +2,10 @@
 
 use enya_datafusion::arrow::array::RecordBatch;
 use enya_datafusion::arrow::datatypes::SchemaRef;
-use enya_datafusion::{ColumnInfo, ExecutionStats, PlanNode, QueryId};
+
+use enya_datafusion::{
+    BenchmarkStats, ColumnInfo, DescribeStats, ExecutionStats, PlanNode, QueryId,
+};
 
 use super::connections::ConnectionId;
 
@@ -232,6 +235,30 @@ pub(super) struct ExplainData {
     pub error: Option<String>,
 }
 
+/// Data specific to a benchmark results cell.
+pub(super) struct BenchmarkData {
+    /// Current execution status.
+    pub status: QueryStatus,
+    /// Error message if benchmark failed.
+    pub error: Option<String>,
+    /// Current iteration progress (completed, total).
+    pub progress: Option<(usize, usize)>,
+    /// Duration of the last completed iteration.
+    pub last_duration: Option<std::time::Duration>,
+    /// Final benchmark statistics.
+    pub stats: Option<BenchmarkStats>,
+}
+
+/// Data specific to a describe statistics cell.
+pub(super) struct DescribeData {
+    /// Current execution status.
+    pub status: QueryStatus,
+    /// Error message if describe failed.
+    pub error: Option<String>,
+    /// Final describe statistics.
+    pub stats: Option<DescribeStats>,
+}
+
 /// The kind of cell, carrying variant-specific data.
 #[allow(clippy::large_enum_variant)]
 pub(super) enum CellKind {
@@ -243,6 +270,10 @@ pub(super) enum CellKind {
     Diff(DiffData),
     /// Explain/analyze execution plan.
     Explain(ExplainData),
+    /// Benchmark results with per-iteration timings.
+    Benchmark(BenchmarkData),
+    /// Describe table statistics.
+    Describe(DescribeData),
 }
 
 /// A single cell in the SQL notebook history.
@@ -371,6 +402,78 @@ impl Cell {
         }
     }
 
+    /// Create a benchmark cell in Running state.
+    pub fn benchmark(sql: impl Into<String>, id: QueryId) -> Self {
+        Self {
+            meta: CellMeta {
+                id,
+                sql: sql.into(),
+            },
+            kind: CellKind::Benchmark(BenchmarkData {
+                status: QueryStatus::Running,
+                error: None,
+                progress: None,
+                last_duration: None,
+                stats: None,
+            }),
+        }
+    }
+
+    /// Create a completed benchmark cell (e.g. from snapshot).
+    pub fn benchmark_completed(
+        sql: impl Into<String>,
+        id: QueryId,
+        stats: Option<BenchmarkStats>,
+    ) -> Self {
+        Self {
+            meta: CellMeta {
+                id,
+                sql: sql.into(),
+            },
+            kind: CellKind::Benchmark(BenchmarkData {
+                status: QueryStatus::Completed,
+                error: None,
+                progress: None,
+                last_duration: None,
+                stats,
+            }),
+        }
+    }
+
+    /// Create a describe cell in Running state.
+    pub fn describe(sql: impl Into<String>, id: QueryId) -> Self {
+        Self {
+            meta: CellMeta {
+                id,
+                sql: sql.into(),
+            },
+            kind: CellKind::Describe(DescribeData {
+                status: QueryStatus::Running,
+                error: None,
+                stats: None,
+            }),
+        }
+    }
+
+    /// Create a completed describe cell (e.g. from snapshot).
+    pub fn describe_completed(
+        sql: impl Into<String>,
+        id: QueryId,
+        stats: Option<DescribeStats>,
+    ) -> Self {
+        Self {
+            meta: CellMeta {
+                id,
+                sql: sql.into(),
+            },
+            kind: CellKind::Describe(DescribeData {
+                status: QueryStatus::Completed,
+                error: None,
+                stats,
+            }),
+        }
+    }
+
     // --- Convenience accessors ---
 
     /// Cell identifier.
@@ -396,6 +499,8 @@ impl Cell {
             }
             CellKind::Diff(d) => d.status.clone(),
             CellKind::Explain(e) => e.status.clone(),
+            CellKind::Benchmark(b) => b.status.clone(),
+            CellKind::Describe(d) => d.status.clone(),
         }
     }
 
@@ -406,6 +511,8 @@ impl Cell {
             CellKind::Info(i) => i.error.as_deref(),
             CellKind::Diff(d) => d.error.as_deref(),
             CellKind::Explain(e) => e.error.as_deref(),
+            CellKind::Benchmark(b) => b.error.as_deref(),
+            CellKind::Describe(d) => d.error.as_deref(),
         }
     }
 
@@ -473,6 +580,8 @@ impl Cell {
             CellKind::Query(q) => q.status = status,
             CellKind::Diff(d) => d.status = status,
             CellKind::Explain(e) => e.status = status,
+            CellKind::Benchmark(b) => b.status = status,
+            CellKind::Describe(d) => d.status = status,
             CellKind::Info(_) => {}
         }
     }
@@ -483,7 +592,25 @@ impl Cell {
             CellKind::Query(q) => q.error = Some(error),
             CellKind::Diff(d) => d.error = Some(error),
             CellKind::Explain(e) => e.error = Some(error),
+            CellKind::Benchmark(b) => b.error = Some(error),
+            CellKind::Describe(d) => d.error = Some(error),
             CellKind::Info(i) => i.error = Some(error),
+        }
+    }
+
+    /// Get mutable access to benchmark data (returns None for non-benchmark cells).
+    pub fn as_benchmark_mut(&mut self) -> Option<&mut BenchmarkData> {
+        match &mut self.kind {
+            CellKind::Benchmark(b) => Some(b),
+            _ => None,
+        }
+    }
+
+    /// Get mutable access to describe data (returns None for non-describe cells).
+    pub fn as_describe_mut(&mut self) -> Option<&mut DescribeData> {
+        match &mut self.kind {
+            CellKind::Describe(d) => Some(d),
+            _ => None,
         }
     }
 }
