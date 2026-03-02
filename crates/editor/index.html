@@ -8,39 +8,6 @@
 <head>
     <title>Enya</title>
 
-    <!-- Deep link: attempt to open enya:// URL scheme for snapshot links.
-         If the native app is installed, it opens the snapshot directly.
-         The WASM app loads in parallel as a fallback. -->
-    <script>
-    (function() {
-        var params = new URLSearchParams(window.location.search);
-        var snapshotId = params.get('snapshot');
-        if (!snapshotId) return;
-
-        // Only attempt on desktop platforms
-        var ua = navigator.userAgent.toLowerCase();
-        var isDesktop = (ua.indexOf('mac') !== -1 || ua.indexOf('win') !== -1 || ua.indexOf('linux') !== -1)
-            && ua.indexOf('mobile') === -1
-            && ua.indexOf('android') === -1;
-        if (!isDesktop) return;
-
-        // Skip if user previously dismissed the native redirect this session
-        try { if (sessionStorage.getItem('enya-skip-native') === '1') return; } catch(e) {}
-
-        // Attempt to open the native app via hidden iframe
-        var deepLink = 'enya://snapshot/' + encodeURIComponent(snapshotId);
-        var iframe = document.createElement('iframe');
-        iframe.style.display = 'none';
-        iframe.src = deepLink;
-        document.documentElement.appendChild(iframe);
-
-        // Clean up after a timeout — WASM loading proceeds in parallel regardless
-        setTimeout(function() {
-            if (iframe.parentNode) iframe.parentNode.removeChild(iframe);
-        }, 2500);
-    })();
-    </script>
-
     <!-- config for our rust wasm binary. go to https://trunkrs.dev/assets/#rust for more customization -->
     <!-- wasm-opt disabled: Rust 1.84+ emits bulk-memory ops by default, which wasm-opt doesn't accept
          without --enable-bulk-memory, and trunk has no way to pass extra flags. Rust's own opt-level=2
