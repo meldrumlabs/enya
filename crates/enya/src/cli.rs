@@ -21,6 +21,10 @@ struct Cli {
     /// Open a specific workspace (GUI mode only)
     #[arg(long)]
     workspace: Option<String>,
+
+    /// Handle an enya:// deep link URL (used internally by macOS URL scheme handler)
+    #[arg(long, hide = true)]
+    url: Option<String>,
 }
 
 #[derive(Subcommand)]
@@ -621,10 +625,16 @@ pub fn run() -> ExitCode {
         };
     }
 
+    // Parse enya:// deep link URL if provided (e.g. from macOS URL scheme cold launch)
+    let startup_snapshot = cli.url.as_deref().and_then(|url| {
+        url.strip_prefix("enya://snapshot/")
+            .map(|id| id.to_string())
+    });
+
     // No subcommand (or `open`): launch GUI editor
     #[cfg(feature = "ui")]
     {
-        match enya_editor::run_native_app(workspace) {
+        match enya_editor::run_native_app(workspace, startup_snapshot) {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {
                 eprintln!("{} {e}", style("error:").red().bold());
@@ -635,7 +645,7 @@ pub fn run() -> ExitCode {
 
     #[cfg(not(feature = "ui"))]
     {
-        let _ = workspace;
+        let _ = (workspace, startup_snapshot);
         eprintln!(
             "{} GUI not available (built without 'ui' feature)",
             style("error:").red().bold()

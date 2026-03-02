@@ -112,9 +112,11 @@ gloo-timers = { workspace = true, features = ["futures"] }
 eframe = { workspace = true, features = ["x11", "wayland"] }
 wgpu = { workspace = true, features = ["vulkan"] }
 
-# macOS: enable metal backend for wgpu
+# macOS: enable metal backend for wgpu, objc2 for URL scheme handling
 [target.'cfg(target_os = "macos")'.dependencies]
 wgpu = { workspace = true, features = ["metal"] }
+objc2 = "0.5.2"
+objc2-foundation = { version = "0.2.2", features = ["NSAppleEventManager", "NSAppleEventDescriptor", "NSString"] }
 
 # Windows: enable vulkan backend for wgpu
 [target.'cfg(target_os = "windows")'.dependencies]

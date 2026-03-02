@@ -9,7 +9,7 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 // When compiling natively:
 #[cfg(not(target_arch = "wasm32"))]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    enya_editor::run_native_app(None)
+    enya_editor::run_native_app(None, None)
 }
 
 // When compiling to web using trunk:

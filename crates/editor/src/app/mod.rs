@@ -99,6 +99,10 @@ pub struct EnyaApp {
     #[cfg(not(target_arch = "wasm32"))]
     startup_workspace: Option<String>,
 
+    // Startup snapshot ID to fetch on first frame (native only, set via enya:// deep link or CLI --url flag)
+    #[cfg(not(target_arch = "wasm32"))]
+    startup_snapshot: Option<String>,
+
     // Plugin system (registry manages plugins, context provides editor services)
     #[allow(dead_code)] // Will be used when plugin commands are dispatched
     plugin_registry: PluginRegistry,
@@ -427,6 +431,8 @@ impl EnyaApp {
             install_plugin_ready: false,
             #[cfg(not(target_arch = "wasm32"))]
             startup_workspace: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            startup_snapshot: None,
             checked_auto_restore: false,
         }
     }
@@ -437,6 +443,14 @@ impl EnyaApp {
     #[cfg(not(target_arch = "wasm32"))]
     pub fn set_startup_workspace(&mut self, name: String) {
         self.startup_workspace = Some(name);
+    }
+
+    /// Set a snapshot ID to fetch on the first frame (native only).
+    ///
+    /// Used by the `enya://snapshot/<id>` deep link or `enya --url` CLI flag.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn set_startup_snapshot(&mut self, id: String) {
+        self.startup_snapshot = Some(id);
     }
 
     fn check_keyboard_shortcuts(&self, egui_ctx: &egui::Context) {
@@ -967,6 +981,12 @@ impl EnyaApp {
         #[cfg(not(target_arch = "wasm32"))]
         if let Some(ws_name) = self.startup_workspace.take() {
             self.load_workspace(&ws_name);
+        }
+
+        // On native, fetch startup snapshot on first frame if specified via deep link or CLI
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(snapshot_id) = self.startup_snapshot.take() {
+            self.fetch_snapshot(ctx, &snapshot_id);
         }
 
         // On WASM, check for workspace or pane parameter in URL on first frame
@@ -1911,6 +1931,15 @@ impl eframe::App for EnyaApp {
 
         // Poll snapshot loads for completed fetches
         self.poll_snapshot_load(ctx);
+
+        // Poll for URLs received via macOS enya:// deep links
+        #[cfg(target_os = "macos")]
+        for url in crate::platform::drain_pending_urls() {
+            if let Some(snapshot_id) = url.strip_prefix("enya://snapshot/") {
+                log::info!("Deep link: loading snapshot {snapshot_id}");
+                self.fetch_snapshot(ctx, snapshot_id);
+            }
+        }
 
         // Poll plugin pane refreshes (auto-refresh based on intervals)
         self.poll_plugin_pane_refreshes();

@@ -535,7 +535,6 @@ impl EnyaApp {
     }
 
     /// Fetch a snapshot blob from the server by ID, decode it, and put the result in pending.
-    #[cfg(target_arch = "wasm32")]
     pub(super) fn fetch_snapshot(&mut self, ctx: &egui::Context, id: &str) {
         let pending = std::sync::Arc::clone(&self.pending_snapshot_load);
         let client = self.snapshot_http_client.clone();

@@ -54,6 +54,10 @@ pub mod github_auth;
 /// Plugin system for extending editor functionality.
 pub mod plugin;
 
+/// Platform-specific integration (URL schemes, native APIs, etc.).
+#[cfg(not(target_arch = "wasm32"))]
+pub mod platform;
+
 pub use plugin::{
     Plugin, PluginCapabilities, PluginContext, PluginError, PluginId, PluginInfo, PluginRegistry,
     PluginResult, PluginState,
@@ -67,8 +71,13 @@ pub use app::{AppState, EnyaApp};
 /// TLS setup, profiling, and eframe window creation.
 ///
 /// If `startup_workspace` is `Some`, that workspace will be loaded on the first frame.
+/// If `startup_snapshot` is `Some`, that snapshot ID will be fetched from the blob server
+/// and loaded on the first frame (used by `enya://snapshot/<id>` deep links).
 #[cfg(not(target_arch = "wasm32"))]
-pub fn run_native_app(startup_workspace: Option<String>) -> Result<(), Box<dyn std::error::Error>> {
+pub fn run_native_app(
+    startup_workspace: Option<String>,
+    startup_snapshot: Option<String>,
+) -> Result<(), Box<dyn std::error::Error>> {
     // Initialize logging. Use RUST_LOG env var to control log levels.
     // Default: enya_editor=info, everything else=warn (to suppress wgpu noise)
     simple_logger::SimpleLogger::new()
@@ -101,6 +110,11 @@ pub fn run_native_app(startup_workspace: Option<String>) -> Result<(), Box<dyn s
         Err(_) => panic!("failed to install CryptoProvider"),
     }
 
+    // Register macOS URL scheme handler before starting the event loop.
+    // This catches enya:// URLs opened by the OS (both cold and warm launch).
+    #[cfg(target_os = "macos")]
+    platform::init_url_handler();
+
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1280.0, 800.0])
@@ -122,6 +136,9 @@ pub fn run_native_app(startup_workspace: Option<String>) -> Result<(), Box<dyn s
             let mut app = EnyaApp::new(cc, async_runtime);
             if let Some(ws) = startup_workspace {
                 app.set_startup_workspace(ws);
+            }
+            if let Some(snapshot_id) = startup_snapshot {
+                app.set_startup_snapshot(snapshot_id);
             }
             Ok(Box::new(app))
         }),
