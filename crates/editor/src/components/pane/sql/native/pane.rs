@@ -4372,11 +4372,15 @@ impl SqlPane {
 
                     // Handle keyboard navigation for suggestions
                     if response.has_focus() {
-                        // Handle Escape key — dismiss suggestions
-                        if ui.input(|i| i.key_pressed(egui::Key::Escape))
-                            && self.suggestions.visible
-                        {
-                            self.suggestions.visible = false;
+                        if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                            if self.suggestions.visible {
+                                // First Escape: dismiss suggestions, keep focus
+                                self.suggestions.visible = false;
+                            } else {
+                                // Second Escape (or no suggestions): surrender focus
+                                // so pane-level shortcuts (x to close, etc.) work
+                                response.surrender_focus();
+                            }
                         }
 
                         // Up/Down for suggestion navigation (only when suggestions visible)
