@@ -163,38 +163,43 @@ impl SqlPane {
 
     /// Render the single snapshot cell.
     fn show_notebook(&mut self, ui: &mut egui::Ui) {
-        let avail_width = ui.available_width();
-        let max_width = avail_width.min(900.0);
+        egui::Frame::new()
+            .inner_margin(egui::Margin::symmetric(16, 8))
+            .show(ui, |ui| {
+                let avail_width = ui.available_width();
+                let max_width = avail_width.min(900.0);
 
-        ui.allocate_ui_with_layout(
-            egui::vec2(avail_width, ui.available_height()),
-            egui::Layout::top_down(egui::Align::Center),
-            |ui| {
-                ui.set_max_width(max_width);
-                ui.add_space(8.0);
-                egui::ScrollArea::vertical()
-                    .auto_shrink([false, false])
-                    .show(ui, |ui| {
-                        if let Some(cell) = &self.snapshot_cell {
-                            let state = &mut self.cell_view_state;
-                            let card_actions =
-                                snapshot_card::render_snapshot_card(ui, cell, 0, state, self.theme);
+                ui.allocate_ui_with_layout(
+                    egui::vec2(avail_width, ui.available_height()),
+                    egui::Layout::top_down(egui::Align::Center),
+                    |ui| {
+                        ui.set_max_width(max_width);
+                        egui::ScrollArea::vertical()
+                            .auto_shrink([false, false])
+                            .show(ui, |ui| {
+                                if let Some(cell) = &self.snapshot_cell {
+                                    let state = &mut self.cell_view_state;
+                                    let card_actions = snapshot_card::render_snapshot_card(
+                                        ui, cell, 0, state, self.theme,
+                                    );
 
-                            for action in card_actions {
-                                match action {
-                                    snapshot_card::CardAction::Collapse => {}
-                                    snapshot_card::CardAction::NextPage => {
-                                        self.cell_view_state.table_page += 1;
-                                    }
-                                    snapshot_card::CardAction::PrevPage => {
-                                        if self.cell_view_state.table_page > 0 {
-                                            self.cell_view_state.table_page -= 1;
+                                    for action in card_actions {
+                                        match action {
+                                            snapshot_card::CardAction::Collapse => {}
+                                            snapshot_card::CardAction::NextPage => {
+                                                self.cell_view_state.table_page += 1;
+                                            }
+                                            snapshot_card::CardAction::PrevPage => {
+                                                if self.cell_view_state.table_page > 0 {
+                                                    self.cell_view_state.table_page -= 1;
+                                                }
+                                            }
                                         }
                                     }
                                 }
-                            }
-                        }
-                    });
+                            });
+                    },
+                );
             });
     }
 }

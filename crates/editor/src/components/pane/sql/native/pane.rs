@@ -1803,7 +1803,7 @@ impl SqlPane {
 
         egui::Frame::new()
             .fill(bg_base)
-            .inner_margin(egui::Margin::symmetric(0, 12))
+            .inner_margin(egui::Margin::symmetric(16, 12))
             .show(ui, |ui| {
                 // Center content with max width, scrollbar stays at pane edge
                 let available_width = ui.available_width();
