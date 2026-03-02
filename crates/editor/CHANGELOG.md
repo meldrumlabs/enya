@@ -6,6 +6,8 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Added
 
+- **Snapshot support for TracingPane and LogsPane**: Trace and log panes are now included in snapshots. Previously they were silently skipped when sharing snapshots.
+- **Snapshot trait methods on Component**: Added `extract_snapshot_data()`, `load_snapshot_data()`, and `to_pane_config()` as default methods on the `Component` trait, making snapshot support an explicit contract for new pane types.
 - **macOS window vibrancy**: The custom titlebar now has a subtle translucent vibrancy effect on macOS, allowing the desktop to gently show through. Uses `NSVisualEffectView` with the colorless Selection material (same approach as Zed) for a neutral blur that works with all themes.
 
 ### Changed

@@ -136,6 +136,49 @@ pub struct SnapshotSeries {
     pub points: Vec<(f64, f64)>,
 }
 
+/// A log entry for snapshots (mirrors `enya_client::logs::LogEntry`).
+#[derive(Debug, Clone)]
+pub struct SnapshotLogEntry {
+    /// Timestamp in nanoseconds since Unix epoch.
+    pub timestamp_ns: i64,
+    /// The log message content.
+    pub message: String,
+    /// Labels/metadata, sorted by key for deterministic encoding.
+    pub labels: Vec<(String, String)>,
+    /// Parsed log level as lowercase string (e.g. "info", "error").
+    pub level: Option<String>,
+}
+
+/// A span log event for snapshots.
+#[derive(Debug, Clone)]
+pub struct SnapshotSpanLog {
+    /// Timestamp in microseconds since Unix epoch.
+    pub timestamp_us: u64,
+    /// Log fields, sorted by key for deterministic encoding.
+    pub fields: Vec<(String, String)>,
+}
+
+/// A span for snapshots (mirrors `enya_client::tracing::Span`).
+#[derive(Debug, Clone)]
+pub struct SnapshotSpan {
+    pub span_id: String,
+    pub trace_id: String,
+    pub parent_span_id: Option<String>,
+    pub operation_name: String,
+    pub service_name: String,
+    pub start_time_us: u64,
+    pub duration_us: u64,
+    /// Status: 0=Ok, 1=Error, 2=Unset
+    pub status: u8,
+    /// Tags, sorted by key for deterministic encoding.
+    pub tags: Vec<(String, String)>,
+    pub logs: Vec<SnapshotSpanLog>,
+    pub depth: u16,
+}
+
+/// Maximum number of log entries to include in a snapshot.
+pub const SNAPSHOT_MAX_LOG_ENTRIES: usize = 500;
+
 /// Snapshot data for a single pane's visualization.
 #[derive(Debug, Clone)]
 pub enum SnapshotPaneData {
@@ -153,6 +196,21 @@ pub enum SnapshotPaneData {
         rows: u16,
         values: Vec<f32>,
     },
+    /// Log query results
+    Logs {
+        query: String,
+        entries: Vec<SnapshotLogEntry>,
+        start_ns: i64,
+        end_ns: i64,
+    },
+    /// Distributed trace data
+    Trace {
+        trace_id: String,
+        spans: Vec<SnapshotSpan>,
+        duration_us: u64,
+        start_time_us: u64,
+        services: Vec<String>,
+    },
 }
 
 impl SnapshotPaneData {
@@ -166,6 +224,8 @@ impl SnapshotPaneData {
             Self::Gauge { .. } => false, // gauge always has a value
             Self::BarChart { bars } => bars.is_empty(),
             Self::Heatmap { values, .. } => values.is_empty(),
+            Self::Logs { entries, .. } => entries.is_empty(),
+            Self::Trace { spans, .. } => spans.is_empty(),
         }
     }
 }

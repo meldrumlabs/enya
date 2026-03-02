@@ -17,8 +17,9 @@
 use serde::{Deserialize, Serialize};
 
 use super::{
-    LayoutConfig, LayoutContainer, LayoutNode, LayoutType, PaneConfig, SnapshotMeta,
-    SnapshotPaneData, SnapshotSeries, WorkspaceConfig, WorkspaceError,
+    LayoutConfig, LayoutContainer, LayoutNode, LayoutType, PaneConfig, SNAPSHOT_MAX_LOG_ENTRIES,
+    SnapshotLogEntry, SnapshotMeta, SnapshotPaneData, SnapshotSeries, SnapshotSpan,
+    SnapshotSpanLog, WorkspaceConfig, WorkspaceError,
 };
 
 /// Compact workspace representation for URL sharing (postcard binary format)
@@ -111,6 +112,38 @@ pub(crate) enum CompactDeltas {
     Irregular(Vec<u32>),
 }
 
+/// Compact log entry for snapshot encoding.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct CompactLogEntry {
+    pub timestamp_ns: i64,
+    pub message: String,
+    pub labels: Vec<(String, String)>,
+    pub level: Option<String>,
+}
+
+/// Compact span log event for snapshot encoding.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct CompactSpanLog {
+    pub timestamp_us: u64,
+    pub fields: Vec<(String, String)>,
+}
+
+/// Compact span for snapshot encoding.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct CompactSpan {
+    pub span_id: String,
+    pub trace_id: String,
+    pub parent_span_id: Option<String>,
+    pub operation_name: String,
+    pub service_name: String,
+    pub start_time_us: u64,
+    pub duration_us: u64,
+    pub status: u8,
+    pub tags: Vec<(String, String)>,
+    pub logs: Vec<CompactSpanLog>,
+    pub depth: u16,
+}
+
 /// Compact visualization data enum (uses f32 for all numeric fields)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) enum CompactVizData {
@@ -129,6 +162,19 @@ pub(crate) enum CompactVizData {
         cols: u16,
         rows: u16,
         values: Vec<f32>,
+    },
+    Logs {
+        query: String,
+        entries: Vec<CompactLogEntry>,
+        start_ns: i64,
+        end_ns: i64,
+    },
+    Trace {
+        trace_id: String,
+        spans: Vec<CompactSpan>,
+        duration_us: u64,
+        start_time_us: u64,
+        services: Vec<String>,
     },
 }
 
@@ -329,6 +375,61 @@ impl CompactVizData {
                 rows: *rows,
                 values: values.clone(),
             },
+            SnapshotPaneData::Logs {
+                query,
+                entries,
+                start_ns,
+                end_ns,
+            } => CompactVizData::Logs {
+                query: query.clone(),
+                entries: entries
+                    .iter()
+                    .take(SNAPSHOT_MAX_LOG_ENTRIES)
+                    .map(|e| CompactLogEntry {
+                        timestamp_ns: e.timestamp_ns,
+                        message: e.message.clone(),
+                        labels: e.labels.clone(),
+                        level: e.level.clone(),
+                    })
+                    .collect(),
+                start_ns: *start_ns,
+                end_ns: *end_ns,
+            },
+            SnapshotPaneData::Trace {
+                trace_id,
+                spans,
+                duration_us,
+                start_time_us,
+                services,
+            } => CompactVizData::Trace {
+                trace_id: trace_id.clone(),
+                spans: spans
+                    .iter()
+                    .map(|s| CompactSpan {
+                        span_id: s.span_id.clone(),
+                        trace_id: s.trace_id.clone(),
+                        parent_span_id: s.parent_span_id.clone(),
+                        operation_name: s.operation_name.clone(),
+                        service_name: s.service_name.clone(),
+                        start_time_us: s.start_time_us,
+                        duration_us: s.duration_us,
+                        status: s.status,
+                        tags: s.tags.clone(),
+                        logs: s
+                            .logs
+                            .iter()
+                            .map(|l| CompactSpanLog {
+                                timestamp_us: l.timestamp_us,
+                                fields: l.fields.clone(),
+                            })
+                            .collect(),
+                        depth: s.depth,
+                    })
+                    .collect(),
+                duration_us: *duration_us,
+                start_time_us: *start_time_us,
+                services: services.clone(),
+            },
         }
     }
 
@@ -402,6 +503,60 @@ impl CompactVizData {
             CompactVizData::Heatmap { cols, rows, values } => {
                 SnapshotPaneData::Heatmap { cols, rows, values }
             }
+            CompactVizData::Logs {
+                query,
+                entries,
+                start_ns,
+                end_ns,
+            } => SnapshotPaneData::Logs {
+                query,
+                entries: entries
+                    .into_iter()
+                    .map(|e| SnapshotLogEntry {
+                        timestamp_ns: e.timestamp_ns,
+                        message: e.message,
+                        labels: e.labels,
+                        level: e.level,
+                    })
+                    .collect(),
+                start_ns,
+                end_ns,
+            },
+            CompactVizData::Trace {
+                trace_id,
+                spans,
+                duration_us,
+                start_time_us,
+                services,
+            } => SnapshotPaneData::Trace {
+                trace_id,
+                spans: spans
+                    .into_iter()
+                    .map(|s| SnapshotSpan {
+                        span_id: s.span_id,
+                        trace_id: s.trace_id,
+                        parent_span_id: s.parent_span_id,
+                        operation_name: s.operation_name,
+                        service_name: s.service_name,
+                        start_time_us: s.start_time_us,
+                        duration_us: s.duration_us,
+                        status: s.status,
+                        tags: s.tags,
+                        logs: s
+                            .logs
+                            .into_iter()
+                            .map(|l| SnapshotSpanLog {
+                                timestamp_us: l.timestamp_us,
+                                fields: l.fields,
+                            })
+                            .collect(),
+                        depth: s.depth,
+                    })
+                    .collect(),
+                duration_us,
+                start_time_us,
+                services,
+            },
         }
     }
 }
@@ -650,6 +805,8 @@ impl CompactWorkspaceConfig {
                         "bar_chart" => 3,
                         "sparkline" => 4,
                         "heatmap" => 5,
+                        "logs" => 6,
+                        "tracing" => 7,
                         _ => 0,
                     };
                     // Pack: bits 0-2 = granularity, bits 3-5 = visualization
@@ -748,6 +905,8 @@ impl CompactWorkspaceConfig {
                         3 => "bar_chart",
                         4 => "sparkline",
                         5 => "heatmap",
+                        6 => "logs",
+                        7 => "tracing",
                         _ => "time_series",
                     }
                     .to_string(),
@@ -791,6 +950,8 @@ impl CompactSinglePane {
             "bar_chart" => 3,
             "sparkline" => 4,
             "heatmap" => 5,
+            "logs" => 6,
+            "tracing" => 7,
             _ => 0,
         };
         // Pack header: bits 0-2 = time, bit 3 = theme
@@ -864,6 +1025,8 @@ impl CompactSinglePane {
                 3 => "bar_chart",
                 4 => "sparkline",
                 5 => "heatmap",
+                6 => "logs",
+                7 => "tracing",
                 _ => "time_series",
             }
             .to_string(),
@@ -1583,6 +1746,20 @@ mod tests {
     // ==========================================================================
     // Snapshot encoding tests
     // ==========================================================================
+
+    fn make_workspace_with_viz(viz: &str) -> WorkspaceConfig {
+        let mut ws = WorkspaceConfig::new("snap");
+        ws.panes.push(PaneConfig {
+            query: String::new(),
+            name: String::new(),
+            description: String::new(),
+            tag: String::new(),
+            unit: String::new(),
+            granularity: "5m".to_string(),
+            visualization: viz.to_string(),
+        });
+        ws
+    }
 
     fn make_time_series_data() -> SnapshotPaneData {
         SnapshotPaneData::TimeSeries {
@@ -2414,5 +2591,125 @@ mod tests {
         // Snapshot data should also be preserved
         let snapshot = decoded.snapshot.expect("snapshot should exist");
         assert_eq!(snapshot.pane_data.len(), 3);
+    }
+
+    #[test]
+    fn snapshot_logs_round_trip() {
+        let pane_data = vec![SnapshotPaneData::Logs {
+            query: "{app=\"test\"}".to_string(),
+            entries: vec![
+                SnapshotLogEntry {
+                    timestamp_ns: 1_700_000_000_000_000_000,
+                    message: "GET /api/health 200".to_string(),
+                    labels: vec![
+                        ("app".to_string(), "test".to_string()),
+                        ("level".to_string(), "info".to_string()),
+                    ],
+                    level: Some("info".to_string()),
+                },
+                SnapshotLogEntry {
+                    timestamp_ns: 1_700_000_001_000_000_000,
+                    message: "connection refused".to_string(),
+                    labels: vec![("app".to_string(), "test".to_string())],
+                    level: Some("error".to_string()),
+                },
+            ],
+            start_ns: 1_700_000_000_000_000_000,
+            end_ns: 1_700_003_600_000_000_000,
+        }];
+        let ws = make_workspace_with_viz("logs");
+        let encoded =
+            encode_snapshot_workspace(&ws, &pane_data, 1700000000).expect("encode should succeed");
+        let decoded = decode_workspace(&encoded).expect("decode should succeed");
+
+        let snapshot = decoded.snapshot.expect("snapshot should exist");
+        assert_eq!(snapshot.pane_data.len(), 1);
+        match &snapshot.pane_data[0] {
+            SnapshotPaneData::Logs {
+                query,
+                entries,
+                start_ns,
+                end_ns,
+            } => {
+                assert_eq!(query, "{app=\"test\"}");
+                assert_eq!(entries.len(), 2);
+                assert_eq!(entries[0].message, "GET /api/health 200");
+                assert_eq!(entries[0].level.as_deref(), Some("info"));
+                assert_eq!(entries[1].message, "connection refused");
+                assert_eq!(*start_ns, 1_700_000_000_000_000_000);
+                assert_eq!(*end_ns, 1_700_003_600_000_000_000);
+            }
+            other => panic!("Expected Logs, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn snapshot_trace_round_trip() {
+        let pane_data = vec![SnapshotPaneData::Trace {
+            trace_id: "abc123def456".to_string(),
+            spans: vec![
+                SnapshotSpan {
+                    span_id: "span1".to_string(),
+                    trace_id: "abc123def456".to_string(),
+                    parent_span_id: None,
+                    operation_name: "GET /api".to_string(),
+                    service_name: "gateway".to_string(),
+                    start_time_us: 1_700_000_000_000_000,
+                    duration_us: 5000,
+                    status: 0,
+                    tags: vec![("http.method".to_string(), "GET".to_string())],
+                    logs: vec![SnapshotSpanLog {
+                        timestamp_us: 1_700_000_000_001_000,
+                        fields: vec![("message".to_string(), "request started".to_string())],
+                    }],
+                    depth: 0,
+                },
+                SnapshotSpan {
+                    span_id: "span2".to_string(),
+                    trace_id: "abc123def456".to_string(),
+                    parent_span_id: Some("span1".to_string()),
+                    operation_name: "db.query".to_string(),
+                    service_name: "backend".to_string(),
+                    start_time_us: 1_700_000_000_001_000,
+                    duration_us: 3000,
+                    status: 1, // Error
+                    tags: vec![],
+                    logs: vec![],
+                    depth: 1,
+                },
+            ],
+            duration_us: 5000,
+            start_time_us: 1_700_000_000_000_000,
+            services: vec!["backend".to_string(), "gateway".to_string()],
+        }];
+        let ws = make_workspace_with_viz("tracing");
+        let encoded =
+            encode_snapshot_workspace(&ws, &pane_data, 1700000000).expect("encode should succeed");
+        let decoded = decode_workspace(&encoded).expect("decode should succeed");
+
+        let snapshot = decoded.snapshot.expect("snapshot should exist");
+        assert_eq!(snapshot.pane_data.len(), 1);
+        match &snapshot.pane_data[0] {
+            SnapshotPaneData::Trace {
+                trace_id,
+                spans,
+                duration_us,
+                start_time_us,
+                services,
+            } => {
+                assert_eq!(trace_id, "abc123def456");
+                assert_eq!(spans.len(), 2);
+                assert_eq!(spans[0].operation_name, "GET /api");
+                assert_eq!(spans[0].service_name, "gateway");
+                assert_eq!(spans[0].status, 0);
+                assert_eq!(spans[0].logs.len(), 1);
+                assert_eq!(spans[1].parent_span_id.as_deref(), Some("span1"));
+                assert_eq!(spans[1].status, 1);
+                assert_eq!(*duration_us, 5000);
+                assert_eq!(*start_time_us, 1_700_000_000_000_000);
+                assert_eq!(services, &["backend", "gateway"]);
+            }
+            other => panic!("Expected Trace, got {other:?}"),
+        }
     }
 }
