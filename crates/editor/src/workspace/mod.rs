@@ -87,12 +87,12 @@ use layout_animation::LayoutAnimator;
 
 // Re-export config types for convenience
 pub use config::{
-    ATLAS_WORKSPACE_TOML, ConnectionConfig, GOLDEN_SIGNALS_TOML, GitConfig, INFRASTRUCTURE_TOML,
-    LayoutConfig, LayoutContainer, LayoutNode, LayoutType, LogsConfig, MULTI_SERVICE_TOML,
-    MetricsConfig, PaneConfig, PaneConfigExt, PluginsConfig, RefreshInterval, TimeConfig,
-    TimeConfigExt, TracingConfig, ViewConfig, ViewConfigExt, WORKSPACE_VERSION, WorkspaceConfig,
-    WorkspaceError, WorkspaceMeta, pane_from_query_state, pane_from_query_state_with_viz,
-    time_config_from_preset, time_config_from_preset_with_refresh,
+    ConnectionConfig, GOLDEN_SIGNALS_TOML, GitConfig, INFRASTRUCTURE_TOML, LayoutConfig,
+    LayoutContainer, LayoutNode, LayoutType, LogsConfig, MULTI_SERVICE_TOML, MetricsConfig,
+    PaneConfig, PaneConfigExt, PluginsConfig, RefreshInterval, TimeConfig, TimeConfigExt,
+    TracingConfig, ViewConfig, ViewConfigExt, WORKSPACE_VERSION, WorkspaceConfig, WorkspaceError,
+    WorkspaceMeta, pane_from_query_state, pane_from_query_state_with_viz, time_config_from_preset,
+    time_config_from_preset_with_refresh,
 };
 
 /// Actions that the Workspace needs the App to handle
