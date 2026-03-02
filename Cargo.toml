@@ -44,6 +44,11 @@ members = [
   # CLI tool
   "crates/enya",
 ]
+exclude = [
+  # Vendored dft crates (modified for public field access)
+  "vendors/datafusion-app",
+  "vendors/datafusion-functions-parquet",
+]
 
 [workspace.dependencies]
 enya-promql = { path = "crates/promql", version = "0.1.0" }

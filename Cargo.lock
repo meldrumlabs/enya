@@ -2516,7 +2516,6 @@ dependencies = [
 [[package]]
 name = "datafusion-app"
 version = "0.1.0"
-source = "git+https://github.com/datafusion-contrib/datafusion-dft?rev=cddb4d8#cddb4d891c3378c33b343d4a23b3a6d482738017"
 dependencies = [
  "async-trait",
  "color-eyre",
@@ -2907,7 +2906,6 @@ dependencies = [
 [[package]]
 name = "datafusion-functions-parquet"
 version = "0.1.0"
-source = "git+https://github.com/datafusion-contrib/datafusion-dft?rev=cddb4d8#cddb4d891c3378c33b343d4a23b3a6d482738017"
 dependencies = [
  "arrow",
  "async-trait",
