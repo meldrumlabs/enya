@@ -4,6 +4,7 @@
 edition = "2021"
 name = "datafusion-app"
 version = "0.1.0"
+license = "Apache-2.0"
 
 # Leaving Hudi and Iceberg around in case traction on those picks up.  It would be better if I just remove them from main and create PRs with the diff - maybe ill get around to that.
 
