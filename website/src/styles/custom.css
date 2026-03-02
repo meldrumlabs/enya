@@ -176,6 +176,7 @@ starlight-theme-select {
 }
 
 /* Style header title text in emerald */
+a.site-title,
 .site-title a {
     color: var(--obsidian-accent) !important;
     font-family: 'Geist Mono', monospace !important;

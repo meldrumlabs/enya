@@ -9,10 +9,8 @@ Enya uses vim-style keybindings. This page provides a complete reference of all 
 
 | Key | Action |
 |-----|--------|
-| `h/j/k/l` | Move between panes |
+| `h`/`j`/`k`/`l` | Move between panes |
 | `Ctrl+w h/j/k/l` | Move focus to split |
-| `g` | Go to first pane |
-| `G` | Go to last pane |
 | `Tab` | Next pane |
 | `Shift+Tab` | Previous pane |
 
@@ -20,68 +18,83 @@ Enya uses vim-style keybindings. This page provides a complete reference of all 
 
 | Key | Action |
 |-----|--------|
-| `s` | Horizontal split |
-| `v` | Vertical split |
-| `q` | Close pane |
-| `o` | Maximize/restore pane |
-| `=` | Equalize pane sizes |
+| `x` | Close focused pane |
+| `m` | Maximize focused pane |
+| `F` | Toggle fullscreen for focused pane |
+| `Z` | Toggle zen mode (hide chrome) |
+| `e` | Edit focused pane |
+| `cv` | Cycle visualization type |
+| `yy` | Share/yank focused pane |
 
-## Queries
-
-| Key | Action |
-|-----|--------|
-| `i` | Edit query (insert mode) |
-| `Escape` | Exit insert mode |
-| `Enter` | Execute query |
-| `/` | Search metrics |
-| `Ctrl+p` | Fuzzy finder |
-
-## Time Range
+## Finder and Search
 
 | Key | Action |
 |-----|--------|
-| `.` | Zoom in (time) |
-| `,` | Zoom out (time) |
-| `+` | Zoom in (Y-axis) |
-| `-` | Zoom out (Y-axis) |
-| `Left/Right` | Pan time range |
+| `Space+f` | Open unified finder (metrics, alerts, commits) |
+| `:` | Open command palette |
+| `?` | Show keyboard shortcuts |
 
-## Git Integration
+## Go-To Commands
 
 | Key | Action |
 |-----|--------|
 | `gd` | Go to definition |
 | `ga` | Go to alert |
-| `]c` | Next commit marker |
-| `[c` | Previous commit marker |
+| `gf` | Float focused pane |
 
-## Visual Mode
+## Time Range Presets
+
+Press `t` followed by a key:
+
+| Key | Action |
+|-----|--------|
+| `t 5` | Last 5 minutes |
+| `t 1` | Last 15 minutes |
+| `t 3` | Last 30 minutes |
+| `t h` | Last 1 hour |
+| `t 6` | Last 6 hours |
+| `t d` | Last 24 hours |
+| `t w` | Last 7 days |
+| `t c` | Custom time range |
+
+## Leader Keys (Space)
+
+| Key | Action |
+|-----|--------|
+| `Space+f` | Open unified finder |
+| `Space+a` | Open/focus agent panel |
+| `Space+d` | Toggle diagnostics overlay |
+| `Space+h` | Show home page |
+| `Space+b` | Toggle project sidebar |
+| `Space+p` | Open plugins overlay |
+| `Space+t` | Open time range picker |
+
+## Visual Multi-Select
 
 | Key | Action |
 |-----|--------|
 | `Ctrl+v` | Enter visual-multi mode |
-| `Escape` | Exit visual mode |
-| `j/k` | Extend selection |
-| `d` | Delete selected |
-| `y` | Yank (copy) selected |
-
-## Agent Mode
-
-| Key | Action |
-|-----|--------|
-| `Space+a` | Open agent pane |
-| `@` | Mention metric (in agent input) |
-| `/` | Slash commands (in agent input) |
+| `v` or `Escape` | Exit visual-multi mode |
+| `j`/`k` | Extend selection |
+| `x` | Close all selected |
+| `e` | Multi-edit selected panes |
+| `r` | Refresh all selected |
+| `yy` | Share selected panes |
 
 ## Window Movement
 
 | Key | Action |
 |-----|--------|
-| `Ctrl+w h` | Move pane to far left |
-| `Ctrl+w j` | Move pane to bottom |
-| `Ctrl+w k` | Move pane to top |
-| `Ctrl+w l` | Move pane to far right |
+| `Ctrl+w h/j/k/l` | Move pane in direction |
 | `Ctrl+w t h/j/k/l` | Merge pane into tabs with neighbor |
+
+## Other
+
+| Key | Action |
+|-----|--------|
+| `ct` | Cycle through themes |
+| `u` | Undo last action |
+| `Escape` | Clear focus / exit modal |
 
 ## Command Palette
 
@@ -89,14 +102,27 @@ Press `:` to open the command palette.
 
 | Command | Alias | Action |
 |---------|-------|--------|
-| `:theme <dark/light>` | `t` | Toggle or set theme |
-| `:info` | `version` | Show version and build info |
+| `:version` | | Show version and build info |
 | `:split <h/v>` | `sp` | Split view (horizontal/vertical) |
 | `:vsplit` | `vs` | Vertical split |
 | `:quit` | `q` | Quit workspace |
 | `:write` | `w` | Save workspace |
+| `:settings` | `set` | Open settings (AI, styling, connections) |
 | `:screenshot [path]` | `ss` | Take a screenshot |
-| `:source <name>` | `so` | Load workspace |
 | `:share` | | Share workspace as URL |
-| `:provider <name>` | `ai` | Set AI provider (claude, codex) |
-| `:font <name>` | | Set font (maple, departure, jetbrains, iosevka) |
+| `:terminal` | `term` | Open a terminal pane (native only) |
+| `:sql` | | Open a SQL pane (native only) |
+| `:trace [id]` | `tr` | Open a tracing pane |
+| `:logs` | `log` | Open a logs pane |
+| `:float` | `fl` | Float focused pane |
+| `:dock` | `dk` | Dock all floating panes |
+| `:tutorial` | `tut` | Open interactive tutorial |
+| `:sync git` | | Sync git operations (native only) |
+
+## Agent Input
+
+When typing in the agent panel:
+
+| Key | Action |
+|-----|--------|
+| `@` | Mention a metric |

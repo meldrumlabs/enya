@@ -57,7 +57,6 @@ export default defineConfig({
 			],
 			sidebar: [
 				{ label: 'Getting Started', slug: 'docs/getting-started/introduction' },
-				{ label: 'Editor', slug: 'docs/editor' },
 				{ label: 'Keyboard Reference', slug: 'docs/editor/keyboard-reference' },
 			],
 		}),
