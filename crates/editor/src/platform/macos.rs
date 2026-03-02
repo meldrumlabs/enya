@@ -113,7 +113,7 @@ pub fn apply_vibrancy(cc: &eframe::CreationContext<'_>, is_dark: bool) {
         );
     }
 
-    log::info!("Applied macOS window vibrancy (Selection material)");
+    log::debug!("Applied macOS window vibrancy (Selection material)");
 }
 
 /// Sync the window's NSAppearance with the editor theme.

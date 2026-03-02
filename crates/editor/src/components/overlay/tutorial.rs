@@ -540,7 +540,7 @@ impl TutorialOverlay {
                     ui.add_space(8.0);
                     ui.horizontal(|ui| {
                         let available_width = ui.available_width();
-                        let bar_width = 200.0_f32.min(available_width - 48.0);
+                        let bar_width = 200.0_f32.min((available_width - 48.0).max(1.0));
                         let bar_height = 4.0;
                         let progress = (self.current_step + 1) as f32 / self.steps.len() as f32;
 
@@ -846,7 +846,7 @@ impl TutorialOverlay {
         }
 
         // Clip content to available width to prevent overflow
-        let max_width = ui.available_width() - 10.0;
+        let max_width = (ui.available_width() - 10.0).max(1.0);
 
         // Category header
         ui.add_space(8.0);
@@ -864,11 +864,8 @@ impl TutorialOverlay {
             let is_current = idx == current_step;
 
             // Truncate long titles to fit in column
-            let title = if step.title.len() > 22 {
-                format!("{}…", &step.title[..21])
-            } else {
-                step.title.to_string()
-            };
+            let title =
+                crate::components::util::text_formatting::truncate_with_ellipsis(step.title, 22);
             let step_text = format!("{:>2}  {}", idx + 1, title);
 
             let text_color = if is_selected {

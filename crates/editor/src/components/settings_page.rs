@@ -659,7 +659,7 @@ impl SettingsPage {
             let row_height = 34.0;
             let avail_width = ui.available_width();
             let margin = 12.0;
-            let pill_width = avail_width - margin * 2.0;
+            let pill_width = (avail_width - margin * 2.0).max(1.0);
 
             let (rect, response) =
                 ui.allocate_exact_size(Vec2::new(avail_width, row_height), egui::Sense::click());

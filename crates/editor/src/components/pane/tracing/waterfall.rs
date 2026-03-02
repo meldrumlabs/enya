@@ -161,7 +161,7 @@ impl WaterfallChart {
         let small_font_size = (10.0 * scale_factor).clamp(9.0, 12.0);
 
         // Layout: fixed-width columns with clean proportions
-        let content_width = available_width - 16.0;
+        let content_width = (available_width - 16.0).max(1.0);
         let left_margin = 12.0;
         let right_margin = 12.0;
 
@@ -540,14 +540,16 @@ impl WaterfallChart {
     }
 }
 
-/// Truncate a string to a maximum length, adding ellipsis if needed
+/// Truncate a string to a maximum length, adding ellipsis if needed.
+/// Uses character boundaries to avoid panicking on multi-byte UTF-8.
 fn truncate_string(s: &str, max_len: usize) -> String {
     if s.len() <= max_len {
         s.to_string()
     } else if max_len > 3 {
-        format!("{}...", &s[..max_len - 3])
+        let truncated: String = s.chars().take(max_len - 3).collect();
+        format!("{truncated}...")
     } else {
-        s[..max_len].to_string()
+        s.chars().take(max_len).collect()
     }
 }
 

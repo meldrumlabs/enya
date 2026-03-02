@@ -372,11 +372,7 @@ fn render_inline_table(
                                     );
                                 } else {
                                     let max_chars = ((col_width - 8.0) / 7.0) as usize;
-                                    let display_val = if value.len() > max_chars && max_chars > 3 {
-                                        format!("{}…", &value[..max_chars.saturating_sub(1)])
-                                    } else {
-                                        value.clone()
-                                    };
+                                    let display_val = crate::components::util::text_formatting::truncate_with_ellipsis(value, max_chars);
 
                                     ui.painter().text(
                                         cell_rect.left_center() + egui::vec2(8.0, 0.0),
@@ -938,7 +934,10 @@ fn render_mini_table(
                 let (display, color) = if value == "NULL" {
                     ("null".to_string(), colors.faint_text)
                 } else if value.len() > 12 {
-                    (format!("{}…", &value[..11]), text_secondary)
+                    (
+                        crate::components::util::text_formatting::truncate_with_ellipsis(value, 12),
+                        text_secondary,
+                    )
                 } else {
                     (value.clone(), text_secondary)
                 };
