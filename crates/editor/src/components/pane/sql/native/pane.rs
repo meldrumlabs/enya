@@ -1806,8 +1806,8 @@ impl SqlPane {
             .inner_margin(egui::Margin::symmetric(0, 12))
             .show(ui, |ui| {
                 // Center content with max width, scrollbar stays at pane edge
-                let max_content_width = 900.0;
                 let available_width = ui.available_width();
+                let max_content_width = available_width.min(900.0);
 
                 ui.allocate_ui_with_layout(
                     egui::vec2(available_width, ui.available_height()),
@@ -4331,8 +4331,10 @@ impl SqlPane {
                     let line_count = self.input.lines().count().max(1);
                     let input_height = (line_count as f32 * 16.0).clamp(22.0, 120.0);
 
+                    // Reserve space for the run button (32px + spacing)
+                    let run_button_width = 40.0;
                     let response = ui.add_sized(
-                        egui::vec2((ui.available_width() - 50.0).max(1.0), input_height),
+                        egui::vec2((ui.available_width() - run_button_width).max(1.0), input_height),
                         TextEdit::multiline(&mut self.input)
                             .id(input_id)
                             .font(egui::TextStyle::Monospace)

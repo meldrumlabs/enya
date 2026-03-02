@@ -163,15 +163,15 @@ impl SqlPane {
 
     /// Render the single snapshot cell.
     fn show_notebook(&mut self, ui: &mut egui::Ui) {
-        let max_width = 900.0;
         let avail_width = ui.available_width();
-        let side_pad = ((avail_width - max_width) / 2.0).max(0.0);
+        let max_width = avail_width.min(900.0);
 
-        ui.add_space(side_pad);
-        egui::Frame::new()
-            .inner_margin(egui::Margin::symmetric(0, 8))
-            .show(ui, |ui| {
+        ui.allocate_ui_with_layout(
+            egui::vec2(avail_width, ui.available_height()),
+            egui::Layout::top_down(egui::Align::Center),
+            |ui| {
                 ui.set_max_width(max_width);
+                ui.add_space(8.0);
                 egui::ScrollArea::vertical()
                     .auto_shrink([false, false])
                     .show(ui, |ui| {
