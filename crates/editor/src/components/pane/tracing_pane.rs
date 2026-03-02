@@ -5,7 +5,9 @@
 use std::any::Any;
 
 use egui::RichText;
-use enya_client::tracing::{Span, Trace, format_duration_us, tempo::demo_trace};
+use enya_client::tracing::{
+    Span, SpanLog, SpanStatus, Trace, format_duration_us, tempo::demo_trace,
+};
 
 use crate::components::pane::tracing::WaterfallChart;
 use crate::components::util::id_generator::next_id_usize;
@@ -481,6 +483,122 @@ impl Component for TracingPane {
 
     fn description(&self) -> &str {
         &self.description
+    }
+
+    fn extract_snapshot_data(&self) -> Option<enya_config::SnapshotPaneData> {
+        let trace = self.current_trace.as_ref()?;
+        if trace.spans.is_empty() {
+            return None;
+        }
+        Some(enya_config::SnapshotPaneData::Trace {
+            trace_id: trace.trace_id.clone(),
+            spans: trace
+                .spans
+                .iter()
+                .map(|s| {
+                    let mut tags: Vec<_> =
+                        s.tags.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+                    tags.sort_by(|a, b| a.0.cmp(&b.0));
+                    enya_config::SnapshotSpan {
+                        span_id: s.span_id.clone(),
+                        trace_id: s.trace_id.clone(),
+                        parent_span_id: s.parent_span_id.clone(),
+                        operation_name: s.operation_name.clone(),
+                        service_name: s.service_name.clone(),
+                        start_time_us: s.start_time_us,
+                        duration_us: s.duration_us,
+                        status: match s.status {
+                            SpanStatus::Ok => 0,
+                            SpanStatus::Error => 1,
+                            SpanStatus::Unset => 2,
+                        },
+                        tags,
+                        logs: s
+                            .logs
+                            .iter()
+                            .map(|l| {
+                                let mut fields: Vec<_> = l
+                                    .fields
+                                    .iter()
+                                    .map(|(k, v)| (k.clone(), v.clone()))
+                                    .collect();
+                                fields.sort_by(|a, b| a.0.cmp(&b.0));
+                                enya_config::SnapshotSpanLog {
+                                    timestamp_us: l.timestamp_us,
+                                    fields,
+                                }
+                            })
+                            .collect(),
+                        depth: s.depth as u16,
+                    }
+                })
+                .collect(),
+            duration_us: trace.duration_us,
+            start_time_us: trace.start_time_us,
+            services: trace.services.clone(),
+        })
+    }
+
+    fn load_snapshot_data(&mut self, data: &enya_config::SnapshotPaneData) {
+        if let enya_config::SnapshotPaneData::Trace {
+            trace_id,
+            spans,
+            duration_us,
+            start_time_us,
+            services,
+        } = data
+        {
+            let trace = Trace {
+                trace_id: trace_id.clone(),
+                root_span_id: spans
+                    .iter()
+                    .find(|s| s.parent_span_id.is_none())
+                    .map(|s| s.span_id.clone()),
+                spans: spans
+                    .iter()
+                    .map(|s| Span {
+                        span_id: s.span_id.clone(),
+                        trace_id: s.trace_id.clone(),
+                        parent_span_id: s.parent_span_id.clone(),
+                        operation_name: s.operation_name.clone(),
+                        service_name: s.service_name.clone(),
+                        start_time_us: s.start_time_us,
+                        duration_us: s.duration_us,
+                        status: match s.status {
+                            1 => SpanStatus::Error,
+                            2 => SpanStatus::Unset,
+                            _ => SpanStatus::Ok,
+                        },
+                        tags: s.tags.iter().cloned().collect(),
+                        logs: s
+                            .logs
+                            .iter()
+                            .map(|l| SpanLog {
+                                timestamp_us: l.timestamp_us,
+                                fields: l.fields.iter().cloned().collect(),
+                            })
+                            .collect(),
+                        depth: s.depth as usize,
+                    })
+                    .collect(),
+                duration_us: *duration_us,
+                start_time_us: *start_time_us,
+                services: services.clone(),
+            };
+            self.set_trace(trace);
+        }
+    }
+
+    fn to_pane_config(&self) -> Option<enya_config::PaneConfig> {
+        Some(enya_config::PaneConfig {
+            query: self.trace_id_input.clone(),
+            name: "Trace".to_string(),
+            description: String::new(),
+            tag: String::new(),
+            unit: String::new(),
+            granularity: "5m".to_string(),
+            visualization: "tracing".to_string(),
+        })
     }
 
     fn as_any(&self) -> &dyn Any {

@@ -14,7 +14,7 @@ use super::{
     ConnectionConfig, GitConfig, LayoutConfig, LayoutContainer, LayoutNode, LayoutType, LogsConfig,
     MetricsConfig, PaneConfigExt, PluginsConfig, RefreshInterval, TimeConfigExt, TracingConfig,
     ViewConfig, WORKSPACE_VERSION, Workspace, WorkspaceConfig, WorkspaceMeta,
-    pane_from_query_state, time_config_from_preset_with_refresh,
+    time_config_from_preset_with_refresh,
 };
 use crate::components::{Component, LogsBackend, LogsPane, QueryPane, TracingPane};
 
@@ -29,25 +29,16 @@ impl Workspace {
     /// stored in AppSettings, not a per-workspace setting.
     pub fn to_workspace_config(&self, name: &str, endpoint: Option<&str>) -> WorkspaceConfig {
         let mut panes = Vec::new();
-        let mut query_pane_tile_ids = Vec::new();
+        let mut serializable_tile_ids = Vec::new();
 
-        // Collect QueryPane data and their TileIds together so pane indices
-        // in the layout exactly match the panes array. Non-QueryPane components
-        // (LogsPane, PluginPanes, etc.) are excluded from both.
+        // Collect pane configs and their TileIds together so pane indices
+        // in the layout exactly match the panes array. Components that don't
+        // implement to_pane_config() (PluginPanes, etc.) are excluded from both.
         for tile_id in self.get_pane_tile_ids() {
             if let Some(Tile::Pane(component)) = self.viewport_tree.tiles.get(tile_id) {
-                if let Some(query_pane) = component.as_any().downcast_ref::<QueryPane>() {
-                    let state = query_pane.query_state();
-                    let mut pane_config = pane_from_query_state(
-                        query_pane.saved_query(),
-                        query_pane.name(),
-                        query_pane.tag(),
-                        query_pane.description(),
-                        state,
-                    );
-                    pane_config.unit = query_pane.unit().to_string();
+                if let Some(pane_config) = component.to_pane_config() {
                     panes.push(pane_config);
-                    query_pane_tile_ids.push(tile_id);
+                    serializable_tile_ids.push(tile_id);
                 }
             }
         }
@@ -74,7 +65,7 @@ impl Workspace {
             ),
             plugins: PluginsConfig::default(),
             panes,
-            layout: self.extract_layout_from_tile_ids(&query_pane_tile_ids),
+            layout: self.extract_layout_from_tile_ids(&serializable_tile_ids),
             snapshot: None,
         }
     }
@@ -136,6 +127,9 @@ impl Workspace {
             let query_number = self.next_query_number;
             self.next_query_number += 1;
 
+            // Look up snapshot data for this pane index (used by all pane types)
+            let snapshot_data = config.snapshot.as_ref().and_then(|s| s.pane_data.get(i));
+
             // Handle special pane types that aren't standard query visualizations
             if pane_config.visualization == "logs" {
                 let now_secs = crate::util::now_unix_secs();
@@ -159,20 +153,28 @@ impl Workspace {
                     LogsBackend::Demo
                 };
 
-                let pane: Box<dyn Component> =
-                    Box::new(LogsPane::with_backend(start_ns, end_ns, backend));
+                let mut logs_pane = LogsPane::with_backend(start_ns, end_ns, backend);
+                if let Some(data) = snapshot_data {
+                    logs_pane.load_snapshot_data(data);
+                }
+                let pane: Box<dyn Component> = Box::new(logs_pane);
                 let tile_id = self.viewport_tree.tiles.insert_pane(pane);
                 pane_tile_ids.push(tile_id);
                 continue;
             }
             if pane_config.visualization == "tracing" {
-                let pane: Box<dyn Component> = Box::new(TracingPane::with_demo());
+                let tracing_pane = if let Some(data) = snapshot_data {
+                    let mut pane = TracingPane::new();
+                    pane.load_snapshot_data(data);
+                    pane
+                } else {
+                    TracingPane::with_demo()
+                };
+                let pane: Box<dyn Component> = Box::new(tracing_pane);
                 let tile_id = self.viewport_tree.tiles.insert_pane(pane);
                 pane_tile_ids.push(tile_id);
                 continue;
             }
-            // Use snapshot constructor if this workspace has embedded data
-            let snapshot_data = config.snapshot.as_ref().and_then(|s| s.pane_data.get(i));
 
             let mut query_pane = if let Some(data) = snapshot_data {
                 QueryPane::from_snapshot(
@@ -304,27 +306,28 @@ impl Workspace {
     pub fn has_pane_data(&self) -> bool {
         for tile_id in self.get_pane_tile_ids() {
             if let Some(Tile::Pane(component)) = self.viewport_tree.tiles.get(tile_id) {
-                if let Some(query_pane) = component.as_any().downcast_ref::<QueryPane>() {
-                    if !query_pane
-                        .visualization()
-                        .extract_snapshot_data()
-                        .is_empty()
-                    {
-                        return true;
-                    }
+                if component.extract_snapshot_data().is_some() {
+                    return true;
                 }
             }
         }
         false
     }
 
-    /// Extract snapshot data from all panes for snapshot sharing.
+    /// Extract snapshot data from all serializable panes for snapshot sharing.
+    ///
+    /// Uses the same filter as `to_workspace_config()` (panes with `to_pane_config()`)
+    /// to ensure pane_data indices align with the panes array.
     pub fn extract_all_snapshot_data(&self) -> Vec<SnapshotPaneData> {
         let mut data = Vec::new();
         for tile_id in self.get_pane_tile_ids() {
             if let Some(Tile::Pane(component)) = self.viewport_tree.tiles.get(tile_id) {
-                if let Some(query_pane) = component.as_any().downcast_ref::<QueryPane>() {
-                    data.push(query_pane.visualization().extract_snapshot_data());
+                if component.to_pane_config().is_some() {
+                    data.push(
+                        component
+                            .extract_snapshot_data()
+                            .unwrap_or(SnapshotPaneData::TimeSeries { series: vec![] }),
+                    );
                 }
             }
         }
@@ -346,16 +349,7 @@ impl Workspace {
         for &idx in pane_indices {
             if let Some(&tile_id) = pane_tile_ids.get(idx) {
                 if let Some(Tile::Pane(component)) = self.viewport_tree.tiles.get(tile_id) {
-                    if let Some(query_pane) = component.as_any().downcast_ref::<QueryPane>() {
-                        let state = query_pane.query_state();
-                        let mut pane_config = pane_from_query_state(
-                            query_pane.saved_query(),
-                            query_pane.name(),
-                            query_pane.tag(),
-                            query_pane.description(),
-                            state,
-                        );
-                        pane_config.unit = query_pane.unit().to_string();
+                    if let Some(pane_config) = component.to_pane_config() {
                         panes.push(pane_config);
                     }
                 }
@@ -407,8 +401,12 @@ impl Workspace {
         for &idx in pane_indices {
             if let Some(&tile_id) = pane_tile_ids.get(idx) {
                 if let Some(Tile::Pane(component)) = self.viewport_tree.tiles.get(tile_id) {
-                    if let Some(query_pane) = component.as_any().downcast_ref::<QueryPane>() {
-                        data.push(query_pane.visualization().extract_snapshot_data());
+                    if component.to_pane_config().is_some() {
+                        data.push(
+                            component
+                                .extract_snapshot_data()
+                                .unwrap_or(SnapshotPaneData::TimeSeries { series: vec![] }),
+                        );
                     }
                 }
             }
@@ -423,14 +421,8 @@ impl Workspace {
         for &idx in pane_indices {
             if let Some(&tile_id) = pane_tile_ids.get(idx) {
                 if let Some(Tile::Pane(component)) = self.viewport_tree.tiles.get(tile_id) {
-                    if let Some(query_pane) = component.as_any().downcast_ref::<QueryPane>() {
-                        if !query_pane
-                            .visualization()
-                            .extract_snapshot_data()
-                            .is_empty()
-                        {
-                            return true;
-                        }
+                    if component.extract_snapshot_data().is_some() {
+                        return true;
                     }
                 }
             }
@@ -588,8 +580,8 @@ impl Workspace {
 
     /// Extract layout configuration from the current tile tree, using only the
     /// given pane tile IDs for the pane index mapping. This ensures the layout
-    /// indices match the panes array exactly (important when non-QueryPane
-    /// components like LogsPane or PluginPanes are present in the tree).
+    /// indices match the panes array exactly (important when non-serializable
+    /// components like PluginPanes are present in the tree).
     fn extract_layout_from_tile_ids(&self, pane_tile_ids: &[TileId]) -> Option<LayoutConfig> {
         let root_id = self.viewport_tree.root()?;
 
@@ -691,7 +683,7 @@ impl Workspace {
     ///
     /// Normalizes single-pane Tabs wrappers (added by `all_panes_must_have_tabs`)
     /// back to bare Pane nodes for a cleaner, more compact layout representation.
-    /// Tiles not in the pane_index_map (non-QueryPane components) are skipped.
+    /// Tiles not in the pane_index_map (non-serializable components) are skipped.
     fn tile_to_layout_node(
         &self,
         tile_id: TileId,
@@ -699,7 +691,7 @@ impl Workspace {
     ) -> Option<LayoutNode> {
         match self.viewport_tree.tiles.get(tile_id)? {
             Tile::Pane(_) => {
-                // Only include panes that are in our index map (QueryPanes)
+                // Only include panes that are in our index map (serializable panes)
                 let index = pane_index_map.get(&tile_id)?;
                 Some(LayoutNode::Pane(*index))
             }
@@ -707,7 +699,7 @@ impl Workspace {
                 let (layout_type, children, shares) =
                     self.extract_container(container, pane_index_map);
 
-                // Skip empty containers (all children were non-QueryPane)
+                // Skip empty containers (all children were non-serializable)
                 if children.is_empty() {
                     return None;
                 }

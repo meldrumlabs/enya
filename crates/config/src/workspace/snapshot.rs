@@ -664,7 +664,7 @@ struct CompactFullSnapshot {
 /// This allows the decoder to detect schema mismatches before attempting
 /// decompression, and lets us evolve the postcard schema by bumping the
 /// version and adding a new decode path.
-pub(crate) const SNAPSHOT_BLOB_VERSION: u8 = 1;
+pub(crate) const SNAPSHOT_BLOB_VERSION: u8 = 2;
 
 /// Encode a full snapshot to compressed binary (postcard + LZ4).
 ///
@@ -1288,7 +1288,10 @@ fn decode_plan_node(node: CompactPlanNode) -> SnapshotPlanNode {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::workspace::{SnapshotPaneData, SnapshotSeries, WorkspaceConfig};
+    use crate::workspace::{
+        SnapshotLogEntry, SnapshotPaneData, SnapshotSeries, SnapshotSpan, SnapshotSpanLog,
+        WorkspaceConfig,
+    };
 
     fn make_test_workspace() -> (WorkspaceConfig, Vec<SnapshotPaneData>) {
         let mut ws = WorkspaceConfig::new("test-snapshot".to_string());
@@ -2145,5 +2148,148 @@ mod tests {
             matches!(err, WorkspaceError::Decode(_)),
             "expected Decode error for empty blob, got: {err}"
         );
+    }
+
+    #[test]
+    fn snapshot_blob_logs_pane_round_trip() {
+        use crate::workspace::PaneConfig;
+
+        let mut ws = WorkspaceConfig::new("logs-snapshot".to_string());
+        ws.time.preset = "1h".to_string();
+        let mut pane = PaneConfig::new("level=error");
+        pane.visualization = "logs".to_string();
+        ws.panes = vec![pane];
+
+        let pane_data = vec![SnapshotPaneData::Logs {
+            query: "level=error".to_string(),
+            entries: vec![
+                SnapshotLogEntry {
+                    timestamp_ns: 1_700_000_000_000_000_000,
+                    message: "connection refused".to_string(),
+                    labels: vec![
+                        ("host".to_string(), "web-1".to_string()),
+                        ("service".to_string(), "api".to_string()),
+                    ],
+                    level: Some("error".to_string()),
+                },
+                SnapshotLogEntry {
+                    timestamp_ns: 1_700_000_001_000_000_000,
+                    message: "retry succeeded".to_string(),
+                    labels: vec![],
+                    level: Some("info".to_string()),
+                },
+            ],
+            start_ns: 1_700_000_000_000_000_000,
+            end_ns: 1_700_000_060_000_000_000,
+        }];
+
+        let bytes = encode_snapshot(&ws, &pane_data, 1700000000, None, None).unwrap();
+        let decoded = decode_snapshot(&bytes).unwrap();
+
+        assert_eq!(decoded.workspace.workspace.name, "logs-snapshot");
+        assert_eq!(decoded.workspace.panes.len(), 1);
+        assert_eq!(decoded.workspace.panes[0].visualization, "logs");
+
+        let snap = decoded.workspace.snapshot.unwrap();
+        assert_eq!(snap.pane_data.len(), 1);
+        match &snap.pane_data[0] {
+            SnapshotPaneData::Logs {
+                query,
+                entries,
+                start_ns,
+                end_ns,
+            } => {
+                assert_eq!(query, "level=error");
+                assert_eq!(entries.len(), 2);
+                assert_eq!(entries[0].message, "connection refused");
+                assert_eq!(entries[0].labels.len(), 2);
+                assert_eq!(entries[1].level.as_deref(), Some("info"));
+                assert_eq!(*start_ns, 1_700_000_000_000_000_000);
+                assert_eq!(*end_ns, 1_700_000_060_000_000_000);
+            }
+            other => panic!("expected Logs variant, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn snapshot_blob_trace_pane_round_trip() {
+        use crate::workspace::PaneConfig;
+
+        let mut ws = WorkspaceConfig::new("trace-snapshot".to_string());
+        ws.time.preset = "1h".to_string();
+        let mut pane = PaneConfig::new("abc123");
+        pane.visualization = "tracing".to_string();
+        ws.panes = vec![pane];
+
+        let pane_data = vec![SnapshotPaneData::Trace {
+            trace_id: "abc123".to_string(),
+            spans: vec![
+                SnapshotSpan {
+                    span_id: "span-1".to_string(),
+                    trace_id: "abc123".to_string(),
+                    parent_span_id: None,
+                    operation_name: "HTTP GET /api".to_string(),
+                    service_name: "gateway".to_string(),
+                    start_time_us: 1_700_000_000_000_000,
+                    duration_us: 5000,
+                    status: 0,
+                    tags: vec![("http.method".to_string(), "GET".to_string())],
+                    logs: vec![SnapshotSpanLog {
+                        timestamp_us: 1_700_000_000_001_000,
+                        fields: vec![("event".to_string(), "request started".to_string())],
+                    }],
+                    depth: 0,
+                },
+                SnapshotSpan {
+                    span_id: "span-2".to_string(),
+                    trace_id: "abc123".to_string(),
+                    parent_span_id: Some("span-1".to_string()),
+                    operation_name: "db.query".to_string(),
+                    service_name: "backend".to_string(),
+                    start_time_us: 1_700_000_000_001_000,
+                    duration_us: 2000,
+                    status: 1,
+                    tags: vec![],
+                    logs: vec![],
+                    depth: 1,
+                },
+            ],
+            duration_us: 5000,
+            start_time_us: 1_700_000_000_000_000,
+            services: vec!["gateway".to_string(), "backend".to_string()],
+        }];
+
+        let bytes = encode_snapshot(&ws, &pane_data, 1700000000, None, None).unwrap();
+        let decoded = decode_snapshot(&bytes).unwrap();
+
+        assert_eq!(decoded.workspace.workspace.name, "trace-snapshot");
+        assert_eq!(decoded.workspace.panes.len(), 1);
+        assert_eq!(decoded.workspace.panes[0].visualization, "tracing");
+
+        let snap = decoded.workspace.snapshot.unwrap();
+        assert_eq!(snap.pane_data.len(), 1);
+        match &snap.pane_data[0] {
+            SnapshotPaneData::Trace {
+                trace_id,
+                spans,
+                duration_us,
+                start_time_us,
+                services,
+            } => {
+                assert_eq!(trace_id, "abc123");
+                assert_eq!(spans.len(), 2);
+                assert_eq!(spans[0].operation_name, "HTTP GET /api");
+                assert_eq!(spans[0].status, 0);
+                assert_eq!(spans[0].logs.len(), 1);
+                assert_eq!(spans[0].logs[0].fields[0].1, "request started");
+                assert_eq!(spans[1].parent_span_id.as_deref(), Some("span-1"));
+                assert_eq!(spans[1].status, 1);
+                assert_eq!(spans[1].depth, 1);
+                assert_eq!(*duration_us, 5000);
+                assert_eq!(*start_time_us, 1_700_000_000_000_000);
+                assert_eq!(services, &["gateway", "backend"]);
+            }
+            other => panic!("expected Trace variant, got: {other:?}"),
+        }
     }
 }

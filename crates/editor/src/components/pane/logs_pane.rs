@@ -1514,6 +1514,75 @@ impl crate::components::Component for LogsPane {
         "Log entries for metric correlation"
     }
 
+    fn extract_snapshot_data(&self) -> Option<enya_config::SnapshotPaneData> {
+        let response = self.results.as_ref()?;
+        if response.entries.is_empty() {
+            return None;
+        }
+        Some(enya_config::SnapshotPaneData::Logs {
+            query: self.saved_query.clone(),
+            entries: response
+                .entries
+                .iter()
+                .take(enya_config::SNAPSHOT_MAX_LOG_ENTRIES)
+                .map(|e| {
+                    let mut labels: Vec<_> = e
+                        .labels
+                        .iter()
+                        .map(|(k, v)| (k.clone(), v.clone()))
+                        .collect();
+                    labels.sort_by(|a, b| a.0.cmp(&b.0));
+                    enya_config::SnapshotLogEntry {
+                        timestamp_ns: e.timestamp_ns,
+                        message: e.message.clone(),
+                        labels,
+                        level: e.level.map(|l| format!("{l:?}").to_lowercase()),
+                    }
+                })
+                .collect(),
+            start_ns: self.start_ns,
+            end_ns: self.end_ns,
+        })
+    }
+
+    fn load_snapshot_data(&mut self, data: &enya_config::SnapshotPaneData) {
+        if let enya_config::SnapshotPaneData::Logs {
+            query,
+            entries,
+            start_ns,
+            end_ns,
+        } = data
+        {
+            self.saved_query = query.clone();
+            self.start_ns = *start_ns;
+            self.end_ns = *end_ns;
+            self.results = Some(LogsResponse {
+                entries: entries
+                    .iter()
+                    .map(|e| enya_client::logs::LogEntry {
+                        timestamp_ns: e.timestamp_ns,
+                        message: e.message.clone(),
+                        labels: e.labels.iter().cloned().collect(),
+                        level: e.level.as_ref().and_then(|l| LogLevel::parse(l)),
+                    })
+                    .collect(),
+                streams_count: 0,
+            });
+        }
+    }
+
+    fn to_pane_config(&self) -> Option<enya_config::PaneConfig> {
+        Some(enya_config::PaneConfig {
+            query: self.saved_query.clone(),
+            name: "Logs".to_string(),
+            description: String::new(),
+            tag: String::new(),
+            unit: String::new(),
+            granularity: "5m".to_string(),
+            visualization: "logs".to_string(),
+        })
+    }
+
     fn as_any(&self) -> &dyn Any {
         self
     }

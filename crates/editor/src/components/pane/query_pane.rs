@@ -1105,6 +1105,29 @@ impl crate::components::Component for QueryPane {
         &self.description
     }
 
+    fn extract_snapshot_data(&self) -> Option<SnapshotPaneData> {
+        let data = self.visualization().extract_snapshot_data();
+        if data.is_empty() { None } else { Some(data) }
+    }
+
+    fn load_snapshot_data(&mut self, data: &SnapshotPaneData) {
+        self.visualization.load_snapshot_data(data);
+    }
+
+    fn to_pane_config(&self) -> Option<enya_config::PaneConfig> {
+        let state = self.query_state();
+        let mut config = crate::workspace::pane_from_query_state_with_viz(
+            self.saved_query(),
+            self.buffer.name(),
+            self.tag(),
+            &self.description,
+            state,
+            self.visualization().viz_type(),
+        );
+        config.unit = self.unit().to_string();
+        Some(config)
+    }
+
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }

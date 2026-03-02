@@ -1,6 +1,7 @@
 use std::any::Any;
 
 use crate::ui::theme::AppTheme;
+use enya_config::{PaneConfig, SnapshotPaneData};
 
 pub mod overlay;
 pub mod pane;
@@ -83,6 +84,21 @@ pub trait Component: Any {
     /// Set whether a workspace overlay is blocking keyboard input.
     /// Default implementation does nothing - components can override if needed.
     fn set_overlay_blocks_input(&mut self, _blocks: bool) {}
+
+    /// Extract snapshot data from this component for sharing.
+    /// Returns `None` if this component doesn't support snapshots or has no data.
+    fn extract_snapshot_data(&self) -> Option<SnapshotPaneData> {
+        None
+    }
+
+    /// Load snapshot data into this component for read-only display.
+    fn load_snapshot_data(&mut self, _data: &SnapshotPaneData) {}
+
+    /// Returns the `PaneConfig` representation for workspace serialization.
+    /// Returns `None` for components that aren't serializable panes.
+    fn to_pane_config(&self) -> Option<PaneConfig> {
+        None
+    }
 
     /// Get a reference to self as Any (for downcasting)
     fn as_any(&self) -> &dyn Any;
