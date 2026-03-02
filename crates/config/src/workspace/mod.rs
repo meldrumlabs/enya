@@ -114,9 +114,7 @@ mod compact;
 pub mod snapshot;
 mod templates;
 
-pub use templates::{
-    ATLAS_WORKSPACE_TOML, GOLDEN_SIGNALS_TOML, INFRASTRUCTURE_TOML, MULTI_SERVICE_TOML,
-};
+pub use templates::{GOLDEN_SIGNALS_TOML, INFRASTRUCTURE_TOML, MULTI_SERVICE_TOML};
 
 use serde::{Deserialize, Serialize};
 

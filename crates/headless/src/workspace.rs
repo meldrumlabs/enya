@@ -78,9 +78,8 @@ pub fn resolve_template(template: &str) -> Result<&'static str> {
         "golden-signals" | "default" => Ok(enya_config::GOLDEN_SIGNALS_TOML),
         "infrastructure" => Ok(enya_config::INFRASTRUCTURE_TOML),
         "multi-service" => Ok(enya_config::MULTI_SERVICE_TOML),
-        "atlas" => Ok(enya_config::ATLAS_WORKSPACE_TOML),
         _ => Err(format!(
-            "unknown template: {template} (available: golden-signals, infrastructure, multi-service, atlas)"
+            "unknown template: {template} (available: golden-signals, infrastructure, multi-service)"
         )
         .into()),
     }
@@ -491,7 +490,6 @@ mod tests {
         assert!(resolve_template("golden-signals").is_ok());
         assert!(resolve_template("infrastructure").is_ok());
         assert!(resolve_template("multi-service").is_ok());
-        assert!(resolve_template("atlas").is_ok());
         assert!(resolve_template("nonexistent").is_err());
     }
 }
