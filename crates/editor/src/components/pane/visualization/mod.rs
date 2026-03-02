@@ -349,6 +349,9 @@ impl Visualization {
                     heatmap.set_data(data_2d);
                 }
             }
+            // Logs and Trace data are handled by their respective pane types,
+            // not by the Visualization widget.
+            SnapshotPaneData::Logs { .. } | SnapshotPaneData::Trace { .. } => {}
         }
     }
 

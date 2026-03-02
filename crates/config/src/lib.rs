@@ -31,9 +31,9 @@ pub use workspace::snapshot::{
 pub use workspace::{
     ConnectionConfig, GOLDEN_SIGNALS_TOML, GitConfig, INFRASTRUCTURE_TOML, LayoutConfig,
     LayoutContainer, LayoutNode, LayoutType, LogsConfig, MULTI_SERVICE_TOML, MetricsConfig,
-    PaneConfig, PluginsConfig, RefreshInterval, SnapshotMeta, SnapshotPaneData, SnapshotSeries,
-    TimeConfig, TracingConfig, ViewConfig, WORKSPACE_VERSION, WorkspaceConfig, WorkspaceError,
-    WorkspaceMeta,
+    PaneConfig, PluginsConfig, RefreshInterval, SNAPSHOT_MAX_LOG_ENTRIES, SnapshotLogEntry,
+    SnapshotMeta, SnapshotPaneData, SnapshotSeries, SnapshotSpan, SnapshotSpanLog, TimeConfig,
+    TracingConfig, ViewConfig, WORKSPACE_VERSION, WorkspaceConfig, WorkspaceError, WorkspaceMeta,
 };
 
 pub use daemon::{Config, Datasource, Datasources, Server};
