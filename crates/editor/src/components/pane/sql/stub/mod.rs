@@ -163,38 +163,43 @@ impl SqlPane {
 
     /// Render the single snapshot cell.
     fn show_notebook(&mut self, ui: &mut egui::Ui) {
-        let max_width = 900.0;
-        let avail_width = ui.available_width();
-        let side_pad = ((avail_width - max_width) / 2.0).max(0.0);
-
-        ui.add_space(side_pad);
         egui::Frame::new()
-            .inner_margin(egui::Margin::symmetric(0, 8))
+            .inner_margin(egui::Margin::symmetric(16, 8))
             .show(ui, |ui| {
-                ui.set_max_width(max_width);
-                egui::ScrollArea::vertical()
-                    .auto_shrink([false, false])
-                    .show(ui, |ui| {
-                        if let Some(cell) = &self.snapshot_cell {
-                            let state = &mut self.cell_view_state;
-                            let card_actions =
-                                snapshot_card::render_snapshot_card(ui, cell, 0, state, self.theme);
+                let avail_width = ui.available_width();
+                let max_width = avail_width.min(900.0);
 
-                            for action in card_actions {
-                                match action {
-                                    snapshot_card::CardAction::Collapse => {}
-                                    snapshot_card::CardAction::NextPage => {
-                                        self.cell_view_state.table_page += 1;
-                                    }
-                                    snapshot_card::CardAction::PrevPage => {
-                                        if self.cell_view_state.table_page > 0 {
-                                            self.cell_view_state.table_page -= 1;
+                ui.allocate_ui_with_layout(
+                    egui::vec2(avail_width, ui.available_height()),
+                    egui::Layout::top_down(egui::Align::Center),
+                    |ui| {
+                        ui.set_max_width(max_width);
+                        egui::ScrollArea::vertical()
+                            .auto_shrink([false, false])
+                            .show(ui, |ui| {
+                                if let Some(cell) = &self.snapshot_cell {
+                                    let state = &mut self.cell_view_state;
+                                    let card_actions = snapshot_card::render_snapshot_card(
+                                        ui, cell, 0, state, self.theme,
+                                    );
+
+                                    for action in card_actions {
+                                        match action {
+                                            snapshot_card::CardAction::Collapse => {}
+                                            snapshot_card::CardAction::NextPage => {
+                                                self.cell_view_state.table_page += 1;
+                                            }
+                                            snapshot_card::CardAction::PrevPage => {
+                                                if self.cell_view_state.table_page > 0 {
+                                                    self.cell_view_state.table_page -= 1;
+                                                }
+                                            }
                                         }
                                     }
                                 }
-                            }
-                        }
-                    });
+                            });
+                    },
+                );
             });
     }
 }

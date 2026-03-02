@@ -448,14 +448,27 @@ impl Workspace {
         None
     }
 
-    /// Load snapshot data into the SQL pane (if any).
+    /// Load snapshot data into the SQL pane, creating one if none exists.
     fn load_sql_snapshot_data(&mut self, data: &enya_config::SnapshotSqlPane) {
         use crate::components::SqlPane;
+
+        // Try to load into an existing SQL pane first
         for (_tile_id, tile) in self.viewport_tree.tiles.iter_mut() {
             if let egui_tiles::Tile::Pane(component) = tile {
                 if let Some(sql_pane) = component.as_any_mut().downcast_mut::<SqlPane>() {
                     sql_pane.load_snapshot_data(data);
                     return;
+                }
+            }
+        }
+
+        // No SQL pane in viewport — create one and load the snapshot data
+        if let Some(tile_id) = self.add_sql_pane() {
+            if let Some(egui_tiles::Tile::Pane(component)) =
+                self.viewport_tree.tiles.get_mut(tile_id)
+            {
+                if let Some(sql_pane) = component.as_any_mut().downcast_mut::<SqlPane>() {
+                    sql_pane.load_snapshot_data(data);
                 }
             }
         }
