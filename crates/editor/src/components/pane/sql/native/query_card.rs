@@ -21,6 +21,12 @@ use crate::ui::typography;
 /// Number of rows displayed per page in table views.
 pub(super) const ROWS_PER_PAGE: usize = 50;
 
+// Consistent styling constants (matching LogsPane pattern).
+pub(super) const ROW_HEIGHT: f32 = 26.0;
+const PADDING: f32 = 12.0;
+const CORNER_RADIUS: f32 = 8.0;
+pub(super) const COL_SPACING: f32 = 16.0;
+
 /// Actions returned by card rendering for the caller to apply.
 pub(super) enum CardAction {
     /// Collapse/dismiss the result card (refocus input).
@@ -230,16 +236,16 @@ fn render_expanded_card(
     egui::Frame::new()
         .fill(theme.bg_elevated())
         .stroke(egui::Stroke::new(1.5, accent.gamma_multiply(0.5)))
-        .corner_radius(8.0)
+        .corner_radius(CORNER_RADIUS)
         .inner_margin(0.0)
         .show(ui, |ui| {
             // === Header: full SQL + collapse chevron ===
             egui::Frame::new()
                 .fill(theme.bg_surface())
-                .inner_margin(egui::Margin::symmetric(12, 8))
+                .inner_margin(egui::Margin::symmetric(PADDING as i8, 8))
                 .corner_radius(egui::CornerRadius {
-                    nw: 8,
-                    ne: 8,
+                    nw: CORNER_RADIUS as u8,
+                    ne: CORNER_RADIUS as u8,
                     sw: 0,
                     se: 0,
                 })
@@ -288,7 +294,7 @@ fn render_expanded_card(
                             let close_resp = ui.add(
                                 egui::Label::new(
                                     RichText::new(action::CLOSE)
-                                        .color(text_secondary.gamma_multiply(0.3))
+                                        .color(text_secondary.gamma_multiply(0.5))
                                         .size(11.0),
                                 )
                                 .sense(egui::Sense::click()),
@@ -306,7 +312,7 @@ fn render_expanded_card(
                             let chevron_resp = ui.add(
                                 egui::Label::new(
                                     RichText::new(nav::COLLAPSE)
-                                        .color(text_secondary.gamma_multiply(0.6))
+                                        .color(text_secondary.gamma_multiply(0.7))
                                         .size(11.0),
                                 )
                                 .sense(egui::Sense::click()),
@@ -382,7 +388,10 @@ fn render_expanded_card(
                 // Explain cells always show the plan directly
                 render_inline_plan(ui, cell, plan_viewer, theme, overlay_blocks_input);
             } else if is_query {
-                if !cell.batches().is_empty() && cell.schema().is_some() {
+                if cell.status() == QueryStatus::Running && cell.batches().is_empty() {
+                    // Show shimmer skeleton while query is executing
+                    render_loading_skeleton(ui, theme);
+                } else if !cell.batches().is_empty() && cell.schema().is_some() {
                     render_inline_table(ui, cell, cell_idx, view_state, theme);
                 } else if cell.status() == QueryStatus::Completed
                     && cell.batches().is_empty()
@@ -420,7 +429,7 @@ fn render_stats_bar(
 
     egui::Frame::new()
         .fill(theme.bg_surface())
-        .inner_margin(egui::Margin::symmetric(12, 6))
+        .inner_margin(egui::Margin::symmetric(PADDING as i8, 6))
         .show(ui, |ui| {
             ui.horizontal(|ui| {
                 // Stats on the right
@@ -479,6 +488,7 @@ fn render_inline_table(
     theme: AppTheme,
 ) {
     let colors = OverlayColors::new(theme);
+    let accent = theme.accent_primary();
     let bg_surface = theme.bg_surface();
     let rows_per_page = ROWS_PER_PAGE;
 
@@ -497,7 +507,7 @@ fn render_inline_table(
         .collect();
 
     let header_height = typography::SM + typography::XS + 8.0;
-    let row_height = typography::SM + 8.0;
+    let row_height = ROW_HEIGHT;
     let start_row = view_state.table_page * rows_per_page;
     let max_row_num = (view_state.table_page + 1) * rows_per_page;
     let row_num_width = max_row_num.to_string().len().max(3);
@@ -527,7 +537,7 @@ fn render_inline_table(
     };
 
     // Table content with sticky headers + scrollable body
-    let col_spacing = 16.0;
+    let col_spacing = COL_SPACING;
 
     egui::Frame::new()
         .fill(theme.bg_base())
@@ -608,20 +618,11 @@ fn render_inline_table(
                             };
                             ui.painter().rect_filled(col_rect, 0.0, header_bg);
 
-                            let sort_indicator = if is_sort_col {
-                                if view_state.sort_ascending {
-                                    " ▲"
-                                } else {
-                                    " ▼"
-                                }
-                            } else {
-                                ""
-                            };
-
+                            // Column name (without inline sort indicator)
                             ui.painter().text(
                                 col_rect.left_center() + egui::vec2(8.0, -6.0),
                                 egui::Align2::LEFT_CENTER,
-                                format!("{}{sort_indicator}", field.name()),
+                                field.name(),
                                 typography::monospace(typography::SM),
                                 if is_sort_col {
                                     colors.accent
@@ -629,6 +630,31 @@ fn render_inline_table(
                                     colors.text
                                 },
                             );
+
+                            // Sort indicator as separate icon at right edge
+                            if is_sort_col {
+                                let icon = if view_state.sort_ascending {
+                                    "▲"
+                                } else {
+                                    "▼"
+                                };
+                                ui.painter().text(
+                                    col_rect.right_center() + egui::vec2(-8.0, -6.0),
+                                    egui::Align2::RIGHT_CENTER,
+                                    icon,
+                                    typography::monospace(typography::XS),
+                                    colors.accent,
+                                );
+                            } else if col_response.hovered() {
+                                // Ghost arrow hint on hover for unsorted columns
+                                ui.painter().text(
+                                    col_rect.right_center() + egui::vec2(-8.0, -6.0),
+                                    egui::Align2::RIGHT_CENTER,
+                                    "▲",
+                                    typography::monospace(typography::XS),
+                                    colors.faint_text.gamma_multiply(0.3),
+                                );
+                            }
 
                             ui.painter().text(
                                 col_rect.left_center() + egui::vec2(8.0, 6.0),
@@ -666,13 +692,7 @@ fn render_inline_table(
                         let absolute_row = start_row + display_idx + 1;
                         let batch = &cell.batches()[batch_idx];
 
-                        let row_bg = if display_idx % 2 == 0 {
-                            Color32::TRANSPARENT
-                        } else {
-                            theme.bg_hover().gamma_multiply(0.3)
-                        };
-
-                        ui.horizontal(|ui| {
+                        let row_resp = ui.horizontal(|ui| {
                             ui.style_mut().spacing.item_spacing.x = 0.0;
 
                             // Row number gutter
@@ -690,19 +710,37 @@ fn render_inline_table(
                                 colors.faint_text,
                             );
 
+                            // Gutter right border
+                            ui.painter().line_segment(
+                                [
+                                    egui::pos2(gutter_rect.right(), gutter_rect.top()),
+                                    egui::pos2(gutter_rect.right(), gutter_rect.bottom()),
+                                ],
+                                egui::Stroke::new(1.0, theme.border_subtle()),
+                            );
+
+                            // Alternating row background
+                            let row_bg = if display_idx % 2 == 0 {
+                                Color32::TRANSPARENT
+                            } else {
+                                theme.bg_hover().gamma_multiply(0.3)
+                            };
+
                             // Cell values
                             for col_idx in 0..batch.num_columns() {
                                 let col_width =
                                     column_widths.get(col_idx).copied().unwrap_or(100.0);
 
-                                let (cell_rect, _) = ui.allocate_exact_size(
+                                let (cell_rect, cell_response) = ui.allocate_exact_size(
                                     egui::vec2(col_width + col_spacing, row_height),
-                                    egui::Sense::hover(),
+                                    egui::Sense::click(),
                                 );
                                 ui.painter().rect_filled(cell_rect, 0.0, row_bg);
 
                                 let col = batch.column(col_idx);
                                 let value = format_array_value(col.as_ref(), row_idx);
+
+                                let mut is_truncated = false;
 
                                 if value == "NULL" {
                                     let null_bg = colors.faint_text.gamma_multiply(0.06);
@@ -724,27 +762,67 @@ fn render_inline_table(
                                         colors.faint_text,
                                     );
                                 } else {
-                                    let max_chars = ((col_width - 8.0) / 7.0) as usize;
-                                    let display_val = if value.len() > max_chars && max_chars > 3 {
+                                    // Right-align numeric columns
+                                    let is_numeric =
+                                        is_numeric_type(schema.field(col_idx).data_type());
+                                    let max_chars = ((col_width - 8.0) / 7.0).max(0.0) as usize;
+                                    is_truncated = value.len() > max_chars && max_chars > 3;
+                                    let display_val = if is_truncated {
                                         let truncated: String = value
                                             .chars()
                                             .take(max_chars.saturating_sub(1))
                                             .collect();
                                         format!("{truncated}…")
                                     } else {
-                                        value
+                                        value.clone()
+                                    };
+
+                                    let (align, pos) = if is_numeric {
+                                        (
+                                            egui::Align2::RIGHT_CENTER,
+                                            cell_rect.right_center() + egui::vec2(-8.0, 0.0),
+                                        )
+                                    } else {
+                                        (
+                                            egui::Align2::LEFT_CENTER,
+                                            cell_rect.left_center() + egui::vec2(8.0, 0.0),
+                                        )
                                     };
 
                                     ui.painter().text(
-                                        cell_rect.left_center() + egui::vec2(8.0, 0.0),
-                                        egui::Align2::LEFT_CENTER,
+                                        pos,
+                                        align,
                                         display_val,
                                         typography::monospace(typography::SM),
                                         colors.muted_text,
                                     );
                                 }
+
+                                // Click-to-copy and cursor (extract before tooltip move)
+                                let clicked = cell_response.clicked();
+                                let hovered = cell_response.hovered();
+                                if clicked {
+                                    ui.ctx().copy_text(value.clone());
+                                }
+                                if hovered {
+                                    ui.ctx().set_cursor_icon(egui::CursorIcon::Cell);
+                                }
+
+                                // Tooltip for truncated values (consumes response)
+                                if is_truncated {
+                                    cell_response.on_hover_text_at_pointer(
+                                        RichText::new(&value).monospace().size(11.0),
+                                    );
+                                }
                             }
                         });
+
+                        // Hover row highlighting (painted over the row)
+                        if row_resp.response.hovered() {
+                            let hover_bg = accent.gamma_multiply(0.06);
+                            ui.painter()
+                                .rect_filled(row_resp.response.rect, 0.0, hover_bg);
+                        }
                     }
                 });
 
@@ -921,14 +999,17 @@ fn render_benchmark_phase_table(
         fmt(&stats.execution),
         fmt(&stats.total),
     ];
-    let names = [
+    let default_names = [
         "Logical Planning",
         "Physical Planning",
         "Execution",
         "Total",
     ];
-    for (row, name) in rows.iter_mut().zip(names) {
-        row.name = name;
+    for (i, row) in rows.iter_mut().enumerate() {
+        row.name = match &stats.phase_names {
+            Some(names) => names[i].as_str(),
+            None => default_names[i],
+        };
     }
     rows[3].percent = None; // suppress % for Total
 
@@ -1138,6 +1219,168 @@ fn render_card_footer(
         });
     });
     ui.add_space(4.0);
+}
+
+/// Render a table-shaped shimmer loading skeleton.
+fn render_loading_skeleton(ui: &mut egui::Ui, theme: AppTheme) {
+    let time = ui.ctx().input(|i| i.time);
+    let available = ui.available_size();
+    let accent = theme.accent_primary();
+    let base = theme.bg_elevated();
+
+    // Theme-aware skeleton colors with subtle accent tint
+    let skeleton_base = if theme.is_dark() {
+        Color32::from_rgb(
+            base.r().saturating_add((accent.r() as u16 * 3 / 100) as u8),
+            base.g().saturating_add((accent.g() as u16 * 3 / 100) as u8),
+            base.b().saturating_add((accent.b() as u16 * 3 / 100) as u8),
+        )
+    } else {
+        Color32::from_rgb(
+            base.r().saturating_sub(8),
+            base.g().saturating_sub(8),
+            base.b().saturating_sub(6),
+        )
+    };
+
+    let shimmer_color = if theme.is_dark() {
+        accent.gamma_multiply(0.35)
+    } else {
+        accent.gamma_multiply(0.20)
+    };
+
+    // Shimmer sweeps left to right
+    let shimmer_progress = ((time * 0.8) % 2.0) as f32;
+    let shimmer_width = available.x * 0.4;
+    let shimmer_x = (shimmer_progress - 0.5) * (available.x + shimmer_width);
+
+    // Constrain skeleton height
+    let skeleton_height = available.y.clamp(100.0, 300.0);
+    let (full_rect, _) = ui.allocate_exact_size(
+        egui::vec2(available.x, skeleton_height),
+        egui::Sense::hover(),
+    );
+    let painter = ui.painter();
+
+    // Row gutter skeleton
+    let gutter_width = 40.0;
+    painter.rect_filled(
+        egui::Rect::from_min_size(
+            egui::pos2(full_rect.left() + PADDING, full_rect.top() + PADDING),
+            egui::vec2(20.0, 12.0),
+        ),
+        3.0,
+        skeleton_base.gamma_multiply(0.5),
+    );
+
+    // Column header skeletons
+    let col_widths = [120.0, 80.0, 100.0, 90.0, 110.0];
+    let mut x = full_rect.left() + PADDING + gutter_width;
+    for &w in &col_widths {
+        if x + w > full_rect.right() - PADDING {
+            break;
+        }
+        painter.rect_filled(
+            egui::Rect::from_min_size(
+                egui::pos2(x, full_rect.top() + PADDING),
+                egui::vec2(w * 0.6, 12.0),
+            ),
+            3.0,
+            skeleton_base.gamma_multiply(0.7),
+        );
+        x += w + COL_SPACING;
+    }
+
+    // Row skeletons
+    let num_rows = ((skeleton_height - 50.0) / ROW_HEIGHT) as usize;
+    for i in 0..num_rows.min(10) {
+        let y = full_rect.top() + 42.0 + i as f32 * ROW_HEIGHT;
+
+        // Alternating row background
+        if i % 2 == 1 {
+            painter.rect_filled(
+                egui::Rect::from_min_size(
+                    egui::pos2(full_rect.left(), y),
+                    egui::vec2(available.x, ROW_HEIGHT),
+                ),
+                0.0,
+                skeleton_base.gamma_multiply(0.3),
+            );
+        }
+
+        // Gutter number skeleton
+        painter.rect_filled(
+            egui::Rect::from_min_size(
+                egui::pos2(full_rect.left() + PADDING + 4.0, y + 7.0),
+                egui::vec2(24.0, 12.0),
+            ),
+            3.0,
+            skeleton_base.gamma_multiply(0.4),
+        );
+
+        // Cell value skeletons at varying widths
+        let mut cx = full_rect.left() + PADDING + gutter_width;
+        for (j, &w) in col_widths.iter().enumerate() {
+            if cx + w > full_rect.right() - PADDING {
+                break;
+            }
+            let cell_width = w * (0.4 + ((i * 47 + j * 31) % 50) as f32 / 100.0);
+            painter.rect_filled(
+                egui::Rect::from_min_size(
+                    egui::pos2(cx + 8.0, y + 7.0),
+                    egui::vec2(cell_width, 12.0),
+                ),
+                3.0,
+                skeleton_base,
+            );
+            cx += w + COL_SPACING;
+        }
+    }
+
+    // Shimmer overlay
+    let shimmer_rect = egui::Rect::from_min_size(
+        egui::pos2(full_rect.left() + shimmer_x, full_rect.top()),
+        egui::vec2(shimmer_width, skeleton_height),
+    );
+    let clipped = shimmer_rect.intersect(full_rect);
+    if clipped.width() > 0.0 {
+        let segments = 10;
+        let segment_width = clipped.width() / segments as f32;
+        for i in 0..segments {
+            let alpha = {
+                let t = i as f32 / segments as f32;
+                (-(t - 0.5).powi(2) * 8.0).exp()
+            };
+            let seg_rect = egui::Rect::from_min_size(
+                egui::pos2(clipped.left() + i as f32 * segment_width, clipped.top()),
+                egui::vec2(segment_width, clipped.height()),
+            );
+            painter.rect_filled(seg_rect, 0.0, shimmer_color.gamma_multiply(alpha));
+        }
+    }
+
+    ui.ctx().request_repaint();
+}
+
+/// Check whether an Arrow data type is numeric (for right-alignment).
+pub(super) fn is_numeric_type(dt: &enya_datafusion::arrow::datatypes::DataType) -> bool {
+    use enya_datafusion::arrow::datatypes::DataType;
+    matches!(
+        dt,
+        DataType::Int8
+            | DataType::Int16
+            | DataType::Int32
+            | DataType::Int64
+            | DataType::UInt8
+            | DataType::UInt16
+            | DataType::UInt32
+            | DataType::UInt64
+            | DataType::Float16
+            | DataType::Float32
+            | DataType::Float64
+            | DataType::Decimal128(_, _)
+            | DataType::Decimal256(_, _)
+    )
 }
 
 /// Compare two cell values for sorting (numeric-aware, NULL-last).

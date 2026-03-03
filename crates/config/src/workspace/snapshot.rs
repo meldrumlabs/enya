@@ -171,6 +171,8 @@ pub struct SnapshotBenchmarkData {
     pub execution: SnapshotPhaseTiming,
     /// Total (end-to-end) timings.
     pub total: SnapshotPhaseTiming,
+    /// Custom phase names for non-local backends (e.g. Flight SQL).
+    pub phase_names: Option<[String; 4]>,
 }
 
 /// Per-column statistics for a snapshot describe cell.
@@ -514,6 +516,8 @@ struct CompactBenchmarkData {
     pub physical: CompactPhaseTiming,
     pub execution: CompactPhaseTiming,
     pub total: CompactPhaseTiming,
+    #[serde(default)]
+    pub phase_names: Option<[String; 4]>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -987,6 +991,7 @@ fn encode_benchmark_data(b: &SnapshotBenchmarkData) -> CompactBenchmarkData {
         physical: encode_phase_timing(&b.physical_planning),
         execution: encode_phase_timing(&b.execution),
         total: encode_phase_timing(&b.total),
+        phase_names: b.phase_names.clone(),
     }
 }
 
@@ -998,6 +1003,7 @@ fn decode_benchmark_data(b: CompactBenchmarkData) -> SnapshotBenchmarkData {
         physical_planning: decode_phase_timing(b.physical),
         execution: decode_phase_timing(b.execution),
         total: decode_phase_timing(b.total),
+        phase_names: b.phase_names,
     }
 }
 
@@ -1913,6 +1919,7 @@ mod tests {
                             median_us: 2900,
                             percent_of_total: 100.0,
                         },
+                        phase_names: None,
                     }),
                     describe: None,
                 },
