@@ -292,12 +292,26 @@ impl Workspace {
         // The actual clone/index happens in show() when ctx is available
         #[cfg(not(target_arch = "wasm32"))]
         {
-            self.pending_git_config = if config.git.is_empty() {
+            let new_url = if config.git.is_empty() {
                 None
             } else {
-                // Set language filter if configured
+                Some(config.git.url.as_str())
+            };
+            let current_url = self.codebase_manager.status().url();
+
+            // Reset codebase manager when switching to a different repo (or no repo).
+            // This prevents stale index data from a previous project from persisting
+            // and ensures background threads from the old repo cannot write results
+            // into the new state.
+            if new_url != current_url {
+                self.codebase_manager.reset();
+            }
+
+            self.pending_git_config = if let Some(url) = new_url {
                 self.codebase_manager.set_language(&config.git.language);
-                Some(config.git.url.clone())
+                Some(url.to_string())
+            } else {
+                None
             };
         }
 

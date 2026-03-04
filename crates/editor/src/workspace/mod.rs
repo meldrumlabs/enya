@@ -1379,6 +1379,11 @@ impl Workspace {
                 // Store git repo path for codebase integration (native only with codebase feature)
                 #[cfg(not(target_arch = "wasm32"))]
                 {
+                    let new_url = git_repo.as_deref();
+                    let current_url = self.codebase_manager.status().url();
+                    if new_url != current_url {
+                        self.codebase_manager.reset();
+                    }
                     self.pending_git_config = git_repo;
                 }
                 #[cfg(target_arch = "wasm32")]
@@ -1734,6 +1739,11 @@ impl Workspace {
                 // Store git repo path for codebase integration (native only with codebase feature)
                 #[cfg(not(target_arch = "wasm32"))]
                 {
+                    let new_url = git_repo.as_deref();
+                    let current_url = self.codebase_manager.status().url();
+                    if new_url != current_url {
+                        self.codebase_manager.reset();
+                    }
                     self.pending_git_config = git_repo;
                 }
                 #[cfg(target_arch = "wasm32")]

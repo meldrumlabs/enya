@@ -246,6 +246,30 @@ impl CodebaseManager {
         }
     }
 
+    /// Resets the codebase manager to its initial state.
+    ///
+    /// This discards any in-progress or completed indexing, creating fresh Arcs
+    /// so that background threads from a previous repository cannot write stale
+    /// results into the new state.
+    pub fn reset(&mut self) {
+        self.status = CodebaseStatus::None;
+        // Create new Arcs so old background threads write into orphaned Arcs
+        self.pending_result = Arc::new(Mutex::new(None));
+        self.index = None;
+        self.indexing_progress = None;
+        self.language.clear();
+        self.commit_cache.clear();
+        self.pending_history_range = None;
+        self.commits_updated = false;
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.tantivy_index = None;
+            self.pending_tantivy = Arc::new(Mutex::new(None));
+            self.tantivy_progress = None;
+        }
+        self.last_git_sync = None;
+    }
+
     /// Sets the language for metric scanning.
     ///
     /// When set, only scanners for the specified language will be used during indexing.

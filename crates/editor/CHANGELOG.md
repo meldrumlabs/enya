@@ -4,6 +4,10 @@ All notable changes to the Enya editor will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Codebase indexing per project**: Switching between projects now correctly resets the codebase manager, preventing the wrong repository from being indexed. Previously, loading a workspace from a different project could show or re-index the previous project's repo.
+
 ### Added
 
 - **SQL pane Flight SQL benchmarking**: The `/bench` command now works over Flight SQL connections with per-phase timing breakdown matching dft's Flight SQL benchmarks: Get Flight Info, Time to First Byte (TTFB), Do Get, and Total. Phase labels adapt automatically for Flight vs local backends.
