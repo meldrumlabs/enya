@@ -48,12 +48,50 @@ impl Workspace {
                 name: name.to_string(),
                 description: String::new(),
                 version: WORKSPACE_VERSION,
-                endpoint: endpoint.map(|e| e.to_string()).unwrap_or_default(),
+                endpoint: endpoint
+                    .map(|e| e.to_string())
+                    .or_else(|| match self.query_executor.backend() {
+                        crate::components::util::query_executor::Backend::Prometheus(ep) => {
+                            Some(ep.clone())
+                        }
+                        _ => None,
+                    })
+                    .or_else(|| self.pending_connection_endpoint.clone())
+                    .unwrap_or_default(),
             },
             metrics: MetricsConfig::default(),
             logs: LogsConfig::default(),
             tracing: TracingConfig::default(),
-            git: GitConfig::default(),
+            git: {
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    // Try live codebase state first, fall back to pending config
+                    // (pending is set but not yet consumed when saving right after wizard)
+                    let url = self
+                        .codebase_manager
+                        .status()
+                        .url()
+                        .map(|u| u.to_string())
+                        .or_else(|| self.pending_git_config.clone());
+                    match url {
+                        Some(url) => GitConfig {
+                            url,
+                            language: self
+                                .codebase_manager
+                                .status()
+                                .language()
+                                .unwrap_or_default()
+                                .to_string(),
+                            ..Default::default()
+                        },
+                        None => GitConfig::default(),
+                    }
+                }
+                #[cfg(target_arch = "wasm32")]
+                {
+                    GitConfig::default()
+                }
+            },
             view: ViewConfig {
                 // Theme is NOT included - it's a user preference, not workspace setting
                 zen_mode: self.zen_mode,
@@ -247,10 +285,8 @@ impl Workspace {
         // Set the root
         self.viewport_tree.root = Some(root_id);
 
-        // Hide landing page if we have panes
-        if !all_panes.is_empty() {
-            self.show_landing = false;
-        }
+        // Always hide landing page when a workspace is loaded
+        self.show_landing = false;
 
         // Store git URL for deferred initialization (native only with codebase feature)
         // The actual clone/index happens in show() when ctx is available

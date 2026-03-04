@@ -317,6 +317,10 @@ pub struct BenchmarkStats {
     pub execution: PhaseTiming,
     /// Total (end-to-end) timings.
     pub total: PhaseTiming,
+    /// Custom phase names for non-local backends (e.g. Flight SQL).
+    /// When `Some`, overrides default labels in the UI.
+    /// Order: [phase1, phase2, phase3, "Total"].
+    pub phase_names: Option<[String; 4]>,
 }
 
 impl BenchmarkStats {
@@ -336,6 +340,7 @@ impl BenchmarkStats {
             physical_planning: PhaseTiming::from_dft(&physical),
             execution: PhaseTiming::from_dft(&execution),
             total: PhaseTiming::from_dft(&total),
+            phase_names: None,
         }
     }
 }

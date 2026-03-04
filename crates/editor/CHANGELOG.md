@@ -6,6 +6,30 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Added
 
+- **SQL pane Flight SQL benchmarking**: The `/bench` command now works over Flight SQL connections with per-phase timing breakdown matching dft's Flight SQL benchmarks: Get Flight Info, Time to First Byte (TTFB), Do Get, and Total. Phase labels adapt automatically for Flight vs local backends.
+
+### Changed
+
+- **Unified tutorial workspaces**: Native tutorial workspaces now use the same names as WASM (`quick-start`, `infra`, `logs-and-traces`). Old tutorial files (`golden-signals`, `infrastructure`, `multi-service`) are automatically cleaned up.
+- **SQL pane premium header bar**: Added an accent-tinted header bar matching the LogsPane design, with database icon, "SQL" title, inline mode badges (DIFF/EXPLAIN), connection status indicator, and result count badge. Includes a 1px accent line separator.
+- **SQL pane loading shimmer**: Query execution now shows a table-shaped skeleton loading animation with sweeping shimmer gradient instead of just a spinner.
+- **SQL pane scroll shadows**: Added VS Code-style fade gradients at the top/bottom of the result scroll area.
+- **SQL pane table hover rows**: Data rows highlight with a subtle accent tint on hover for better visual feedback.
+- **SQL pane numeric column alignment**: Numeric columns (integers, floats, decimals) are now right-aligned in result tables.
+- **SQL pane sort indicators**: Column sort arrows are now rendered separately in accent color at the right edge. Unsorted columns show a ghost arrow on hover to hint at clickability.
+- **SQL pane cell click-to-copy**: Click any cell value in the result table to copy it to the clipboard.
+- **SQL pane truncation tooltips**: Hover over truncated cell values to see the full content in a tooltip.
+- **SQL pane row gutter border**: Added a subtle right border to the row number gutter for visual separation.
+- **SQL pane card header visibility**: Close and collapse icons are now more visible (increased opacity from 0.3/0.6 to 0.5/0.7).
+- **SQL pane empty state polish**: Improved empty state with icon glow frame, larger icon, and better text hierarchy.
+- **SQL pane layout constants**: Extracted magic numbers into named constants for consistent styling.
+- **SQL pane fullscreen overlay feature parity**: The fullscreen table overlay now has hover row highlighting, cell click-to-copy, truncation tooltips, numeric column right-alignment, accent-colored sort indicators with ghost arrows on hover, and a gutter right border — matching the inline table interactions.
+- **SQL pane suggestions popup polish**: The autocomplete suggestions popup now has a drop shadow, hover row highlighting, and a pointing hand cursor on suggestion rows.
+- **SQL pane run button visual weight**: The run button (↵) now shows an accent-tinted fill and border when a query is ready to execute, making it visually prominent instead of nearly invisible.
+- **SQL pane connection popup cursor feedback**: Connection rows, table names, and "Manage in Settings" links in the connection popup and sidebar tree now show a pointing hand cursor on hover.
+
+### Added
+
 - **Snapshot support for TracingPane and LogsPane**: Trace and log panes are now included in snapshots. Previously they were silently skipped when sharing snapshots.
 - **Snapshot trait methods on Component**: Added `extract_snapshot_data()`, `load_snapshot_data()`, and `to_pane_config()` as default methods on the `Component` trait, making snapshot support an explicit contract for new pane types.
 - **macOS window vibrancy**: The custom titlebar now has a subtle translucent vibrancy effect on macOS, allowing the desktop to gently show through. Uses `NSVisualEffectView` with the colorless Selection material (same approach as Zed) for a neutral blur that works with all themes.

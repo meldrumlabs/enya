@@ -34,24 +34,31 @@ use super::types::{
 };
 use crate::components::util::id_generator::next_id_usize;
 use crate::components::util::{
-    render_colored_badge, render_stat_badge, render_stat_badge_with_icon,
+    ScrollShadowConfig, ScrollState, render_colored_badge, render_scroll_shadows,
+    render_stat_badge, render_stat_badge_with_icon,
 };
 use crate::components::{OverlayColors, OverlayStyle};
-use crate::ui::semantic_icons::{action, category, empty, file, nav, status, time};
+use crate::ui::semantic_icons::{action, category, file, nav, status, time};
 use crate::ui::theme::AppTheme;
 use crate::ui::typography;
 use egui::{Color32, RichText, TextEdit, TextFormat};
 use enya_datafusion::arrow::array::{Array, RecordBatch};
 use enya_datafusion::arrow::datatypes::SchemaRef;
 use enya_datafusion::{
-    BenchmarkRequest, ConnectionState, DescribeRequest, ExecutionStats, FlightClient, PlanNode,
-    QueryEvent, QueryId, QueryRequest, TableInfo, format_array_value, format_duration, format_rows,
+    BenchmarkRequest, BenchmarkStats, ConnectionState, DescribeRequest, ExecutionStats,
+    FlightClient, PhaseTiming, PlanNode, QueryEvent, QueryId, QueryRequest, TableInfo,
+    format_array_value, format_duration, format_rows,
 };
 use nucleo_matcher::{
     Config, Matcher, Utf32Str,
     pattern::{AtomKind, CaseMatching, Normalization, Pattern},
 };
 
+// Consistent styling constants.
+const PANE_PADDING: f32 = 16.0;
+const PANE_INNER_PADDING: f32 = 12.0;
+const MAX_CONTENT_WIDTH: f32 = 900.0;
+const INPUT_RESERVE_HEIGHT: f32 = 100.0;
 /// Result of checking backend type for local-only operations.
 enum LocalBackendCheck {
     Local,
@@ -108,6 +115,10 @@ pub struct SqlPane {
     /// Pending explain query result receiver.
     #[allow(clippy::type_complexity)]
     pending_explain: Option<tokio::sync::oneshot::Receiver<Result<String, String>>>,
+    /// Pending Flight benchmark message receiver (progress + final result).
+    pending_benchmark: Option<tokio::sync::mpsc::Receiver<FlightBenchmarkMsg>>,
+    /// ID of the benchmark currently being executed via Flight.
+    pending_benchmark_id: Option<QueryId>,
     /// ID of connection being connected.
     pending_connect_id: Option<ConnectionId>,
     /// Whether auto-connect has been attempted (prevents re-connecting on settings re-sync).
@@ -225,6 +236,8 @@ impl SqlPane {
             pending_query_id: None,
             pending_flight_abort: None,
             pending_explain: None,
+            pending_benchmark: None,
+            pending_benchmark_id: None,
             pending_connect_id: None,
             auto_connected: false,
             pending_tables: None,
@@ -731,10 +744,10 @@ impl SqlPane {
         }
     }
 
-    /// Execute a benchmark on the local backend.
+    /// Execute a benchmark query.
     fn execute_benchmark(&mut self, sql: &str, iterations: usize) {
-        match self.check_local_backend() {
-            LocalBackendCheck::Local => {
+        match &self.backend {
+            Some(SqlBackend::Local { .. }) => {
                 let query_id = QueryId::new();
                 let display = format!("/bench {iterations} {sql}");
                 self.set_result_cell(Cell::benchmark(display, query_id));
@@ -752,10 +765,23 @@ impl SqlPane {
                     }
                 }
             }
-            LocalBackendCheck::Flight => {
-                self.add_error_cell("Benchmarking is only supported on local DataFusion sessions.");
+            Some(SqlBackend::Flight { .. }) => {
+                let query_id = QueryId::new();
+                let display = format!("/bench {iterations} {sql}");
+                self.set_result_cell(Cell::benchmark(display, query_id));
+
+                let sql = sql.to_string();
+                let (tx, rx) = tokio::sync::mpsc::channel(iterations + 1);
+                self.pending_benchmark = Some(rx);
+                self.pending_benchmark_id = Some(query_id);
+
+                if let Some(endpoint) = self.endpoint.clone() {
+                    self.runtime_handle.spawn(async move {
+                        flight_benchmark(&endpoint, &sql, iterations, &tx).await;
+                    });
+                }
             }
-            LocalBackendCheck::NotConnected => {
+            None => {
                 self.add_error_cell("Not connected. Configure connections in Settings.");
             }
         }
@@ -1145,6 +1171,7 @@ impl SqlPane {
     }
 
     /// Show an info status banner (alias for add_info_cell).
+    #[allow(dead_code)]
     fn set_status_info(&mut self, message: &str) {
         self.add_info_cell(message);
     }
@@ -1333,6 +1360,61 @@ impl SqlPane {
                         }
                     }
                 }
+            }
+        }
+
+        // Poll pending Flight benchmark (drain all available messages)
+        if let Some(ref mut rx) = self.pending_benchmark {
+            let mut done = false;
+            while let Ok(msg) = rx.try_recv() {
+                match msg {
+                    FlightBenchmarkMsg::Progress {
+                        iteration,
+                        total_iterations,
+                        last_duration,
+                    } => {
+                        if let Some(query_id) = self.pending_benchmark_id {
+                            if let Some(cell) =
+                                self.result_cell.as_mut().filter(|c| c.id() == query_id)
+                            {
+                                if let Some(b) = cell.as_benchmark_mut() {
+                                    b.progress = Some((iteration, total_iterations));
+                                    b.last_duration = Some(last_duration);
+                                }
+                            }
+                        }
+                    }
+                    FlightBenchmarkMsg::Done(result) => {
+                        match *result {
+                            Ok(stats) => {
+                                if let Some(query_id) = self.pending_benchmark_id.take() {
+                                    if let Some(cell) =
+                                        self.result_cell.as_mut().filter(|c| c.id() == query_id)
+                                    {
+                                        if let Some(b) = cell.as_benchmark_mut() {
+                                            b.status = QueryStatus::Completed;
+                                            b.stats = Some(stats);
+                                        }
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                if let Some(query_id) = self.pending_benchmark_id.take() {
+                                    if let Some(cell) =
+                                        self.result_cell.as_mut().filter(|c| c.id() == query_id)
+                                    {
+                                        cell.set_status(QueryStatus::Failed);
+                                        cell.set_error(e);
+                                    }
+                                }
+                            }
+                        }
+                        done = true;
+                    }
+                }
+            }
+            if done {
+                self.pending_benchmark = None;
             }
         }
 
@@ -1803,11 +1885,11 @@ impl SqlPane {
 
         egui::Frame::new()
             .fill(bg_base)
-            .inner_margin(egui::Margin::symmetric(16, 12))
+            .inner_margin(egui::Margin::symmetric(PANE_PADDING as i8, PANE_INNER_PADDING as i8))
             .show(ui, |ui| {
                 // Center content with max width, scrollbar stays at pane edge
                 let available_width = ui.available_width();
-                let max_content_width = available_width.min(900.0);
+                let max_content_width = available_width.min(MAX_CONTENT_WIDTH);
 
                 ui.allocate_ui_with_layout(
                     egui::vec2(available_width, ui.available_height()),
@@ -1815,10 +1897,8 @@ impl SqlPane {
                     |ui| {
                         ui.set_max_width(max_content_width);
 
-                        self.render_mode_badge(ui);
-
                         // Reserve space for input section at bottom
-                        let input_height = 100.0;
+                        let input_height = INPUT_RESERVE_HEIGHT;
                         let scroll_height = (ui.available_height() - input_height).max(100.0);
 
                         // === Single result cell (scrollable) ===
@@ -1834,7 +1914,7 @@ impl SqlPane {
                         // width matches the input bar width below it.
                         ui.style_mut().spacing.scroll.floating = true;
 
-                        egui::ScrollArea::vertical()
+                        let scroll_output = egui::ScrollArea::vertical()
                             .id_salt("notebook_cells")
                             .max_height(scroll_height)
                             .stick_to_bottom(self.scroll_to_bottom)
@@ -1867,15 +1947,10 @@ impl SqlPane {
                                 }
 
                                 if !self.has_result() {
-                                    // Empty state placeholder
+                                    // Empty state — simple centered text
                                     ui.vertical_centered(|ui| {
                                         ui.add_space(scroll_height / 4.0);
-                                        ui.label(
-                                            RichText::new(empty::NO_QUERIES)
-                                                .color(theme.text_secondary().gamma_multiply(0.2))
-                                                .size(32.0),
-                                        );
-                                        ui.add_space(8.0);
+
                                         let (title, subtitle) = if !has_connections {
                                             (
                                                 "No connections configured",
@@ -1895,17 +1970,34 @@ impl SqlPane {
                                         ui.label(
                                             RichText::new(title)
                                                 .color(theme.text_secondary())
-                                                .size(12.0),
+                                                .size(13.0),
                                         );
                                         ui.add_space(4.0);
                                         ui.label(
                                             RichText::new(subtitle)
-                                                .color(theme.text_secondary().gamma_multiply(0.6))
-                                                .size(10.0),
+                                                .color(theme.text_secondary().gamma_multiply(0.5))
+                                                .size(11.0),
                                         );
                                     });
                                 }
                             });
+
+                        // Scroll shadows for premium feel
+                        let scroll_state = ScrollState::from_scroll_output(
+                            scroll_output.content_size,
+                            scroll_output.inner_rect,
+                            scroll_output.state.offset,
+                        );
+                        render_scroll_shadows(
+                            ui,
+                            scroll_output.inner_rect,
+                            scroll_state,
+                            ScrollShadowConfig {
+                                shadow_height: 24.0,
+                                color: bg_base,
+                                max_opacity: 0.4,
+                            },
+                        );
 
                         self.scroll_to_bottom = false;
 
@@ -2279,8 +2371,9 @@ impl SqlPane {
         let row_num_gutter_width = (row_num_width + 2) as f32 * 8.0;
 
         let header_height = typography::SM + typography::XS + 8.0;
-        let row_height = typography::SM + 8.0;
+        let row_height = super::query_card::ROW_HEIGHT;
         let start_row = self.overlay_table_page * rows_per_page;
+        let accent = self.theme.accent_primary();
 
         // Build sorted row indices for column sort
         let sort_col = self.overlay_sort_column;
@@ -2359,11 +2452,12 @@ impl SqlPane {
                             // Column headers with fixed widths (clickable for sort)
                             for (idx, field) in schema.fields().iter().enumerate() {
                                 let col_width = column_widths.get(idx).copied().unwrap_or(100.0);
-                                let col_spacing = 16.0;
 
-                                // Allocate fixed-width cell (clickable for column sort)
                                 let (col_rect, col_response) = ui.allocate_exact_size(
-                                    egui::vec2(col_width + col_spacing, header_height),
+                                    egui::vec2(
+                                        col_width + super::query_card::COL_SPACING,
+                                        header_height,
+                                    ),
                                     egui::Sense::click(),
                                 );
 
@@ -2379,16 +2473,13 @@ impl SqlPane {
                                         self.overlay_sort_column = Some(idx);
                                         self.overlay_sort_ascending = true;
                                     }
-                                    // Reset to first page on sort change
                                     self.overlay_table_page = 0;
                                 }
 
-                                // Hover cursor
                                 if col_response.hovered() {
                                     ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
                                 }
 
-                                // Header background (highlight on hover or active sort)
                                 let is_sort_col = self.overlay_sort_column == Some(idx);
                                 let header_bg = if col_response.hovered() {
                                     self.theme.bg_hover()
@@ -2399,22 +2490,11 @@ impl SqlPane {
                                 };
                                 ui.painter().rect_filled(col_rect, 0.0, header_bg);
 
-                                // Sort indicator
-                                let sort_indicator = if is_sort_col {
-                                    if self.overlay_sort_ascending {
-                                        " ▲"
-                                    } else {
-                                        " ▼"
-                                    }
-                                } else {
-                                    ""
-                                };
-
-                                // Draw column name with sort indicator
+                                // Column name (without inline sort indicator)
                                 ui.painter().text(
                                     col_rect.left_center() + egui::vec2(8.0, -6.0),
                                     egui::Align2::LEFT_CENTER,
-                                    format!("{}{sort_indicator}", field.name()),
+                                    field.name(),
                                     typography::monospace(typography::SM),
                                     if is_sort_col {
                                         colors.accent
@@ -2423,7 +2503,31 @@ impl SqlPane {
                                     },
                                 );
 
-                                // Draw data type below
+                                // Sort indicator as separate icon at right edge
+                                if is_sort_col {
+                                    let icon = if self.overlay_sort_ascending {
+                                        "▲"
+                                    } else {
+                                        "▼"
+                                    };
+                                    ui.painter().text(
+                                        col_rect.right_center() + egui::vec2(-8.0, -6.0),
+                                        egui::Align2::RIGHT_CENTER,
+                                        icon,
+                                        typography::monospace(typography::XS),
+                                        colors.accent,
+                                    );
+                                } else if col_response.hovered() {
+                                    ui.painter().text(
+                                        col_rect.right_center() + egui::vec2(-8.0, -6.0),
+                                        egui::Align2::RIGHT_CENTER,
+                                        "▲",
+                                        typography::monospace(typography::XS),
+                                        colors.faint_text.gamma_multiply(0.3),
+                                    );
+                                }
+
+                                // Data type below
                                 ui.painter().text(
                                     col_rect.left_center() + egui::vec2(8.0, 6.0),
                                     egui::Align2::LEFT_CENTER,
@@ -2444,14 +2548,7 @@ impl SqlPane {
                             let absolute_row = start_row + display_idx + 1;
                             let batch = &cell.batches()[batch_idx];
 
-                            // Alternate row background
-                            let row_bg = if display_idx % 2 == 0 {
-                                Color32::TRANSPARENT
-                            } else {
-                                self.theme.bg_hover().gamma_multiply(0.3)
-                            };
-
-                            ui.horizontal(|ui| {
+                            let row_resp = ui.horizontal(|ui| {
                                 ui.style_mut().spacing.item_spacing.x = 0.0;
 
                                 // Row number gutter
@@ -2470,26 +2567,42 @@ impl SqlPane {
                                     colors.faint_text,
                                 );
 
+                                // Gutter right border
+                                ui.painter().line_segment(
+                                    [
+                                        egui::pos2(gutter_rect.right(), gutter_rect.top()),
+                                        egui::pos2(gutter_rect.right(), gutter_rect.bottom()),
+                                    ],
+                                    egui::Stroke::new(1.0, self.theme.border_subtle()),
+                                );
+
+                                // Alternating row background
+                                let row_bg = if display_idx % 2 == 0 {
+                                    Color32::TRANSPARENT
+                                } else {
+                                    self.theme.bg_hover().gamma_multiply(0.3)
+                                };
+
                                 // Cell values with fixed widths
                                 for col_idx in 0..batch.num_columns() {
                                     let col_width =
                                         column_widths.get(col_idx).copied().unwrap_or(100.0);
-                                    let col_spacing = 16.0;
 
-                                    // Allocate fixed-width cell
-                                    let (cell_rect, _) = ui.allocate_exact_size(
-                                        egui::vec2(col_width + col_spacing, row_height),
-                                        egui::Sense::hover(),
+                                    let (cell_rect, cell_response) = ui.allocate_exact_size(
+                                        egui::vec2(
+                                            col_width + super::query_card::COL_SPACING,
+                                            row_height,
+                                        ),
+                                        egui::Sense::click(),
                                     );
 
-                                    // Draw row background
                                     ui.painter().rect_filled(cell_rect, 0.0, row_bg);
 
                                     let col = batch.column(col_idx);
                                     let value = format_array_value(col.as_ref(), row_idx);
+                                    let mut is_truncated = false;
 
                                     if value == "NULL" {
-                                        // NULL cells: subtle background tint + italic text
                                         let null_bg = colors.faint_text.gamma_multiply(0.06);
                                         ui.painter().rect_filled(cell_rect, 0.0, null_bg);
                                         let job = egui::text::LayoutJob::single_section(
@@ -2509,29 +2622,68 @@ impl SqlPane {
                                             colors.faint_text,
                                         );
                                     } else {
-                                        // Truncate long values
-                                        let max_chars = ((col_width - 8.0) / 7.0) as usize;
-                                        let display_val =
-                                            if value.len() > max_chars && max_chars > 3 {
-                                                let truncated: String = value
-                                                    .chars()
-                                                    .take(max_chars.saturating_sub(1))
-                                                    .collect();
-                                                format!("{truncated}…")
-                                            } else {
-                                                value
-                                            };
+                                        // Right-align numeric columns
+                                        let is_numeric = super::query_card::is_numeric_type(
+                                            schema.field(col_idx).data_type(),
+                                        );
+                                        let max_chars = ((col_width - 8.0) / 7.0).max(0.0) as usize;
+                                        is_truncated = value.len() > max_chars && max_chars > 3;
+                                        let display_val = if is_truncated {
+                                            let truncated: String = value
+                                                .chars()
+                                                .take(max_chars.saturating_sub(1))
+                                                .collect();
+                                            format!("{truncated}…")
+                                        } else {
+                                            value.clone()
+                                        };
+
+                                        let (align, pos) = if is_numeric {
+                                            (
+                                                egui::Align2::RIGHT_CENTER,
+                                                cell_rect.right_center() + egui::vec2(-8.0, 0.0),
+                                            )
+                                        } else {
+                                            (
+                                                egui::Align2::LEFT_CENTER,
+                                                cell_rect.left_center() + egui::vec2(8.0, 0.0),
+                                            )
+                                        };
 
                                         ui.painter().text(
-                                            cell_rect.left_center() + egui::vec2(8.0, 0.0),
-                                            egui::Align2::LEFT_CENTER,
+                                            pos,
+                                            align,
                                             display_val,
                                             typography::monospace(typography::SM),
                                             colors.muted_text,
                                         );
                                     }
+
+                                    // Click-to-copy and cursor (extract before tooltip move)
+                                    let clicked = cell_response.clicked();
+                                    let hovered = cell_response.hovered();
+                                    if clicked {
+                                        ui.ctx().copy_text(value.clone());
+                                    }
+                                    if hovered {
+                                        ui.ctx().set_cursor_icon(egui::CursorIcon::Cell);
+                                    }
+
+                                    // Tooltip for truncated values (consumes response)
+                                    if is_truncated {
+                                        cell_response.on_hover_text_at_pointer(
+                                            RichText::new(&value).monospace().size(11.0),
+                                        );
+                                    }
                                 }
                             });
+
+                            // Hover row highlighting
+                            if row_resp.response.hovered() {
+                                let hover_bg = accent.gamma_multiply(0.06);
+                                ui.painter()
+                                    .rect_filled(row_resp.response.rect, 0.0, hover_bg);
+                            }
                         }
                     });
 
@@ -3974,6 +4126,7 @@ impl SqlPane {
     }
 
     /// Render mode badge (for diff, explain, etc.).
+    #[allow(dead_code)]
     fn render_mode_badge(&self, ui: &mut egui::Ui) {
         let text_secondary = self.theme.text_secondary();
         let accent = self.theme.accent_primary();
@@ -4061,6 +4214,12 @@ impl SqlPane {
             .fill(bg_elevated)
             .stroke(egui::Stroke::new(1.0, border))
             .corner_radius(8.0)
+            .shadow(egui::epaint::Shadow {
+                spread: 0,
+                blur: 16,
+                color: Color32::from_black_alpha(if self.theme.is_dark() { 100 } else { 40 }),
+                offset: [0, 4],
+            })
             .inner_margin(egui::Margin::symmetric(4, 4))
             .show(ui, |ui| {
                 egui::ScrollArea::vertical()
@@ -4071,14 +4230,12 @@ impl SqlPane {
                             suggestions.iter().enumerate()
                         {
                             let is_selected = idx == selected_idx;
-                            let row_bg = if is_selected {
-                                accent.gamma_multiply(0.15)
-                            } else {
-                                Color32::TRANSPARENT
-                            };
+
+                            // Reserve a paint slot for the row background so we
+                            // can paint hover state after interaction.
+                            let bg_idx = ui.painter().add(egui::Shape::Noop);
 
                             let row = egui::Frame::new()
-                                .fill(row_bg)
                                 .corner_radius(4.0)
                                 .inner_margin(egui::Margin::symmetric(10, 6))
                                 .show(ui, |ui| {
@@ -4142,6 +4299,23 @@ impl SqlPane {
                                     });
                                 });
 
+                            // Paint row background based on hover/selected state.
+                            let row_bg = if is_selected {
+                                accent.gamma_multiply(0.15)
+                            } else if row.response.hovered() {
+                                self.theme.bg_hover()
+                            } else {
+                                Color32::TRANSPARENT
+                            };
+                            ui.painter().set(
+                                bg_idx,
+                                egui::Shape::rect_filled(row.response.rect, 4.0, row_bg),
+                            );
+
+                            if row.response.hovered() {
+                                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                            }
+
                             // Scroll to selected item
                             if is_selected {
                                 row.response.scroll_to_me(Some(egui::Align::Center));
@@ -4194,7 +4368,6 @@ impl SqlPane {
 
     /// Render the main input bar with SQL syntax highlighting.
     fn render_input_bar(&mut self, ui: &mut egui::Ui, accent: Color32) {
-        let text_primary = self.theme.text_primary();
         let text_secondary = self.theme.text_secondary();
 
         // Input container
@@ -4268,7 +4441,9 @@ impl SqlPane {
                             self.sidebar_width = if was_closed { 1.0 } else { 0.0 };
                             self.popup_just_opened = was_closed;
                         }
-                        pill_resp.on_hover_cursor(egui::CursorIcon::PointingHand);
+                        pill_resp
+                            .on_hover_cursor(egui::CursorIcon::PointingHand)
+                            .on_hover_text("Toggle connections sidebar");
 
                         ui.add_space(8.0);
                     }
@@ -4447,14 +4622,28 @@ impl SqlPane {
                         self.execute_input();
                     }
 
-                    // Run button (small, subtle)
+                    // Run button — accent-tinted when a query is ready to run.
                     let has_connection = self.active_connection().is_some();
+                    let enabled = has_connection && !self.input.trim().is_empty();
+                    let btn_color = if enabled {
+                        accent
+                    } else {
+                        text_secondary.gamma_multiply(0.3)
+                    };
                     let run_btn = ui.add_enabled(
-                        has_connection && !self.input.trim().is_empty(),
-                        egui::Button::new(RichText::new("↵").color(text_primary).size(11.0))
-                            .fill(Color32::TRANSPARENT)
-                            .stroke(egui::Stroke::NONE)
-                            .min_size(egui::vec2(32.0, 20.0)),
+                        enabled,
+                        egui::Button::new(RichText::new("↵").color(btn_color).size(14.0))
+                            .fill(if enabled {
+                                accent.gamma_multiply(0.15)
+                            } else {
+                                Color32::TRANSPARENT
+                            })
+                            .stroke(egui::Stroke::new(
+                                if enabled { 1.0 } else { 0.0 },
+                                accent.gamma_multiply(0.3),
+                            ))
+                            .corner_radius(6.0)
+                            .min_size(egui::vec2(32.0, 24.0)),
                     );
                     if run_btn.clicked() {
                         self.execute_input();
@@ -4954,6 +5143,7 @@ impl SqlPane {
                         physical_planning: phase_to_snapshot(&s.physical_planning),
                         execution: phase_to_snapshot(&s.execution),
                         total: phase_to_snapshot(&s.total),
+                        phase_names: s.phase_names.clone(),
                     });
                     SnapshotQueryCell {
                         kind: SnapshotCellKind::Benchmark,
@@ -5216,6 +5406,7 @@ impl SqlPane {
                                 physical_planning: snapshot_to_phase(&b.physical_planning),
                                 execution: snapshot_to_phase(&b.execution),
                                 total: snapshot_to_phase(&b.total),
+                                phase_names: b.phase_names.clone(),
                             });
                     Cell::benchmark_completed(cell_data.sql.clone(), id, stats)
                 }
@@ -5302,5 +5493,146 @@ impl crate::components::Component for SqlPane {
 
     fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
         self
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Flight SQL benchmark helpers
+// ---------------------------------------------------------------------------
+
+/// Messages sent from the Flight benchmark async task to the UI.
+enum FlightBenchmarkMsg {
+    /// Per-iteration progress update.
+    Progress {
+        iteration: usize,
+        total_iterations: usize,
+        last_duration: std::time::Duration,
+    },
+    /// Final result with computed stats.
+    Done(Box<Result<BenchmarkStats, String>>),
+}
+
+/// Run a benchmark over Flight SQL by executing the query `iterations` times,
+/// collecting per-phase timings that mirror dft's Flight SQL breakdown:
+/// Get Flight Info, TTFB, Do Get, and Total.
+///
+/// Sends [`FlightBenchmarkMsg::Progress`] after each iteration and
+/// [`FlightBenchmarkMsg::Done`] when finished.
+async fn flight_benchmark(
+    endpoint: &str,
+    sql: &str,
+    iterations: usize,
+    tx: &tokio::sync::mpsc::Sender<FlightBenchmarkMsg>,
+) {
+    let result = flight_benchmark_inner(endpoint, sql, iterations, tx).await;
+    let _ = tx.send(FlightBenchmarkMsg::Done(Box::new(result))).await;
+}
+
+async fn flight_benchmark_inner(
+    endpoint: &str,
+    sql: &str,
+    iterations: usize,
+    tx: &tokio::sync::mpsc::Sender<FlightBenchmarkMsg>,
+) -> Result<BenchmarkStats, String> {
+    let mut gfi_durations = Vec::with_capacity(iterations);
+    let mut ttfb_durations = Vec::with_capacity(iterations);
+    let mut do_get_durations = Vec::with_capacity(iterations);
+    let mut total_durations = Vec::with_capacity(iterations);
+    let mut rows = 0;
+
+    for i in 0..iterations {
+        let mut client = FlightClient::connect(endpoint)
+            .await
+            .map_err(|e| e.to_string())?;
+        let (r, gfi, ttfb, dg, total) = client
+            .benchmark_execute(sql)
+            .await
+            .map_err(|e| e.to_string())?;
+        rows = r;
+        gfi_durations.push(gfi);
+        ttfb_durations.push(ttfb);
+        do_get_durations.push(dg);
+        total_durations.push(total);
+
+        let _ = tx
+            .send(FlightBenchmarkMsg::Progress {
+                iteration: i + 1,
+                total_iterations: iterations,
+                last_duration: total,
+            })
+            .await;
+    }
+
+    Ok(compute_flight_benchmark_stats(
+        iterations,
+        rows,
+        &mut gfi_durations,
+        &mut ttfb_durations,
+        &mut do_get_durations,
+        &mut total_durations,
+    ))
+}
+
+/// Summarise a vec of durations into a [`PhaseTiming`].
+fn summarize_durations(
+    durations: &mut [std::time::Duration],
+    total_durations: &[std::time::Duration],
+) -> PhaseTiming {
+    durations.sort();
+    if durations.is_empty() {
+        return PhaseTiming {
+            min: std::time::Duration::ZERO,
+            max: std::time::Duration::ZERO,
+            mean: std::time::Duration::ZERO,
+            median: std::time::Duration::ZERO,
+            percent_of_total: 0.0,
+        };
+    }
+    let len = durations.len();
+    let min = durations[0];
+    let max = durations[len - 1];
+    let sum: std::time::Duration = durations.iter().sum();
+    let mean = sum / len as u32;
+    let median = durations[len / 2];
+    let this_total: u128 = durations.iter().map(|d| d.as_nanos()).sum();
+    let all_total: u128 = total_durations.iter().map(|d| d.as_nanos()).sum();
+    let percent_of_total = if all_total > 0 {
+        (this_total as f64 / all_total as f64) * 100.0
+    } else {
+        0.0
+    };
+    PhaseTiming {
+        min,
+        max,
+        mean,
+        median,
+        percent_of_total,
+    }
+}
+
+/// Compute [`BenchmarkStats`] from per-phase Flight SQL durations,
+/// mirroring dft's `FlightSQLBenchmarkStats` breakdown.
+fn compute_flight_benchmark_stats(
+    iterations: usize,
+    rows_per_iteration: usize,
+    gfi: &mut [std::time::Duration],
+    ttfb: &mut [std::time::Duration],
+    do_get: &mut [std::time::Duration],
+    total: &mut [std::time::Duration],
+) -> BenchmarkStats {
+    let total_ref = total.to_vec();
+    BenchmarkStats {
+        iterations,
+        rows_per_iteration,
+        logical_planning: summarize_durations(gfi, &total_ref),
+        physical_planning: summarize_durations(ttfb, &total_ref),
+        execution: summarize_durations(do_get, &total_ref),
+        total: summarize_durations(total, &total_ref),
+        phase_names: Some([
+            "Get Flight Info".to_string(),
+            "TTFB".to_string(),
+            "Do Get".to_string(),
+            "Total".to_string(),
+        ]),
     }
 }

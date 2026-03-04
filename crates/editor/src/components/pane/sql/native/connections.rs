@@ -174,7 +174,7 @@ pub fn render_connection_popup(
                 .shadow(egui::epaint::Shadow {
                     spread: 0,
                     blur: 16,
-                    color: Color32::from_black_alpha(40),
+                    color: Color32::from_black_alpha(if theme.is_dark() { 100 } else { 40 }),
                     offset: [0, 4],
                 })
                 .inner_margin(8.0)
@@ -263,6 +263,9 @@ pub fn render_connection_popup(
                                 egui::Shape::rect_filled(row.response.rect, 4.0, row_bg),
                             );
 
+                            let row_response =
+                                row_response.on_hover_cursor(egui::CursorIcon::PointingHand);
+
                             if row_response.clicked() {
                                 if is_connected {
                                     actions.push(ConnectionAction::SetActive(conn.id));
@@ -300,6 +303,7 @@ pub fn render_connection_popup(
                         .stroke(egui::Stroke::NONE)
                         .min_size(egui::vec2(200.0, 24.0)),
                     );
+                    let settings_btn = settings_btn.on_hover_cursor(egui::CursorIcon::PointingHand);
                     if settings_btn.clicked() {
                         actions.push(ConnectionAction::OpenSettings);
                         actions.push(ConnectionAction::ClosePopup);
@@ -460,6 +464,8 @@ pub fn render_connection_tree(
                                 .corner_radius(4.0)
                                 .min_size(egui::vec2(sidebar_width - 24.0, 28.0)),
                             );
+                            let settings_btn =
+                                settings_btn.on_hover_cursor(egui::CursorIcon::PointingHand);
                             if settings_btn.clicked() {
                                 actions.push(ConnectionAction::OpenSettings);
                             }
@@ -540,6 +546,7 @@ fn render_connection_item(
                         .sense(egui::Sense::click()),
                 );
 
+                let name_response = name_response.on_hover_cursor(egui::CursorIcon::PointingHand);
                 if name_response.clicked() && is_connected {
                     actions.push(ConnectionAction::SetActive(conn.id));
                 }
@@ -600,6 +607,8 @@ fn render_connection_item(
                             .sense(egui::Sense::click()),
                         );
 
+                        let table_response =
+                            table_response.on_hover_cursor(egui::CursorIcon::PointingHand);
                         // Double-click to insert table name into query
                         if table_response.double_clicked() {
                             actions.push(ConnectionAction::InsertTableName(table.name.clone()));

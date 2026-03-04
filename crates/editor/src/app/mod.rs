@@ -176,6 +176,12 @@ impl EnyaApp {
         // Ensure Tutorial project with example workspaces exists (for new users)
         state.settings.ensure_tutorial_project();
 
+        // Prune recent workspaces that no longer exist on disk.
+        // Runs after ensure_default_workspace / ensure_tutorial_project so that
+        // freshly-written files are not incorrectly pruned.
+        #[cfg(not(target_arch = "wasm32"))]
+        state.settings.prune_stale_workspaces();
+
         // First run: default to System theme (follows OS preference)
         if state.settings.theme == AppTheme::default() && state.theme == AppTheme::default() {
             state.settings.theme = AppTheme::System;
@@ -983,6 +989,13 @@ impl EnyaApp {
                 self.state.settings.font = font;
                 fonts::setup_fonts(ctx, font);
                 self.state.ui_state = self.state.previous_ui_state;
+            }
+            SettingsPageResult::ResetAppData => {
+                // Reset in-memory state to defaults. eframe will persist this
+                // clean state on shutdown, giving a fresh start on next launch.
+                self.state = AppState::default();
+                log::info!("App data reset to defaults");
+                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             }
         }
     }

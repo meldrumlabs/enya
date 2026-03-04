@@ -294,9 +294,6 @@ pub struct Workspace {
     pending_refresh_plugins: bool,
     /// Last time queries were auto-refreshed
     last_refresh: Option<crate::util::Instant>,
-    /// Pending git repo path to configure (set from workspace creator)
-    #[cfg(not(target_arch = "wasm32"))]
-    pending_git_repo: Option<String>,
     /// Pending workspace load (set by agent command, consumed in show())
     pending_load_workspace: Option<String>,
     /// Native app promo overlay (WASM only)
@@ -455,8 +452,6 @@ impl Workspace {
             pending_remove_plugin: None,
             pending_refresh_plugins: false,
             last_refresh: None,
-            #[cfg(not(target_arch = "wasm32"))]
-            pending_git_repo: None,
             pending_load_workspace: None,
             #[cfg(target_arch = "wasm32")]
             native_promo_overlay: NativePromoOverlay::new(),
@@ -1384,7 +1379,7 @@ impl Workspace {
                 // Store git repo path for codebase integration (native only with codebase feature)
                 #[cfg(not(target_arch = "wasm32"))]
                 {
-                    self.pending_git_repo = git_repo;
+                    self.pending_git_config = git_repo;
                 }
                 #[cfg(target_arch = "wasm32")]
                 let _ = git_repo; // Silence unused warning
@@ -1739,7 +1734,7 @@ impl Workspace {
                 // Store git repo path for codebase integration (native only with codebase feature)
                 #[cfg(not(target_arch = "wasm32"))]
                 {
-                    self.pending_git_repo = git_repo;
+                    self.pending_git_config = git_repo;
                 }
                 #[cfg(target_arch = "wasm32")]
                 let _ = git_repo; // Silence unused warning

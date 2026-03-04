@@ -201,6 +201,91 @@ impl FlightClient {
         Ok(QueryStream::new(schema, stream))
     }
 
+    /// Execute a single query iteration for benchmarking, returning per-phase
+    /// timings that mirror dft's Flight SQL benchmark breakdown:
+    ///
+    /// - **Get Flight Info**: time for server to plan/prepare the query
+    /// - **TTFB**: time from DoGet request to first record batch
+    /// - **Do Get**: time to consume all record batches (includes TTFB)
+    /// - **Total**: wall-clock from start to finish
+    ///
+    /// Returns `(rows, get_flight_info, ttfb, do_get, total)`.
+    pub async fn benchmark_execute(
+        &mut self,
+        sql: &str,
+    ) -> Result<(usize, Duration, Duration, Duration, Duration)> {
+        let start = std::time::Instant::now();
+
+        // Phase 1: GetFlightInfo (server plans the query)
+        let flight_info = self
+            .client
+            .execute(sql.to_string(), None)
+            .await
+            .map_err(|e| Error::FlightQuery {
+                sql: sql.to_string(),
+                message: format!("Execute failed: {e}"),
+            })?;
+
+        let get_flight_info_duration = start.elapsed();
+
+        // Get ticket for DoGet
+        let endpoints = &flight_info.endpoint;
+        if endpoints.is_empty() {
+            let total = start.elapsed();
+            return Ok((
+                0,
+                get_flight_info_duration,
+                Duration::ZERO,
+                Duration::ZERO,
+                total,
+            ));
+        }
+
+        let ticket = endpoints[0]
+            .ticket
+            .clone()
+            .ok_or_else(|| Error::FlightQuery {
+                sql: sql.to_string(),
+                message: "No ticket in flight endpoint".to_string(),
+            })?;
+
+        // Phase 2+3: DoGet — stream all batches, record TTFB on first batch
+        let mut stream = self
+            .client
+            .do_get(ticket)
+            .await
+            .map_err(|e| Error::FlightQuery {
+                sql: sql.to_string(),
+                message: format!("DoGet failed: {e}"),
+            })?;
+
+        let mut rows = 0usize;
+        let mut ttfb_duration = Duration::ZERO;
+        let mut batch_count = 0usize;
+
+        while let Some(batch_result) = stream.next().await {
+            let batch = batch_result.map_err(|e| Error::FlightStream {
+                message: format!("Stream error: {e}"),
+            })?;
+            rows += batch.num_rows();
+            if batch_count == 0 {
+                ttfb_duration = start.elapsed() - get_flight_info_duration;
+            }
+            batch_count += 1;
+        }
+
+        let do_get_duration = start.elapsed() - get_flight_info_duration;
+        let total_duration = start.elapsed();
+
+        Ok((
+            rows,
+            get_flight_info_duration,
+            ttfb_duration,
+            do_get_duration,
+            total_duration,
+        ))
+    }
+
     /// Get the schema for a query without executing it.
     pub async fn get_schema(&mut self, sql: &str) -> Result<SchemaRef> {
         let flight_info = self

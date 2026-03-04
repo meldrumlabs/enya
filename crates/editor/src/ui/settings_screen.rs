@@ -331,6 +331,27 @@ impl AppSettings {
         self.recent_workspaces.truncate(Self::MAX_RECENT_WORKSPACES);
     }
 
+    /// Remove recent workspace entries whose `.toml` files no longer exist on disk,
+    /// and clean up stale workspace names from projects.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn prune_stale_workspaces(&mut self) {
+        let dir = enya_config::workspace_dir();
+        let exists = |name: &str| dir.join(format!("{name}.toml")).exists();
+
+        let before = self.recent_workspaces.len();
+        self.recent_workspaces.retain(|w| exists(&w.name));
+        let pruned = before - self.recent_workspaces.len();
+
+        // Also remove stale names from project groupings
+        for project in &mut self.projects {
+            project.workspace_names.retain(|n| exists(n));
+        }
+
+        if pruned > 0 {
+            log::info!("Pruned {pruned} stale workspace(s) from recent list");
+        }
+    }
+
     /// Create a new project. No-op if a project with the same name already exists.
     pub fn create_project(&mut self, name: String) {
         if self.projects.iter().any(|p| p.name == name) {
@@ -368,6 +389,7 @@ impl AppSettings {
     }
 
     /// Canonical list of built-in tutorial workspaces.
+    /// Names must match the files written by `ensure_default_workspace()`.
     const TUTORIAL_WORKSPACES: &[(&str, &str)] = &[
         ("quick-start", "The 4 golden signals at a glance"),
         ("infra", "CPU, memory, and system health"),
@@ -400,12 +422,6 @@ impl AppSettings {
             self.projects.clear();
         }
 
-        // On native, skip if Tutorial project already exists
-        #[cfg(not(target_arch = "wasm32"))]
-        if self.projects.iter().any(|p| p.name == "Tutorial") {
-            return;
-        }
-
         // Ensure all tutorial workspaces are in recent_workspaces
         for &(name, desc) in Self::TUTORIAL_WORKSPACES {
             if !self.recent_workspaces.iter().any(|w| w.name == name) {
@@ -417,12 +433,16 @@ impl AppSettings {
             }
         }
 
-        // Create the Tutorial project grouping them together
-        self.projects.push(ProjectEntry {
-            name: "Tutorial".to_string(),
-            workspace_names: tutorial_names,
-            collapsed: false,
-        });
+        // Create or update the Tutorial project with the canonical workspace list
+        if let Some(tutorial) = self.projects.iter_mut().find(|p| p.name == "Tutorial") {
+            tutorial.workspace_names = tutorial_names;
+        } else {
+            self.projects.push(ProjectEntry {
+                name: "Tutorial".to_string(),
+                workspace_names: tutorial_names,
+                collapsed: false,
+            });
+        }
     }
 }
 
