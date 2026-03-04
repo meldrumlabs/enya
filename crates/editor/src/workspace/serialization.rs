@@ -247,10 +247,8 @@ impl Workspace {
         // Set the root
         self.viewport_tree.root = Some(root_id);
 
-        // Hide landing page if we have panes
-        if !all_panes.is_empty() {
-            self.show_landing = false;
-        }
+        // Always hide landing page when a workspace is loaded
+        self.show_landing = false;
 
         // Store git URL for deferred initialization (native only with codebase feature)
         // The actual clone/index happens in show() when ctx is available

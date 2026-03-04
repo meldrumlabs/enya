@@ -38,7 +38,7 @@ use crate::components::util::{
     render_stat_badge, render_stat_badge_with_icon,
 };
 use crate::components::{OverlayColors, OverlayStyle};
-use crate::ui::semantic_icons::{action, category, empty, file, nav, status, time};
+use crate::ui::semantic_icons::{action, category, file, nav, status, time};
 use crate::ui::theme::AppTheme;
 use crate::ui::typography;
 use egui::{Color32, RichText, TextEdit, TextFormat};
@@ -59,10 +59,6 @@ const PANE_PADDING: f32 = 16.0;
 const PANE_INNER_PADDING: f32 = 12.0;
 const MAX_CONTENT_WIDTH: f32 = 900.0;
 const INPUT_RESERVE_HEIGHT: f32 = 100.0;
-const HEADER_HEIGHT: f32 = 36.0;
-const PADDING: f32 = 12.0;
-const SMALL_CORNER_RADIUS: f32 = 4.0;
-
 /// Result of checking backend type for local-only operations.
 enum LocalBackendCheck {
     Local,
@@ -1388,26 +1384,29 @@ impl SqlPane {
                             }
                         }
                     }
-                    FlightBenchmarkMsg::Done(Ok(stats)) => {
-                        if let Some(query_id) = self.pending_benchmark_id.take() {
-                            if let Some(cell) =
-                                self.result_cell.as_mut().filter(|c| c.id() == query_id)
-                            {
-                                if let Some(b) = cell.as_benchmark_mut() {
-                                    b.status = QueryStatus::Completed;
-                                    b.stats = Some(stats);
+                    FlightBenchmarkMsg::Done(result) => {
+                        match *result {
+                            Ok(stats) => {
+                                if let Some(query_id) = self.pending_benchmark_id.take() {
+                                    if let Some(cell) =
+                                        self.result_cell.as_mut().filter(|c| c.id() == query_id)
+                                    {
+                                        if let Some(b) = cell.as_benchmark_mut() {
+                                            b.status = QueryStatus::Completed;
+                                            b.stats = Some(stats);
+                                        }
+                                    }
                                 }
                             }
-                        }
-                        done = true;
-                    }
-                    FlightBenchmarkMsg::Done(Err(e)) => {
-                        if let Some(query_id) = self.pending_benchmark_id.take() {
-                            if let Some(cell) =
-                                self.result_cell.as_mut().filter(|c| c.id() == query_id)
-                            {
-                                cell.set_status(QueryStatus::Failed);
-                                cell.set_error(e);
+                            Err(e) => {
+                                if let Some(query_id) = self.pending_benchmark_id.take() {
+                                    if let Some(cell) =
+                                        self.result_cell.as_mut().filter(|c| c.id() == query_id)
+                                    {
+                                        cell.set_status(QueryStatus::Failed);
+                                        cell.set_error(e);
+                                    }
+                                }
                             }
                         }
                         done = true;
@@ -1884,9 +1883,6 @@ impl SqlPane {
         let accent = self.theme.accent_primary();
         let bg_base = self.theme.bg_base();
 
-        // Premium header bar (full width, outside content constraint)
-        self.render_header(ui);
-
         egui::Frame::new()
             .fill(bg_base)
             .inner_margin(egui::Margin::symmetric(PANE_PADDING as i8, PANE_INNER_PADDING as i8))
@@ -1951,25 +1947,9 @@ impl SqlPane {
                                 }
 
                                 if !self.has_result() {
-                                    // Premium empty state
-                                    let accent = theme.accent_primary();
+                                    // Empty state — simple centered text
                                     ui.vertical_centered(|ui| {
                                         ui.add_space(scroll_height / 4.0);
-
-                                        // Icon with subtle glow frame
-                                        egui::Frame::new()
-                                            .fill(accent.gamma_multiply(0.08))
-                                            .corner_radius(24.0)
-                                            .inner_margin(egui::Margin::same(16))
-                                            .show(ui, |ui| {
-                                                ui.label(
-                                                    RichText::new(empty::NO_QUERIES)
-                                                        .color(accent.gamma_multiply(0.4))
-                                                        .size(48.0),
-                                                );
-                                            });
-
-                                        ui.add_space(16.0);
 
                                         let (title, subtitle) = if !has_connections {
                                             (
@@ -1989,14 +1969,13 @@ impl SqlPane {
                                         };
                                         ui.label(
                                             RichText::new(title)
-                                                .color(theme.text_primary())
-                                                .size(14.0)
-                                                .strong(),
+                                                .color(theme.text_secondary())
+                                                .size(13.0),
                                         );
-                                        ui.add_space(8.0);
+                                        ui.add_space(4.0);
                                         ui.label(
                                             RichText::new(subtitle)
-                                                .color(theme.text_secondary().gamma_multiply(0.6))
+                                                .color(theme.text_secondary().gamma_multiply(0.5))
                                                 .size(11.0),
                                         );
                                     });
@@ -4147,144 +4126,6 @@ impl SqlPane {
     }
 
     /// Render mode badge (for diff, explain, etc.).
-    /// Render the premium header bar with accent-tinted background.
-    fn render_header(&self, ui: &mut egui::Ui) {
-        let text_col = self.theme.text_primary();
-        let muted_text = text_col.gamma_multiply(0.6);
-        let accent = self.theme.accent_primary();
-
-        // Header frame with premium styling - subtle accent tint for dark themes
-        let header_bg = if self.theme.is_dark() {
-            let base = self.theme.bg_surface();
-            Color32::from_rgb(
-                base.r().saturating_add((accent.r() as u16 * 3 / 100) as u8),
-                base.g().saturating_add((accent.g() as u16 * 3 / 100) as u8),
-                base.b().saturating_add((accent.b() as u16 * 3 / 100) as u8),
-            )
-        } else {
-            self.theme.bg_surface()
-        };
-
-        let header_response = egui::Frame::new()
-            .fill(header_bg)
-            .inner_margin(egui::Margin::symmetric(PADDING as i8, 8))
-            .show(ui, |ui| {
-                ui.set_height(HEADER_HEIGHT);
-                ui.horizontal_centered(|ui| {
-                    ui.spacing_mut().item_spacing.x = 12.0;
-
-                    // Database icon in accent color
-                    ui.label(RichText::new(category::DATAFUSION).color(accent).size(16.0));
-
-                    // Title
-                    ui.label(RichText::new("SQL").color(text_col).size(13.0).strong());
-
-                    ui.add_space(4.0);
-
-                    // Mode badge inline
-                    match &self.mode {
-                        SqlMode::Normal => {}
-                        SqlMode::Diff { left, right } => {
-                            let left_name = self
-                                .connections
-                                .iter()
-                                .find(|c| c.id == *left)
-                                .map(|c| c.name.as_str())
-                                .unwrap_or("?");
-                            let right_name = self
-                                .connections
-                                .iter()
-                                .find(|c| c.id == *right)
-                                .map(|c| c.name.as_str())
-                                .unwrap_or("?");
-
-                            egui::Frame::new()
-                                .fill(accent.gamma_multiply(0.1))
-                                .stroke(egui::Stroke::new(1.0, accent.gamma_multiply(0.3)))
-                                .corner_radius(SMALL_CORNER_RADIUS)
-                                .inner_margin(egui::Margin::symmetric(8, 3))
-                                .show(ui, |ui| {
-                                    ui.horizontal(|ui| {
-                                        ui.label(
-                                            RichText::new("DIFF").color(accent).size(10.0).strong(),
-                                        );
-                                        ui.label(
-                                            RichText::new(format!("{left_name} ↔ {right_name}"))
-                                                .color(muted_text)
-                                                .size(10.0),
-                                        );
-                                    });
-                                });
-                        }
-                        SqlMode::Explain => {
-                            egui::Frame::new()
-                                .fill(accent.gamma_multiply(0.1))
-                                .stroke(egui::Stroke::new(1.0, accent.gamma_multiply(0.3)))
-                                .corner_radius(SMALL_CORNER_RADIUS)
-                                .inner_margin(egui::Margin::symmetric(8, 3))
-                                .show(ui, |ui| {
-                                    ui.label(
-                                        RichText::new("EXPLAIN").color(accent).size(10.0).strong(),
-                                    );
-                                });
-                        }
-                    }
-
-                    // Right side: connection status + result count
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        ui.spacing_mut().item_spacing.x = 8.0;
-
-                        // Result count badge
-                        if let Some(cell) = &self.result_cell {
-                            let total_rows: usize =
-                                cell.batches().iter().map(|b| b.num_rows()).sum();
-                            if total_rows > 0 {
-                                egui::Frame::new()
-                                    .fill(self.theme.bg_elevated())
-                                    .corner_radius(SMALL_CORNER_RADIUS)
-                                    .inner_margin(egui::Margin::symmetric(8, 4))
-                                    .show(ui, |ui| {
-                                        ui.label(
-                                            RichText::new(format!("{total_rows} rows"))
-                                                .color(muted_text)
-                                                .size(11.0),
-                                        );
-                                    });
-                            }
-                        }
-
-                        // Connection status
-                        if let Some(conn) = self.active_connection() {
-                            let (dot_color, status_text) = match &conn.state {
-                                ConnectionState::Connected => {
-                                    (self.theme.semantic_success(), &conn.name)
-                                }
-                                ConnectionState::Connecting => (accent, &conn.name),
-                                ConnectionState::Failed(_) => {
-                                    (self.theme.semantic_error(), &conn.name)
-                                }
-                                ConnectionState::Disconnected => {
-                                    (muted_text.gamma_multiply(0.5), &conn.name)
-                                }
-                            };
-                            ui.label(RichText::new(status_text).color(muted_text).size(11.0));
-                            ui.label(RichText::new("●").color(dot_color).size(8.0));
-                        }
-                    });
-                });
-            });
-
-        // Premium accent line under header
-        let header_rect = header_response.response.rect;
-        let accent_line_rect = egui::Rect::from_min_size(
-            egui::pos2(header_rect.left(), header_rect.bottom()),
-            egui::vec2(header_rect.width(), 1.0),
-        );
-        let accent_alpha = if self.theme.is_dark() { 0.4 } else { 0.25 };
-        ui.painter()
-            .rect_filled(accent_line_rect, 0.0, accent.gamma_multiply(accent_alpha));
-    }
-
     #[allow(dead_code)]
     fn render_mode_badge(&self, ui: &mut egui::Ui) {
         let text_secondary = self.theme.text_secondary();
@@ -5668,7 +5509,7 @@ enum FlightBenchmarkMsg {
         last_duration: std::time::Duration,
     },
     /// Final result with computed stats.
-    Done(Result<BenchmarkStats, String>),
+    Done(Box<Result<BenchmarkStats, String>>),
 }
 
 /// Run a benchmark over Flight SQL by executing the query `iterations` times,
@@ -5684,7 +5525,7 @@ async fn flight_benchmark(
     tx: &tokio::sync::mpsc::Sender<FlightBenchmarkMsg>,
 ) {
     let result = flight_benchmark_inner(endpoint, sql, iterations, tx).await;
-    let _ = tx.send(FlightBenchmarkMsg::Done(result)).await;
+    let _ = tx.send(FlightBenchmarkMsg::Done(Box::new(result))).await;
 }
 
 async fn flight_benchmark_inner(
