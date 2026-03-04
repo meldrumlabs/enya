@@ -172,6 +172,22 @@ impl LeaderKeyState {
         self.last_ctrl_w_t_press = None;
     }
 
+    /// Clear ALL leader key states at once.
+    ///
+    /// Used when the window/canvas loses focus (e.g., in WASM when the browser
+    /// tab is switched or the user clicks outside the canvas) to prevent stale
+    /// leader key state from causing stuck keybindings.
+    pub fn clear_all(&mut self) {
+        self.last_y_press = None;
+        self.last_c_press = None;
+        self.last_space_press = None;
+        self.last_t_press = None;
+        self.last_g_press = None;
+        self.last_a_press = None;
+        self.last_ctrl_w_press = None;
+        self.last_ctrl_w_t_press = None;
+    }
+
     /// Check if 'yy' sequence is active (second 'y' within timeout).
     pub fn is_yy_active(&self) -> bool {
         self.is_active(self.last_y_press)
@@ -870,6 +886,38 @@ mod tests {
         state.clear_a();
         state.clear_ctrl_w();
         state.clear_ctrl_w_t();
+
+        // All should be inactive
+        assert!(!state.is_yy_active());
+        assert!(!state.is_c_active());
+        assert!(!state.is_space_active());
+        assert!(!state.is_t_active());
+        assert!(!state.is_g_active());
+        assert!(!state.is_a_active());
+        assert!(!state.is_ctrl_w_active());
+        assert!(!state.is_ctrl_w_t_active());
+    }
+
+    #[test]
+    fn test_clear_all_resets_all_leader_keys() {
+        let mut state = LeaderKeyState::new();
+
+        // Press all keys
+        state.press_y();
+        state.press_c();
+        state.press_space();
+        state.press_t();
+        state.press_g();
+        state.press_a();
+        state.press_ctrl_w();
+        state.press_ctrl_w_t();
+
+        // All should be active
+        assert!(state.is_yy_active());
+        assert!(state.is_space_active());
+
+        // Clear all at once
+        state.clear_all();
 
         // All should be inactive
         assert!(!state.is_yy_active());

@@ -66,6 +66,10 @@ impl Workspace {
         // Note: agent_panel.is_open() intentionally NOT checked here.
         // The agent panel can be open while viewport has focus (agent_panel_focused is checked separately).
         {
+            // Clear leader key state when a modal blocks keyboard handling.
+            // This prevents stale leader keys (especially Space which has no timeout)
+            // from persisting while the user interacts with an overlay.
+            self.leader_keys.clear_all();
             return None;
         }
 

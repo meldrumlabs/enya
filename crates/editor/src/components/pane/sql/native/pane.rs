@@ -4334,7 +4334,10 @@ impl SqlPane {
                     // Reserve space for the run button (32px + spacing)
                     let run_button_width = 40.0;
                     let response = ui.add_sized(
-                        egui::vec2((ui.available_width() - run_button_width).max(1.0), input_height),
+                        egui::vec2(
+                            (ui.available_width() - run_button_width).max(1.0),
+                            input_height,
+                        ),
                         TextEdit::multiline(&mut self.input)
                             .id(input_id)
                             .font(egui::TextStyle::Monospace)
