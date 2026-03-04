@@ -56,11 +56,19 @@ impl EnyaApp {
 
         let dir = Self::workspace_dir();
 
-        // Tutorial workspaces — always overwritten to pick up template changes
+        // Clean up old tutorial file names (renamed to match WASM names)
+        for old in &["golden-signals", "infrastructure", "multi-service"] {
+            let path = dir.join(format!("{old}.toml"));
+            if path.exists() {
+                let _ = std::fs::remove_file(&path);
+            }
+        }
+
+        // Tutorial workspaces — names match WASM, always overwritten for template updates
         let tutorials: &[(&str, &str)] = &[
-            ("golden-signals", GOLDEN_SIGNALS_TOML),
-            ("infrastructure", INFRASTRUCTURE_TOML),
-            ("multi-service", MULTI_SERVICE_TOML),
+            ("quick-start", GOLDEN_SIGNALS_TOML),
+            ("infra", INFRASTRUCTURE_TOML),
+            ("logs-and-traces", MULTI_SERVICE_TOML),
         ];
         for &(name, toml) in tutorials {
             let path = dir.join(format!("{name}.toml"));
@@ -186,10 +194,14 @@ impl EnyaApp {
                 }
                 Err(e) => {
                     log::error!("Failed to load workspace '{name}': {e}");
-                    self.notifications.notify(Notification::new(
-                        format!("Failed to load workspace '{name}': {e}"),
-                        NotificationLevel::Error,
-                    ));
+                    // Remove the stale entry so we don't keep trying to load it
+                    self.state
+                        .settings
+                        .recent_workspaces
+                        .retain(|w| w.name != name);
+                    for project in &mut self.state.settings.projects {
+                        project.workspace_names.retain(|w| w != name);
+                    }
                 }
             }
         }

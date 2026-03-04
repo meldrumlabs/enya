@@ -391,9 +391,9 @@ impl AppSettings {
     /// Canonical list of built-in tutorial workspaces.
     /// Names must match the files written by `ensure_default_workspace()`.
     const TUTORIAL_WORKSPACES: &[(&str, &str)] = &[
-        ("golden-signals", "The 4 golden signals at a glance"),
-        ("infrastructure", "CPU, memory, and system health"),
-        ("multi-service", "Explore logs and distributed traces"),
+        ("quick-start", "The 4 golden signals at a glance"),
+        ("infra", "CPU, memory, and system health"),
+        ("logs-and-traces", "Explore logs and distributed traces"),
     ];
 
     /// Ensure the tutorial project and its workspaces exist for new users.
@@ -422,12 +422,6 @@ impl AppSettings {
             self.projects.clear();
         }
 
-        // On native, skip if Tutorial project already exists
-        #[cfg(not(target_arch = "wasm32"))]
-        if self.projects.iter().any(|p| p.name == "Tutorial") {
-            return;
-        }
-
         // Ensure all tutorial workspaces are in recent_workspaces
         for &(name, desc) in Self::TUTORIAL_WORKSPACES {
             if !self.recent_workspaces.iter().any(|w| w.name == name) {
@@ -439,12 +433,16 @@ impl AppSettings {
             }
         }
 
-        // Create the Tutorial project grouping them together
-        self.projects.push(ProjectEntry {
-            name: "Tutorial".to_string(),
-            workspace_names: tutorial_names,
-            collapsed: false,
-        });
+        // Create or update the Tutorial project with the canonical workspace list
+        if let Some(tutorial) = self.projects.iter_mut().find(|p| p.name == "Tutorial") {
+            tutorial.workspace_names = tutorial_names;
+        } else {
+            self.projects.push(ProjectEntry {
+                name: "Tutorial".to_string(),
+                workspace_names: tutorial_names,
+                collapsed: false,
+            });
+        }
     }
 }
 

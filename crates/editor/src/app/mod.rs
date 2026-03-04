@@ -990,6 +990,13 @@ impl EnyaApp {
                 fonts::setup_fonts(ctx, font);
                 self.state.ui_state = self.state.previous_ui_state;
             }
+            SettingsPageResult::ResetAppData => {
+                // Reset in-memory state to defaults. eframe will persist this
+                // clean state on shutdown, giving a fresh start on next launch.
+                self.state = AppState::default();
+                log::info!("App data reset to defaults");
+                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            }
         }
     }
 

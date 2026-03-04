@@ -60,6 +60,8 @@ pub enum SettingsPageResult {
     GitHubSignIn,
     /// User clicked "Sign out".
     GitHubSignOut,
+    /// User clicked "Reset App Data" in Storage settings.
+    ResetAppData,
 }
 
 /// Settings category for sidebar navigation.
@@ -212,6 +214,9 @@ pub struct SettingsPage {
     storage_file_opener: FileOpenerPopup,
     #[cfg(not(target_arch = "wasm32"))]
     pending_storage_open: bool,
+    // Reset confirmation state
+    #[cfg(not(target_arch = "wasm32"))]
+    confirm_reset: bool,
 }
 
 impl Default for SettingsPage {
@@ -276,6 +281,8 @@ impl SettingsPage {
             storage_file_opener: FileOpenerPopup::new(),
             #[cfg(not(target_arch = "wasm32"))]
             pending_storage_open: false,
+            #[cfg(not(target_arch = "wasm32"))]
+            confirm_reset: false,
         }
     }
 
@@ -922,13 +929,16 @@ impl SettingsPage {
                                 }
                                 #[cfg(not(target_arch = "wasm32"))]
                                 SettingsCategory::Storage => {
-                                    self.show_storage_section(
+                                    let storage_result = self.show_storage_section(
                                         ui,
                                         ctx,
                                         accent,
                                         text_primary,
                                         text_tertiary,
                                     );
+                                    if !matches!(storage_result, SettingsPageResult::None) {
+                                        *result = storage_result;
+                                    }
                                 }
                                 _ => unreachable!(),
                             }
@@ -1693,7 +1703,7 @@ impl SettingsPage {
         accent: Color32,
         text_primary: Color32,
         text_tertiary: Color32,
-    ) {
+    ) -> SettingsPageResult {
         let card_bg = self.theme.bg_elevated().gamma_multiply(0.55);
         let card_border = self.theme.border_subtle().gamma_multiply(0.6);
 
@@ -1831,6 +1841,87 @@ impl SettingsPage {
                 }
             }
             FileOpenerResult::Closed | FileOpenerResult::None => {}
+        }
+
+        // ── Reset App Data ──────────────────────────────────────────
+        ui.add_space(16.0);
+        ui.separator();
+        ui.add_space(12.0);
+
+        ui.label(
+            RichText::new("Danger Zone")
+                .color(text_primary)
+                .font(typography::proportional(13.0))
+                .strong(),
+        );
+        ui.add_space(4.0);
+        ui.label(
+            RichText::new("Clear all cached settings, projects, and recent workspaces. The app will restart fresh.")
+                .color(text_tertiary)
+                .font(typography::proportional(typography::XS)),
+        );
+        ui.add_space(8.0);
+
+        let mut reset_confirmed = false;
+
+        if self.confirm_reset {
+            ui.horizontal(|ui| {
+                ui.label(
+                    RichText::new("Are you sure?")
+                        .color(Color32::from_rgb(220, 80, 80))
+                        .font(typography::proportional(typography::SM)),
+                );
+                ui.add_space(8.0);
+                let confirm = ui.add(
+                    egui::Button::new(
+                        RichText::new("Yes, reset")
+                            .color(Color32::WHITE)
+                            .font(typography::proportional(typography::SM)),
+                    )
+                    .fill(Color32::from_rgb(200, 60, 60))
+                    .corner_radius(4.0),
+                );
+                if confirm.clicked() {
+                    reset_confirmed = true;
+                    self.confirm_reset = false;
+                }
+                let cancel = ui.add(
+                    egui::Button::new(
+                        RichText::new("Cancel")
+                            .color(text_primary)
+                            .font(typography::proportional(typography::SM)),
+                    )
+                    .fill(self.theme.bg_elevated())
+                    .stroke(egui::Stroke::new(1.0, self.theme.border_subtle()))
+                    .corner_radius(4.0),
+                );
+                if cancel.clicked() {
+                    self.confirm_reset = false;
+                }
+            });
+        } else {
+            let reset_btn = ui.add(
+                egui::Button::new(
+                    RichText::new("Reset App Data")
+                        .color(Color32::from_rgb(220, 80, 80))
+                        .font(typography::proportional(typography::SM)),
+                )
+                .fill(egui::Color32::TRANSPARENT)
+                .stroke(egui::Stroke::new(
+                    1.0,
+                    Color32::from_rgb(200, 60, 60).gamma_multiply(0.5),
+                ))
+                .corner_radius(4.0),
+            );
+            if reset_btn.clicked() {
+                self.confirm_reset = true;
+            }
+        }
+
+        if reset_confirmed {
+            SettingsPageResult::ResetAppData
+        } else {
+            SettingsPageResult::None
         }
     }
 

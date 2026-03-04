@@ -10,6 +10,7 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Changed
 
+- **Unified tutorial workspaces**: Native tutorial workspaces now use the same names as WASM (`quick-start`, `infra`, `logs-and-traces`). Old tutorial files (`golden-signals`, `infrastructure`, `multi-service`) are automatically cleaned up.
 - **SQL pane premium header bar**: Added an accent-tinted header bar matching the LogsPane design, with database icon, "SQL" title, inline mode badges (DIFF/EXPLAIN), connection status indicator, and result count badge. Includes a 1px accent line separator.
 - **SQL pane loading shimmer**: Query execution now shows a table-shaped skeleton loading animation with sweeping shimmer gradient instead of just a spinner.
 - **SQL pane scroll shadows**: Added VS Code-style fade gradients at the top/bottom of the result scroll area.
