@@ -1459,6 +1459,7 @@ impl Workspace {
             && !self.buffer_editor.is_open()
             && !self.viewport_filter.is_open()
             && !self.plugins_overlay.is_open()
+            && !self.tutorial_overlay.is_open()
             && !codebase_finder_open
             && !self.is_any_buffer_in_insert_mode()
             && !self.agent_mode_active
@@ -1488,6 +1489,7 @@ impl Workspace {
             && !self.buffer_editor.is_open()
             && !self.viewport_filter.is_open()
             && !self.plugins_overlay.is_open()
+            && !self.tutorial_overlay.is_open()
             && !codebase_finder_open
             && !self.agent_mode_active
             && !text_widget_focused
@@ -1507,6 +1509,13 @@ impl Workspace {
                     self.which_key.open();
                 }
             });
+        }
+
+        // Clear leader key state when window/canvas loses focus.
+        // In WASM, this prevents stuck keybindings when the browser tab is switched
+        // or the user clicks outside the canvas (keyup events are lost on blur).
+        if !ctx.input(|i| i.focused) {
+            self.leader_keys.clear_all();
         }
 
         // Handle vim-style keyboard navigation for viewport
