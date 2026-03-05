@@ -647,7 +647,7 @@ impl EnyaApp {
 
             UICommand::Help => {
                 egui_ctx.open_url(egui::output::OpenUrl {
-                    url: "https://enya.dev/contact".to_owned(),
+                    url: "https://enya.build/contact".to_owned(),
                     new_tab: true,
                 });
             }

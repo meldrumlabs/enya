@@ -571,7 +571,7 @@ notify = "Hello from the example plugin!"
 name = "open-docs"
 aliases = ["docs"]
 description = "Open Enya documentation"
-url = "https://enya.dev/docs"
+url = "https://enya.build/docs"
 
 [[commands]]
 name = "run-tests"
