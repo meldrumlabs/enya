@@ -113,120 +113,6 @@ jobs:
             Enya.dmg \
             checksums-macos.txt
 
-  # Build Windows installer and portable executable
-  build-windows:
-    name: Build Windows
-    needs: create-release
-    runs-on: windows-latest
-    defaults:
-      run:
-        shell: bash
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: x86_64-pc-windows-msvc,aarch64-pc-windows-msvc
-
-      - name: Set up cargo cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: "release-windows"
-
-      - name: Build x86_64
-        run: cargo build --release --package enya-editor --target x86_64-pc-windows-msvc
-
-      - name: Build ARM64
-        run: cargo build --release --package enya-editor --target aarch64-pc-windows-msvc
-
-      - name: Create portable archives
-        run: |
-          VERSION="${{ needs.create-release.outputs.version }}"
-
-          # x86_64 portable
-          mkdir -p "Enya-x86_64"
-          cp "target/x86_64-pc-windows-msvc/release/Enya.exe" "Enya-x86_64/"
-          7z a -tzip "Enya-${VERSION}-x86_64-windows.zip" "Enya-x86_64"
-
-          # ARM64 portable
-          mkdir -p "Enya-arm64"
-          cp "target/aarch64-pc-windows-msvc/release/Enya.exe" "Enya-arm64/"
-          7z a -tzip "Enya-${VERSION}-arm64-windows.zip" "Enya-arm64"
-
-      - name: Install WiX Toolset
-        shell: pwsh
-        run: |
-          dotnet tool install --global wix --version 5.0.2
-
-      - name: Create WiX manifest
-        shell: pwsh
-        run: |
-          $version = "${{ needs.create-release.outputs.version }}"
-          $wxs = @"
-          <?xml version="1.0" encoding="UTF-8"?>
-          <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
-            <Package Name="Enya"
-                     Manufacturer="Meldrum Labs"
-                     Version="$version"
-                     UpgradeCode="E9A1B2C3-D4E5-6F78-9012-3456789ABCDE">
-
-              <MajorUpgrade DowngradeErrorMessage="A newer version of Enya is already installed." />
-              <MediaTemplate EmbedCab="yes" />
-
-              <StandardDirectory Id="ProgramFiles64Folder">
-                <Directory Id="INSTALLFOLDER" Name="Enya">
-                  <Component Id="MainExecutable" Guid="*">
-                    <File Id="EnyaExe" Source="target\x86_64-pc-windows-msvc\release\Enya.exe" KeyPath="yes" />
-                  </Component>
-                </Directory>
-              </StandardDirectory>
-
-              <StandardDirectory Id="ProgramMenuFolder">
-                <Directory Id="ApplicationProgramsFolder" Name="Enya">
-                  <Component Id="ApplicationShortcut" Guid="*">
-                    <Shortcut Id="ApplicationStartMenuShortcut"
-                              Name="Enya"
-                              Target="[INSTALLFOLDER]Enya.exe"
-                              WorkingDirectory="INSTALLFOLDER" />
-                    <RemoveFolder Id="CleanUpShortCut" On="uninstall" />
-                    <RegistryValue Root="HKCU" Key="Software\MeldrumLabs\Enya" Name="installed" Type="integer" Value="1" KeyPath="yes" />
-                  </Component>
-                </Directory>
-              </StandardDirectory>
-
-              <Feature Id="ProductFeature" Title="Enya" Level="1">
-                <ComponentRef Id="MainExecutable" />
-                <ComponentRef Id="ApplicationShortcut" />
-              </Feature>
-            </Package>
-          </Wix>
-          "@
-          $wxs | Out-File -FilePath "enya.wxs" -Encoding UTF8
-
-      - name: Build MSI installer
-        shell: pwsh
-        run: |
-          $version = "${{ needs.create-release.outputs.version }}"
-          wix build -arch x64 -o "Enya-${version}-x86_64-windows.msi" "enya.wxs"
-
-      - name: Generate checksums
-        run: |
-          VERSION="${{ needs.create-release.outputs.version }}"
-          sha256sum Enya-*.zip Enya-*.msi > checksums-windows.txt
-          cat checksums-windows.txt
-
-      - name: Upload release assets
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh release upload "${{ github.ref_name }}" \
-            Enya-*.zip \
-            Enya-*.msi \
-            checksums-windows.txt
-
   # Publish workspace crates to crates.io
   publish-crates:
     name: Publish to crates.io
@@ -248,7 +134,7 @@ jobs:
   # Publish the release after all builds complete
   publish-release:
     name: Publish Release
-    needs: [create-release, build-macos, build-windows, publish-crates]
+    needs: [create-release, build-macos, publish-crates]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
