@@ -89,7 +89,7 @@ async fn main() -> Result<()> {
 			</main>
 			<section class="demo-section" data-animate>
 				<div class="demo-content">
-					<video id="demo-video" autoplay loop muted playsinline class="demo-video">
+					<video id="demo-video" loop muted playsinline class="demo-video">
 						<source src="/landing.mp4" type="video/mp4" />
 					</video>
 				</div>
@@ -329,6 +329,7 @@ async fn main() -> Result<()> {
 
 	html {
 		scroll-behavior: smooth;
+		scroll-snap-type: y proximity;
 	}
 
 	html,
@@ -591,6 +592,8 @@ async fn main() -> Result<()> {
 		padding-bottom: 2rem;
 		max-width: 80%;
 		margin: 0 auto;
+		min-height: 100vh;
+		scroll-snap-align: start;
 	}
 
 	.hero-section {
@@ -862,6 +865,7 @@ async fn main() -> Result<()> {
 		width: 100%;
 		padding: 4rem 1.5rem 6rem 1.5rem;
 		background-color: var(--obsidian-base);
+		scroll-snap-align: start;
 	}
 
 	.demo-content {
@@ -1310,6 +1314,22 @@ async fn main() -> Result<()> {
 				});
 			}, { threshold: 0.1 });
 			animatedSections.forEach(section => observer.observe(section));
+		}
+
+		// Play demo video when scrolled into view
+		const demoVideo = document.getElementById('demo-video');
+		if (demoVideo) {
+			const videoObserver = new IntersectionObserver((entries) => {
+				entries.forEach(entry => {
+					if (entry.isIntersecting) {
+						demoVideo.currentTime = 0;
+						demoVideo.play();
+					} else {
+						demoVideo.pause();
+					}
+				});
+			}, { threshold: 0.5 });
+			videoObserver.observe(demoVideo);
 		}
 
 		// OS Detection for Download Button
