@@ -6,6 +6,8 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Fixed
 
+- **macOS GUI app PATH resolution**: Fixed `npx`, `git`, and other developer commands failing when Enya.app is launched from Finder, Dock, or Spotlight. The app now resolves the user's login shell PATH at startup.
+- **Keybindings stuck after agent panel interaction**: Fixed keyboard shortcuts (Space+h, Space+f, aa, etc.) becoming unresponsive after clicking on a viewport pane while the agent panel had focus. Clicking the viewport now correctly transfers focus back from the agent panel.
 - **Codebase indexing per project**: Switching between projects now correctly resets the codebase manager, preventing the wrong repository from being indexed. Previously, loading a workspace from a different project could show or re-index the previous project's repo.
 
 ### Added

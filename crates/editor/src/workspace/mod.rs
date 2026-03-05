@@ -897,6 +897,23 @@ impl Workspace {
             }
         }
 
+        // Detect clicks in the viewport area to transfer focus from agent panel.
+        // After the SidePanel renders, the remaining available rect is the viewport.
+        // Without this, agent_panel_focused gets stuck when clicking viewport panes
+        // instead of pressing 'h' to return focus, blocking all keyboard shortcuts.
+        if self.agent_panel_focused && self.agent_panel.is_open() {
+            let viewport_area = ui.available_rect_before_wrap();
+            if ctx.input(|i| {
+                i.pointer.any_pressed()
+                    && i.pointer
+                        .press_origin()
+                        .is_some_and(|pos| viewport_area.contains(pos))
+            }) {
+                self.agent_panel_focused = false;
+                self.agent_panel.set_focus(false);
+            }
+        }
+
         {
             // Main area with toolbar and viewport
             egui::CentralPanel::default().show_inside(ui, |ui| {

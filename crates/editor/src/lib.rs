@@ -78,6 +78,12 @@ pub fn run_native_app(
     startup_workspace: Option<String>,
     startup_snapshot: Option<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    // Resolve the user's login shell PATH before spawning any threads.
+    // macOS GUI apps launched from Finder/Dock get a minimal PATH that
+    // excludes developer tools like npx, git, node, etc.
+    #[cfg(target_os = "macos")]
+    platform::resolve_shell_environment();
+
     // Initialize logging. Use RUST_LOG env var to control log levels.
     // Default: enya_editor=info, everything else=warn (to suppress wgpu noise)
     simple_logger::SimpleLogger::new()
