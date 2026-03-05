@@ -185,16 +185,24 @@ fi
 # ---- Notarize and staple ----
 if [[ "$CAN_NOTARIZE" == "true" ]]; then
     echo "==> Submitting DMG for notarization (this may take several minutes)"
+    set +e
     xcrun notarytool submit "$DMG_NAME" \
         --key "$NOTARY_KEY_PATH" \
         --key-id "$APPLE_NOTARIZATION_KEY_ID" \
         --issuer "$APPLE_NOTARIZATION_ISSUER_ID" \
         --wait \
         --timeout 60m
+    NOTARIZE_EXIT=$?
+    set -e
 
-    echo "==> Stapling notarization ticket"
-    xcrun stapler staple "$DMG_NAME"
-    echo "==> Notarization complete"
+    if [[ $NOTARIZE_EXIT -eq 0 ]]; then
+        echo "==> Stapling notarization ticket"
+        xcrun stapler staple "$DMG_NAME"
+        echo "==> Notarization complete"
+    else
+        echo "==> WARNING: Notarization failed or timed out (exit code $NOTARIZE_EXIT)"
+        echo "==> DMG is signed but not notarized — users will need to right-click → Open on first launch"
+    fi
 else
     echo "==> Skipping notarization (credentials not configured)"
 fi
