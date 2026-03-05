@@ -128,7 +128,8 @@ jobs:
   # Publish the release after all builds complete
   publish-release:
     name: Publish Release
-    needs: [create-release, build-macos, publish-crates]
+    needs: [create-release, build-macos]
+    if: always() && needs.build-macos.result == 'success'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
