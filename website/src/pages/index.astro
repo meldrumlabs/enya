@@ -89,17 +89,9 @@ async fn main() -> Result<()> {
 			</main>
 			<section class="demo-section" data-animate>
 				<div class="demo-content">
-					<div class="demo-toggle" role="radiogroup" aria-label="Demo mode">
-						<button class="demo-toggle-option active" id="toggle-human" role="radio" aria-checked="true" data-mode="human">human</button>
-						<span class="demo-toggle-dot" aria-hidden="true">&middot;</span>
-						<button class="demo-toggle-option" id="toggle-agent" role="radio" aria-checked="false" data-mode="agent">agent</button>
-					</div>
 					<video id="demo-video" autoplay loop muted playsinline class="demo-video">
-						<source src="/img/demos/fuzzy_finder.mp4" type="video/mp4" />
+						<source src="/landing.mp4" type="video/mp4" />
 					</video>
-					<div class="demo-coming-soon" id="demo-coming-soon">
-						<span class="demo-coming-soon-text">coming soon</span>
-					</div>
 				</div>
 			</section>
 			<section class="features-section" data-animate>
@@ -877,44 +869,6 @@ async fn main() -> Result<()> {
 		margin: 0 auto;
 	}
 
-	/* Demo Toggle */
-	.demo-toggle {
-		display: flex;
-		align-items: center;
-		gap: 0.4rem;
-		margin-bottom: 0.75rem;
-	}
-
-	.demo-toggle-option {
-		font-family: 'Geist Mono', monospace;
-		font-size: 0.7rem;
-		letter-spacing: 0.1em;
-		color: var(--obsidian-text-tertiary);
-		background: none;
-		border: none;
-		padding: 0 0 2px 0;
-		cursor: pointer;
-		transition: color 0.2s ease, border-color 0.2s ease;
-		border-bottom: 1px solid transparent;
-	}
-
-	.demo-toggle-option:hover {
-		color: var(--obsidian-text-secondary);
-	}
-
-	.demo-toggle-option.active {
-		color: var(--obsidian-accent);
-		border-bottom-color: var(--obsidian-accent);
-	}
-
-	.demo-toggle-dot {
-		color: var(--obsidian-text-tertiary);
-		font-size: 0.5rem;
-		line-height: 1;
-		user-select: none;
-		opacity: 0.5;
-	}
-
 	.demo-video {
 		width: 100%;
 		height: auto;
@@ -926,42 +880,12 @@ async fn main() -> Result<()> {
 		transition: opacity 0.3s ease;
 	}
 
-	.demo-video.hidden {
-		display: none;
-	}
-
-	.demo-coming-soon {
-		display: none;
-		width: 100%;
-		aspect-ratio: 16 / 9;
-		border-radius: 0.5rem;
-		border: 1px solid var(--obsidian-border-default);
-		background-color: var(--obsidian-surface);
-		align-items: center;
-		justify-content: center;
-	}
-
-	.demo-coming-soon.visible {
-		display: flex;
-	}
-
-	.demo-coming-soon-text {
-		font-family: 'Geist Mono', monospace;
-		font-size: 0.875rem;
-		letter-spacing: 0.1em;
-		color: var(--obsidian-text-tertiary);
-	}
-
 	@media (max-width: 768px) {
 		.demo-section {
 			padding: 2rem 1rem 4rem 1rem;
 		}
 
 		.demo-video {
-			border-radius: 0.25rem;
-		}
-
-		.demo-coming-soon {
 			border-radius: 0.25rem;
 		}
 	}
@@ -1428,47 +1352,6 @@ async fn main() -> Result<()> {
 				link.addEventListener('click', () => {
 					mobileMenuToggle.setAttribute('aria-expanded', 'false');
 					mobileMenu.classList.remove('open');
-				});
-			});
-		}
-
-		// Demo toggle: Human / Agent switching
-		const toggleHuman = document.getElementById('toggle-human');
-		const toggleAgent = document.getElementById('toggle-agent');
-		const demoVideo = document.getElementById('demo-video') as HTMLVideoElement | null;
-		const comingSoon = document.getElementById('demo-coming-soon');
-
-		if (toggleHuman && toggleAgent && demoVideo && comingSoon) {
-			function switchDemo(mode: string) {
-				const isAgent = mode === 'agent';
-
-				toggleHuman.classList.toggle('active', !isAgent);
-				toggleHuman.setAttribute('aria-checked', String(!isAgent));
-				toggleAgent.classList.toggle('active', isAgent);
-				toggleAgent.setAttribute('aria-checked', String(isAgent));
-
-				demoVideo.classList.toggle('hidden', isAgent);
-				comingSoon.classList.toggle('visible', isAgent);
-
-				if (!isAgent) {
-					demoVideo.play().catch(() => {});
-				}
-			}
-
-			toggleHuman.addEventListener('click', () => switchDemo('human'));
-			toggleAgent.addEventListener('click', () => switchDemo('agent'));
-
-			[toggleHuman, toggleAgent].forEach(btn => {
-				btn.addEventListener('keydown', (e) => {
-					if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
-						e.preventDefault();
-						switchDemo('agent');
-						toggleAgent.focus();
-					} else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
-						e.preventDefault();
-						switchDemo('human');
-						toggleHuman.focus();
-					}
 				});
 			});
 		}
