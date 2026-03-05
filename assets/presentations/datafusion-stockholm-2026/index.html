@@ -1,0 +1,637 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Enya — Observability for Builders | DataFusion Meetup</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/reveal.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/theme/black.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/plugin/highlight/monokai.css">
+  <style>
+    /* ── Enya Obsidian Glass Design System ── */
+    :root {
+      --obsidian-base:    #08080A;
+      --obsidian-surface: #121215;
+      --obsidian-elevated:#1A1A1E;
+      --obsidian-hover:   #242428;
+      --obsidian-active:  #2C2C32;
+
+      --emerald:          #10B981;
+      --emerald-bright:   #34D399;
+      --emerald-muted:    #142822;
+      --emerald-glow:     rgba(16, 185, 129, 0.12);
+
+      --text-primary:     #F8F8FC;
+      --text-secondary:   #9E9EA8;
+      --text-tertiary:    #646470;
+
+      --border-subtle:    #26262C;
+      --border-default:   #34343C;
+
+      --sky-blue:         #6EBEF8;
+      --violet:           #C692FF;
+      --gold:             #FFC83C;
+      --rose:             #FF82BE;
+      --teal:             #64F0DA;
+      --coral:            #FF7878;
+    }
+
+    .reveal-viewport {
+      background: var(--obsidian-base);
+    }
+
+    .reveal {
+      font-family: "Geist Mono", "SF Mono", "Fira Code", "JetBrains Mono", monospace;
+      color: var(--text-primary);
+    }
+
+    .reveal .slides section {
+      text-align: left;
+    }
+
+    .reveal h1, .reveal h2, .reveal h3, .reveal h4 {
+      font-family: "Geist Mono", "SF Mono", "Fira Code", monospace;
+      color: var(--text-primary);
+      text-transform: none;
+      letter-spacing: -0.02em;
+      font-weight: 600;
+    }
+
+    .reveal h1 { font-size: 1.8em; }
+    .reveal h2 { font-size: 1.3em; margin-bottom: 0.3em; }
+    .reveal h3 { font-size: 0.85em; color: var(--emerald); margin-bottom: 0.2em; }
+
+    .reveal p, .reveal li {
+      font-size: 0.58em;
+      line-height: 1.45;
+      color: var(--text-secondary);
+    }
+
+    .reveal li {
+      margin-bottom: 0.2em;
+    }
+
+    .reveal strong {
+      color: var(--text-primary);
+      font-weight: 600;
+    }
+
+    .reveal em {
+      color: var(--emerald);
+      font-style: normal;
+    }
+
+    .reveal code {
+      font-family: "Geist Mono", "SF Mono", "Fira Code", monospace;
+      background: var(--obsidian-elevated);
+      border: 1px solid var(--border-subtle);
+      border-radius: 4px;
+      padding: 0.05em 0.3em;
+      font-size: 0.85em;
+      color: var(--emerald-bright);
+    }
+
+    .reveal pre {
+      background: var(--obsidian-surface);
+      border: 1px solid var(--border-default);
+      border-radius: 8px;
+      padding: 0.6em;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.4);
+      width: 100%;
+      font-size: 0.4em;
+    }
+
+    .reveal pre code {
+      background: none;
+      border: none;
+      padding: 0;
+      color: var(--text-primary);
+      font-size: 1em;
+    }
+
+    /* ── Accent elements ── */
+    .accent { color: var(--emerald); }
+    .accent-bright { color: var(--emerald-bright); }
+    .muted { color: var(--text-tertiary); }
+    .small { font-size: 0.5em; }
+    .tiny { font-size: 0.42em; }
+
+    /* ── Glass card ── */
+    .glass-card {
+      background: var(--obsidian-surface);
+      border: 1px solid var(--border-default);
+      border-radius: 10px;
+      padding: 0.6em 0.9em;
+      margin: 0.3em 0;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.3), inset 0 1px 0 rgba(248,248,252,0.03);
+    }
+
+    .glass-card h3 {
+      margin-top: 0;
+    }
+
+    /* ── Grid layouts ── */
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.5em;
+    }
+
+    .grid-3 {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 0.5em;
+    }
+
+    /* ── Stat boxes ── */
+    .stat-box {
+      background: var(--obsidian-elevated);
+      border: 1px solid var(--border-subtle);
+      border-radius: 8px;
+      padding: 0.5em;
+      text-align: center;
+    }
+
+    .stat-box .number {
+      font-size: 1.4em;
+      font-weight: 700;
+      color: var(--emerald);
+      display: block;
+      line-height: 1.2;
+    }
+
+    .stat-box .label {
+      font-size: 0.48em;
+      color: var(--text-tertiary);
+      display: block;
+      margin-top: 0.15em;
+    }
+
+    /* ── Architecture diagram (ascii art) ── */
+    .arch-diagram {
+      font-family: "Geist Mono", monospace;
+      font-size: 0.4em;
+      line-height: 1.35;
+      color: var(--text-secondary);
+      background: var(--obsidian-surface);
+      border: 1px solid var(--border-default);
+      border-radius: 8px;
+      padding: 0.6em 1em;
+      white-space: pre;
+      overflow-x: auto;
+    }
+
+    .arch-diagram .highlight {
+      color: var(--emerald);
+      font-weight: 600;
+    }
+
+    /* ── Tag / pill ── */
+    .tag {
+      display: inline-block;
+      background: var(--emerald-muted);
+      color: var(--emerald);
+      border: 1px solid rgba(16,185,129,0.25);
+      border-radius: 20px;
+      padding: 0.1em 0.55em;
+      font-size: 0.45em;
+      margin: 0.1em;
+    }
+
+    /* ── Title slide special ── */
+    .title-slide {
+      text-align: center !important;
+    }
+
+    .title-slide h1 {
+      font-size: 2.4em;
+      margin-bottom: 0.05em;
+    }
+
+    .title-slide .subtitle {
+      color: var(--text-secondary);
+      font-size: 0.7em;
+      margin-bottom: 0.8em;
+    }
+
+    .title-slide .meta {
+      color: var(--text-tertiary);
+      font-size: 0.45em;
+    }
+
+    .emerald-bar {
+      width: 60px;
+      height: 3px;
+      background: var(--emerald);
+      margin: 0.5em auto;
+      border-radius: 2px;
+      box-shadow: 0 0 12px var(--emerald-glow);
+    }
+
+    /* ── Flow arrow ── */
+    .flow {
+      display: flex;
+      align-items: center;
+      gap: 0.3em;
+      flex-wrap: wrap;
+      justify-content: center;
+      margin: 0.4em 0;
+    }
+
+    .flow-step {
+      background: var(--obsidian-elevated);
+      border: 1px solid var(--border-subtle);
+      border-radius: 6px;
+      padding: 0.25em 0.55em;
+      font-size: 0.5em;
+      color: var(--text-primary);
+    }
+
+    .flow-arrow {
+      color: var(--emerald);
+      font-size: 0.65em;
+    }
+
+    /* ── Section divider ── */
+    .section-divider {
+      text-align: center !important;
+    }
+
+    .section-divider h2 {
+      font-size: 1.7em;
+      color: var(--emerald);
+    }
+
+    .section-divider .section-num {
+      font-size: 0.6em;
+      color: var(--text-tertiary);
+      margin-bottom: 0.2em;
+    }
+
+    /* ── Comparison table ── */
+    .reveal table {
+      font-size: 0.5em;
+      border-collapse: collapse;
+      width: 100%;
+    }
+
+    .reveal table th {
+      background: var(--obsidian-elevated);
+      color: var(--emerald);
+      padding: 0.3em 0.5em;
+      text-align: left;
+      border-bottom: 2px solid var(--emerald);
+      font-weight: 600;
+    }
+
+    .reveal table td {
+      padding: 0.25em 0.5em;
+      border-bottom: 1px solid var(--border-subtle);
+      color: var(--text-secondary);
+    }
+
+    .reveal table tr:hover td {
+      background: var(--obsidian-elevated);
+    }
+
+    /* ── Slide transitions ── */
+    .reveal .slides section .fragment.highlight-emerald.visible {
+      color: var(--emerald);
+    }
+
+    /* ── End slide ── */
+    .end-slide {
+      text-align: center !important;
+    }
+
+    .end-slide h2 {
+      font-size: 1.8em;
+      color: var(--emerald);
+    }
+
+    /* ── Progress bar override ── */
+    .reveal .progress span {
+      background: var(--emerald);
+    }
+
+    .reveal .controls button {
+      color: var(--emerald);
+    }
+
+    /* ── Slide number ── */
+    .reveal .slide-number {
+      color: var(--text-tertiary);
+      font-family: "Geist Mono", monospace;
+      font-size: 0.5em;
+      background: transparent;
+    }
+
+    /* ── Bullet style ── */
+    .reveal ul {
+      list-style: none;
+      padding-left: 1em;
+    }
+
+    .reveal ul li::before {
+      content: "▸";
+      color: var(--emerald);
+      font-weight: bold;
+      display: inline-block;
+      width: 1em;
+      margin-left: -1em;
+    }
+
+    .reveal ul ul li::before {
+      content: "·";
+      color: var(--text-tertiary);
+    }
+
+    .reveal ol {
+      padding-left: 1.2em;
+    }
+
+    .reveal ol li::marker {
+      color: var(--emerald);
+      font-weight: 600;
+    }
+  </style>
+</head>
+<body>
+<div class="reveal">
+<div class="slides">
+
+<!-- ════════════════════════════════════════════ -->
+<!-- SLIDE 1: Title -->
+<!-- ════════════════════════════════════════════ -->
+<section class="title-slide">
+  <p class="muted small" style="margin-bottom: 0.2em;">Apache DataFusion Stockholm Meetup &middot; March 2026</p>
+  <img src="enya-logo.png" alt="Enya" style="width: 200px; height: auto; margin: 0.3em auto 0.1em; display: block; border-radius: 16px;">
+  <h2 style="margin-top: 0.1em; font-size: 1.4em;"><span class="accent">Enya</span></h2>
+  <div class="emerald-bar"></div>
+  <p class="subtitle" style="color: var(--text-primary);">Observability for Builders</p>
+  <p class="small" style="color: var(--text-primary);">A shared interface for humans and AI agents</p>
+  <p class="meta" style="margin-top: 0.6em;"><a href="https://enya.build" target="_blank" style="color: inherit; text-decoration: none;">enya.build</a> &middot; <a href="https://github.com/meldrumlabs/enya" target="_blank" style="color: inherit; text-decoration: none;">github.com/meldrumlabs/enya</a> &middot; MIT License</p>
+</section>
+
+<!-- ════════════════════════════════════════════ -->
+<!-- SLIDE 2: About Me -->
+<!-- ════════════════════════════════════════════ -->
+<section>
+  <h2>About Me</h2>
+  <div style="display: flex; flex-direction: column; gap: 0; margin-top: 0.4em; position: relative; padding-left: 2em;">
+    <!-- Timeline line -->
+    <div style="position: absolute; left: 0.85em; top: 0.5em; bottom: 0.5em; width: 2px; background: var(--border-default);"></div>
+    <!-- Step 1: KTH -->
+    <div style="display: flex; align-items: flex-start; gap: 0.8em; padding: 0.4em 0; position: relative;">
+      <div style="width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--text-tertiary); background: var(--obsidian-base); flex-shrink: 0; margin-top: 0.15em; position: relative; z-index: 1;"></div>
+      <div>
+        <p style="color: var(--text-tertiary); font-size: 0.6em; margin: 0;"><strong style="color: var(--text-secondary);">PhD Student @ Data Systems Lab, KTH</strong> &mdash; Streaming systems and data management</p>
+        <p style="color: var(--text-tertiary); font-size: 0.5em; margin: 0.1em 0 0 1.2em;">Created &mu;Wheel, a Tiny Embeddable Aggregate Management System for Streams and Queries.</p>
+      </div>
+    </div>
+    <!-- Step 2: Massive -->
+    <div style="display: flex; align-items: flex-start; gap: 0.8em; padding: 0.4em 0; position: relative;">
+      <div style="width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--text-tertiary); background: var(--obsidian-base); flex-shrink: 0; margin-top: 0.15em; position: relative; z-index: 1;"></div>
+      <div>
+        <p style="color: var(--text-tertiary); font-size: 0.6em; margin: 0;"><strong style="color: var(--text-secondary);">Software Engineer @ Massive</strong> &mdash; Building real-time data systems for financial markets using <em>DataFusion</em></p>
+      </div>
+    </div>
+    <!-- Step 3: Meldrum Labs (current) -->
+    <div style="display: flex; align-items: flex-start; gap: 0.8em; padding: 0.4em 0; position: relative;">
+      <div style="width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--emerald); background: var(--emerald); flex-shrink: 0; margin-top: 0.15em; position: relative; z-index: 1; box-shadow: 0 0 8px rgba(16,185,129,0.4);"></div>
+      <div>
+        <p style="color: var(--text-primary); font-size: 0.6em; margin: 0;"><strong>Meldrum Labs</strong> &mdash; Building with Massive + building <em>Enya</em></p>
+        <span class="tag" style="margin-top: 0.3em;">current</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════════════════════════════════ -->
+<!-- SLIDE: Winter in Sweden -->
+<!-- ════════════════════════════════════════════ -->
+<section style="text-align: center;">
+  <h2>Winter in Sweden</h2>
+  <img src="winter-sweden.jpg" alt="Winter in Sweden" style="width: 55%; border-radius: 8px; margin-top: 0.3em;">
+  <p style="font-size: 0.7em; color: var(--emerald); margin-top: 0.5em;">This is what you see for a few hours.</p>
+</section>
+
+<!-- ════════════════════════════════════════════ -->
+<!-- SLIDE: Darkness -->
+<!-- ════════════════════════════════════════════ -->
+<section style="text-align: center; display: flex; flex-direction: column; justify-content: flex-end; height: 100%;">
+  <p style="font-size: 0.7em; color: var(--emerald); margin-bottom: 1em;">But this is what you see most of the time.</p>
+</section>
+
+<!-- ════════════════════════════════════════════ -->
+<!-- SLIDE: Stay inside -->
+<!-- ════════════════════════════════════════════ -->
+<section style="text-align: center;">
+  <p style="font-size: 0.9em; color: var(--emerald);">So you end up staying inside to build!</p>
+</section>
+
+<!-- ════════════════════════════════════════════ -->
+<!-- SLIDE: The Problem -->
+<!-- ════════════════════════════════════════════ -->
+<section>
+  <h2>The Problem</h2>
+  <ul>
+    <li><strong>Fragmented interfaces</strong> &mdash; Metrics, SQL, terminals, others</li>
+    <li><strong>Codebase-awareness</strong> &mdash; decoupled from the actual codebase that is being built and shipped</li>
+    <li><strong>AI-native</strong> &mdash; not built from the ground up with AI agents in mind</li>
+  </ul>
+</section>
+
+<!-- ════════════════════════════════════════════ -->
+<!-- SLIDE 3: What is Enya -->
+<!-- ════════════════════════════════════════════ -->
+<section>
+  <h2>What is <span class="accent">Enya</span>?</h2>
+  <p style="color: var(--text-secondary); font-size: 0.6em; margin-bottom: 0.4em;">Neovim meets Grafana, reimagined for human and agent collaboration.</p>
+  <div class="grid-2" style="align-items: center;">
+    <div>
+      <ul>
+        <li><strong>Multi-Tool</strong> &mdash; code, metrics, logs, traces, SQL, terminals</li>
+        <li><strong>Codebase-Aware</strong> &mdash; tree-sitter analyzes your source code</li>
+        <li><strong>AI-Native</strong> &mdash; agents have the same commands you do</li>
+        <li><strong>Extensible</strong> &mdash; Lua plugins, custom themes</li>
+      </ul>
+    </div>
+    <div>
+      <video src="landing.mp4" autoplay loop muted playsinline style="width: 100%; border-radius: 8px; border: 1px solid var(--border-default);"></video>
+    </div>
+  </div>
+  <p style="font-size: 0.8em; color: var(--emerald); margin-top: 0.5em;">Follow along: <a href="https://enya.build/editor" target="_blank" style="color: var(--emerald); text-decoration: underline;">enya.build/editor</a></p>
+</section>
+
+<!-- ════════════════════════════════════════════ -->
+<!-- SLIDE 4: Architecture Overview -->
+<!-- ════════════════════════════════════════════ -->
+<section style="text-align: center;">
+  <h2>Architecture</h2>
+  <div class="arch-diagram" style="font-size: 0.55em; display: inline-block; text-align: left; padding: 0.8em 1.5em;"><span class="highlight">crates/</span>
+  <span class="highlight">editor/</span>        egui + eframe (native + WASM)
+  <span class="highlight">datafusion/</span>    DataFusion v51 &mdash; reuses dft
+  <span class="highlight">analyzer/</span>      tree-sitter (6 langs)
+  <span class="highlight">search/</span>        Tantivy (BM25)
+  <span class="highlight">ai/</span>            ACP / JSON-RPC
+  <span class="highlight">plugin/</span>        Lua + Rust plugins
+  <span style="color: var(--text-tertiary);">+ 17 more crates</span></div>
+</section>
+
+<!-- ════════════════════════════════════════════ -->
+<!-- SLIDE: Codebase Indexing -->
+<!-- ════════════════════════════════════════════ -->
+<section>
+  <h2>Codebase Indexing</h2>
+  <p>Tree-sitter + Tantivy index your codebase to connect telemetry back to source code.</p>
+  <ul>
+    <li><strong>Metric definitions &amp; usages</strong> &mdash; counters, gauges, histograms</li>
+    <li><strong>Alert rules</strong> &mdash; Prometheus alerting from YAML</li>
+    <li><strong>Labels &amp; function context</strong> &mdash; statically extracted</li>
+    <li><strong>Full-text search</strong> &mdash; BM25 ranked, sub-millisecond</li>
+  </ul>
+</section>
+
+<!-- ════════════════════════════════════════════ -->
+<!-- SLIDE: Section - SQL & DataFusion -->
+<!-- ════════════════════════════════════════════ -->
+<section class="section-divider">
+  <p class="section-num">02</p>
+  <h2>SQL &amp; DataFusion</h2>
+  <p class="muted">Towards first-class DataFusion integration</p>
+</section>
+
+<!-- ════════════════════════════════════════════ -->
+<!-- SLIDE: SQL Pane -->
+<!-- ════════════════════════════════════════════ -->
+<section style="text-align: center;">
+  <h2>SQL Pane</h2>
+  <img src="sql_pane.png" alt="Enya SQL pane" style="width: 92%; border-radius: 8px; border: 1px solid var(--border-default); margin-top: 0.2em;">
+</section>
+
+<!-- ════════════════════════════════════════════ -->
+<!-- SLIDE: SQL Pane Commands -->
+<!-- ════════════════════════════════════════════ -->
+<section>
+  <h2>SQL Pane Commands</h2>
+  <div class="grid-2" style="align-items: center;">
+    <div>
+      <ul>
+        <li><code>/tables</code>, <code>/schema</code> &mdash; explore structure</li>
+        <li><code>/explain</code>, <code>/analyze</code> &mdash; query plans</li>
+        <li><code>/diff</code> &mdash; compare across environments</li>
+        <li><code>/bench</code> &mdash; benchmark queries</li>
+      </ul>
+    </div>
+    <div>
+      <img src="enya-diff.png" alt="Enya diff view" style="width: 100%; border-radius: 8px; border: 1px solid var(--border-default);">
+      <p class="muted small" style="margin-top: 0.2em; text-align: center;">staging vs production</p>
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════════════════════════════════ -->
+<!-- SLIDE: Viewing Plans -->
+<!-- ════════════════════════════════════════════ -->
+<section>
+  <h2>Viewing Plans</h2>
+  <img src="waterfall.png" alt="Enya waterfall query plan" style="width: 92%; border-radius: 8px; border: 1px solid var(--border-default); margin-top: 0.2em;">
+  <div style="display: flex; gap: 0.5em; flex-wrap: wrap; margin-top: 0.4em;">
+    <span class="tag">DataFusion v51</span>
+    <span class="tag">Arrow v57</span>
+    <span class="tag">Flight SQL</span>
+    <span class="tag">Parquet / CSV / JSON</span>
+  </div>
+</section>
+
+<!-- ════════════════════════════════════════════ -->
+<!-- SLIDE: AI Integration -->
+<!-- ════════════════════════════════════════════ -->
+<section>
+  <h2>AI Integration</h2>
+  <p>Claude Code &amp; Codex connect via JSON-RPC (ACP). Agents output structured commands, the editor executes them.</p>
+  <ul>
+    <li><strong>Visualize</strong> &mdash; create_pane, show_inline_chart, show_inline_table</li>
+    <li><strong>Investigate</strong> &mdash; add_logs_pane, add_sql_pane, search_codebase</li>
+    <li><strong>Manage</strong> &mdash; set_time_range, load_workspace, maximize_pane</li>
+  </ul>
+</section>
+
+<!-- ════════════════════════════════════════════ -->
+<!-- SLIDE: Snapshots -->
+<!-- ════════════════════════════════════════════ -->
+
+<!-- ════════════════════════════════════════════ -->
+<!-- SLIDE 19: Snapshots -->
+<!-- ════════════════════════════════════════════ -->
+<section>
+  <h2>Snapshots</h2>
+  <p>Capture and share a workspace via URL &mdash; no data source access needed.</p>
+  <ul>
+    <li><strong>:snapshot [title]</strong> &mdash; captures all data, visualizations, agent conversations</li>
+    <li><strong>Read-only</strong> &mdash; anyone with the link can view</li>
+    <li><strong>Auto-expires</strong> &mdash; 7-day retention</li>
+  </ul>
+  <div class="flow" style="margin-top: 0.4em;">
+    <span class="flow-step">Workspace</span>
+    <span class="flow-arrow">&rarr;</span>
+    <span class="flow-step">postcard + LZ4</span>
+    <span class="flow-arrow">&rarr;</span>
+    <span class="flow-step">R2</span>
+    <span class="flow-arrow">&rarr;</span>
+    <a href="https://enya.build/editor?snapshot=blnamg9v3fog" target="_blank" class="flow-step" style="border-color: var(--emerald); color: var(--emerald); text-decoration: none;">enya.build/editor?snapshot=blnamg9v3fog</a>
+  </div>
+</section>
+
+<!-- ════════════════════════════════════════════ -->
+<!-- SLIDE: Key Takeaways -->
+<!-- ════════════════════════════════════════════ -->
+<section>
+  <h2>Key Takeaways</h2>
+  <div class="emerald-bar"></div>
+  <p style="font-size: 0.75em; color: var(--text-secondary); margin-top: 0.6em;">A tool for those who <strong>build</strong>, <strong>ship</strong>, and <strong>get paged</strong>.</p>
+  <p style="font-size: 0.75em; color: var(--text-secondary); margin-top: 0.4em;">Where DataFusion will be a first-class integration.</p>
+  <p style="font-size: 0.65em; color: var(--emerald); margin-top: 0.8em;">Get in touch if there are any SQL / DataFusion capabilities you would love to see!</p>
+</section>
+
+<!-- ════════════════════════════════════════════ -->
+<!-- SLIDE: Try It Out -->
+<!-- ════════════════════════════════════════════ -->
+<section>
+  <h2>Try It Out</h2>
+  <div class="emerald-bar"></div>
+  <p style="font-size: 0.7em; color: var(--text-secondary); margin-top: 0.6em;">Follow the interactive tutorial in your browser</p>
+  <p style="margin-top: 0.8em;">
+    <a href="https://enya.build/editor" target="_blank" style="font-size: 0.9em; color: var(--emerald); text-decoration: none; border: 2px solid var(--emerald); padding: 0.3em 0.8em; border-radius: 8px;">enya.build/editor</a>
+  </p>
+  <p style="font-size: 0.65em; color: var(--text-secondary); margin-top: 0.8em;">
+    <strong>github.com/meldrumlabs/enya</strong>
+  </p>
+  <p class="muted small" style="margin-top: 0.5em;">No install required &mdash; runs in the browser via WASM (SQL not yet available in web version)</p>
+</section>
+
+</div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/reveal.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/plugin/highlight/highlight.js"></script>
+<script>
+  Reveal.initialize({
+    hash: true,
+    slideNumber: true,
+    progress: true,
+    center: true,
+    transition: 'fade',
+    transitionSpeed: 'fast',
+    backgroundTransition: 'fade',
+    width: 1280,
+    height: 720,
+    margin: 0.06,
+    minScale: 0.5,
+    maxScale: 1.0,
+    plugins: [RevealHighlight]
+  });
+</script>
+</body>
+</html>
