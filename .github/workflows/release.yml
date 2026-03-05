@@ -69,7 +69,7 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-apple-darwin,x86_64-apple-darwin
+          targets: aarch64-apple-darwin
 
       - name: Set up cargo cache
         uses: Swatinem/rust-cache@v2
@@ -79,16 +79,10 @@ jobs:
       - name: Build ARM64 (Apple Silicon)
         run: cargo build --release --package enya-editor --target aarch64-apple-darwin
 
-      - name: Build x86_64 (Intel)
-        run: cargo build --release --package enya-editor --target x86_64-apple-darwin
-
-      - name: Create universal binary
+      - name: Copy binary to expected path
         run: |
           mkdir -p target/universal-apple-darwin/release
-          lipo -create \
-            target/aarch64-apple-darwin/release/Enya \
-            target/x86_64-apple-darwin/release/Enya \
-            -output target/universal-apple-darwin/release/Enya
+          cp target/aarch64-apple-darwin/release/Enya target/universal-apple-darwin/release/Enya
 
       - name: Build signed DMG
         env:
