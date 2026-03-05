@@ -190,7 +190,7 @@ if [[ "$CAN_NOTARIZE" == "true" ]]; then
         --key-id "$APPLE_NOTARIZATION_KEY_ID" \
         --issuer "$APPLE_NOTARIZATION_ISSUER_ID" \
         --wait \
-        --timeout 30m
+        --timeout 60m
 
     echo "==> Stapling notarization ticket"
     xcrun stapler staple "$DMG_NAME"
