@@ -20,7 +20,7 @@ enya --json show <name>
 # Create a workspace
 enya init <name>                              # empty workspace
 enya init <name> -e http://localhost:9090     # with Prometheus endpoint
-enya init <name> -t demo                      # from template (default, demo, complex, atlas)
+enya init <name> -t demo                      # from template (default, demo, complex)
 enya init <name> -o ./my-workspace.toml       # write to specific path
 
 # Delete a workspace
@@ -330,16 +330,16 @@ All commands use the same endpoint resolution as `enya query`: `--endpoint` flag
 ```sh
 # List all metric names
 enya metrics list -e http://prometheus:9090
-enya metrics list -w atlas
+enya metrics list -w production
 enya metrics list -e http://prometheus:9090 --match '{job="api"}'
 
 # List all label names
 enya metrics labels -e http://prometheus:9090
-enya metrics labels -w atlas --match '{__name__="http_requests_total"}'
+enya metrics labels -w production --match '{__name__="http_requests_total"}'
 
 # List values for a specific label
 enya metrics label-values job -e http://prometheus:9090
-enya metrics label-values instance -w atlas
+enya metrics label-values instance -w production
 
 # Show metric type and help text
 enya metrics info -e http://prometheus:9090                     # all metrics
@@ -347,7 +347,7 @@ enya metrics info http_requests_total -e http://prometheus:9090 # specific metri
 
 # Find series matching a selector
 enya metrics series '{job="api"}' -e http://prometheus:9090
-enya metrics series 'http_requests_total' -w atlas
+enya metrics series 'http_requests_total' -w production
 ```
 
 ### JSON shapes
@@ -383,13 +383,13 @@ Poll a PromQL expression at regular intervals and alert when values cross a thre
 
 ```sh
 # Alert if error rate exceeds 0.01 (polls every 30s by default)
-enya watch atlas "rate(http_errors_total[5m])" --above 0.01
+enya watch production "rate(http_errors_total[5m])" --above 0.01
 
 # Must stay above threshold for 5 continuous minutes before alerting
-enya watch atlas "rate(http_errors_total[5m])" --above 0.01 --for 5m
+enya watch production "rate(http_errors_total[5m])" --above 0.01 --for 5m
 
 # Alert if any "up" target drops below 1, polling every 15 seconds
-enya watch atlas "up" --below 1 --every 15s
+enya watch production "up" --below 1 --every 15s
 
 # Use a direct endpoint instead of a workspace
 enya watch "up" --below 1 --endpoint http://prom:9090
@@ -428,16 +428,16 @@ Capture a workspace's current state including all query results at a point in ti
 
 ```sh
 # Print snapshot to stdout (pretty-printed JSON)
-enya snapshot atlas
+enya snapshot production
 
 # Compact JSON output
-enya --json snapshot atlas
+enya --json snapshot production
 
 # Write to a file
-enya snapshot atlas -o snapshot.json
+enya snapshot production -o snapshot.json
 
 # Override endpoint
-enya snapshot atlas -e http://prometheus:9090
+enya snapshot production -e http://prometheus:9090
 ```
 
 The snapshot captures:
@@ -568,7 +568,7 @@ Newline-delimited JSON-RPC 2.0. Each line on stdin is a request; each line on st
 
 **Request:**
 ```json
-{"jsonrpc":"2.0","id":1,"method":"workspace.show","params":{"name":"atlas"}}
+{"jsonrpc":"2.0","id":1,"method":"workspace.show","params":{"name":"production"}}
 ```
 
 **Response:**

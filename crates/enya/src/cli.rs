@@ -38,7 +38,7 @@ enum Command {
         #[arg(short, long)]
         endpoint: Option<String>,
 
-        /// Start from a built-in template (default, demo, complex, atlas)
+        /// Start from a built-in template (default, demo, complex)
         #[arg(short, long)]
         template: Option<String>,
 

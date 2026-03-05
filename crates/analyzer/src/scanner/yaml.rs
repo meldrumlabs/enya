@@ -335,17 +335,17 @@ groups:
     }
 
     #[test]
-    fn test_parse_atlas_style_alert() {
+    fn test_parse_consumer_error_alert() {
         let content = r#"
 groups:
-  - name: atlas
+  - name: api-alerts
     rules:
-      - alert: Atlas Live Consumer Error
+      - alert: High Consumer Error Rate
         annotations:
-          message: "Atlas Live Consumer is returning more than 3 errors per second on pod {{ $labels.kubernetes_pod_name }}"
-          runbook_url: https://atlas-docs.ny2.polygon.io/
+          message: "Consumer is returning more than 3 errors per second on pod {{ $labels.kubernetes_pod_name }}"
+          runbook_url: https://docs.example.com/runbooks/consumer-errors
         expr: |
-          sum(rate(atlas_live_consumer_errors_total{status!~"0|1"}[1m])) > 3
+          sum(rate(consumer_errors_total{status!~"0|1"}[1m])) > 3
 "#;
 
         let mut scanner = YamlAlertScanner::new().expect("Failed to create scanner");
@@ -354,15 +354,15 @@ groups:
             .expect("Should parse");
 
         assert_eq!(alerts.len(), 1);
-        assert_eq!(alerts[0].name, "Atlas Live Consumer Error");
+        assert_eq!(alerts[0].name, "High Consumer Error Rate");
         assert_eq!(
             alerts[0].metric_name,
-            Some("atlas_live_consumer_errors_total".to_string())
+            Some("consumer_errors_total".to_string())
         );
         assert!(alerts[0].message.is_some());
         assert_eq!(
             alerts[0].runbook_url,
-            Some("https://atlas-docs.ny2.polygon.io/".to_string())
+            Some("https://docs.example.com/runbooks/consumer-errors".to_string())
         );
     }
 
