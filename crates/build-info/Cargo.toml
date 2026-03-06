@@ -10,7 +10,7 @@ license.workspace = true
 homepage.workspace = true
 readme.workspace = true
 repository.workspace = true
-keywords = ["build info"]
+keywords = ["build-info"]
 
 [features]
 default = []
