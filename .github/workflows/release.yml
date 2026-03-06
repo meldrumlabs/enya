@@ -82,7 +82,7 @@ jobs:
           shared-key: "release-macos"
 
       - name: Build ARM64 (Apple Silicon)
-        run: cargo build --release --package enya-editor --target aarch64-apple-darwin --all-features
+        run: cargo build --release --package enya-editor --target aarch64-apple-darwin --features terminal,sql,all-languages
 
       - name: Copy binary to expected path
         run: |
