@@ -71,13 +71,18 @@ jobs:
         with:
           targets: aarch64-apple-darwin
 
+      - name: Install Zig
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.14.1
+
       - name: Set up cargo cache
         uses: Swatinem/rust-cache@v2
         with:
           shared-key: "release-macos"
 
       - name: Build ARM64 (Apple Silicon)
-        run: cargo build --release --package enya-editor --target aarch64-apple-darwin
+        run: cargo build --release --package enya-editor --target aarch64-apple-darwin --all-features
 
       - name: Copy binary to expected path
         run: |
