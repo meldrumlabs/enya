@@ -132,7 +132,11 @@ impl DemoMetricsClient {
             .iter()
             .find(|m| m.name == metric_name)
             .map(|m| MetricLabels {
-                labels: m.label_values.clone(),
+                labels: m
+                    .label_values
+                    .iter()
+                    .map(|(k, v)| (k.clone(), v.clone()))
+                    .collect(),
             })
     }
 

@@ -357,8 +357,10 @@ pub struct Workspace {
 
     // ==================== OTLP Telemetry ====================
     /// Shared in-memory telemetry store for OTLP datasource.
-    /// Set when the daemon has `[otlp] enabled = true`. Used by OTLP logs/tracing panes.
     telemetry_store: Option<std::sync::Arc<enya_client::otlp::TelemetryStore>>,
+    /// Whether to connect the OTLP metrics backend on the next frame.
+    /// Deferred because `set_telemetry_store` is called before `ctx` is available.
+    pending_otlp_connect: bool,
 
     // ==================== Tracing Backend ====================
     /// Client for fetching distributed traces (Tempo, OTLP HTTP, or in-process OTLP).
@@ -482,6 +484,7 @@ impl Workspace {
             plugin_pane_last_refresh: FxHashMap::default(),
             // OTLP telemetry store
             telemetry_store: None,
+            pending_otlp_connect: false,
             // Tracing backend
             tracing_client: None,
             trace_manager: enya_client::tracing::TraceManager::new(),
@@ -524,13 +527,14 @@ impl Workspace {
 
     /// Set the shared OTLP telemetry store.
     ///
-    /// When set, workspaces configured with `backend = "otlp"` will read
-    /// traces and logs from this in-memory store.
+    /// When set, the editor connects the OTLP metrics backend on the next
+    /// frame and uses in-memory clients for logs and traces.
     pub fn set_telemetry_store(
         &mut self,
         store: std::sync::Arc<enya_client::otlp::TelemetryStore>,
     ) {
         self.telemetry_store = Some(store);
+        self.pending_otlp_connect = true;
     }
 
     /// Get the shared OTLP telemetry store (if available).
@@ -677,6 +681,28 @@ impl Workspace {
             // Start fetching metadata for autocomplete
             self.query_executor.fetch_metric_names(ctx);
             self.query_executor.fetch_label_names(ctx);
+        }
+
+        // Connect the OTLP metrics backend if a telemetry store was set
+        #[cfg(not(target_arch = "wasm32"))]
+        if self.pending_otlp_connect {
+            self.pending_otlp_connect = false;
+            if let Some(store) = &self.telemetry_store {
+                // Only connect if no Prometheus endpoint is configured
+                if !self.query_executor.is_connected() {
+                    log::info!("Connecting OTLP metrics backend (embedded receiver)");
+                    self.query_executor
+                        .connect_otlp(std::sync::Arc::clone(store), ctx);
+                    self.query_executor.fetch_metric_names(ctx);
+                    self.query_executor.fetch_label_names(ctx);
+                }
+                // Set up tracing client for in-process OTLP
+                if self.tracing_client.is_none() {
+                    self.tracing_client = Some(std::sync::Arc::new(
+                        enya_client::otlp::OtlpTracingClient::new(std::sync::Arc::clone(store)),
+                    ));
+                }
+            }
         }
 
         // Eagerly fetch metric names for @ mention autocomplete (demo backend only).

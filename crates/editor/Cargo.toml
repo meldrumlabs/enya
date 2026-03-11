@@ -71,6 +71,8 @@ tree-sitter-python = { version = "0.25", optional = true }
 tree-sitter-javascript = { version = "0.25", optional = true }
 # Async runtime for AI agent and background tasks
 tokio = { workspace = true, features = ["rt-multi-thread", "net", "io-util", "time"] }
+# Embedded OTLP receiver HTTP server (optional, enabled by "otlp" feature)
+axum = { workspace = true, features = ["json"], optional = true }
 # AI agent integration via ACP
 enya-ai = { workspace = true }
 # Full-text search index for codebase (metrics, alerts, commits)
@@ -143,9 +145,11 @@ tempfile = "3"
 egui_kittest = { version = "0.33.3", features = ["snapshot", "wgpu"] }
 
 [features]
-# No default features - all are opt-in. For full functionality:
-# cargo build -p enya-editor --features all-languages,terminal,sql
-default = []
+# OTLP receiver is enabled by default so `cargo run` works out of the box.
+# For full functionality: cargo build -p enya-editor --features all-languages,terminal,sql
+default = ["otlp"]
+# Embedded OTLP HTTP receiver on port 4318 for local OTel ingestion.
+otlp = ["dep:axum"]
 # Enable SQL pane support with DataFusion query engine (~500 dependencies).
 sql = ["dep:enya-datafusion"]
 # Enable terminal pane support (requires zig toolchain for ghostty).

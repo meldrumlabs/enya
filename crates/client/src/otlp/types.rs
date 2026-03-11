@@ -137,6 +137,99 @@ pub struct OtlpAnyValue {
 }
 
 // ============================================================================
+// OTLP Metrics Types
+// ============================================================================
+
+/// Top-level OTLP metrics export request body.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OtlpMetricsData {
+    pub resource_metrics: Vec<OtlpResourceMetrics>,
+}
+
+/// Metrics grouped by resource.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OtlpResourceMetrics {
+    pub resource: Option<OtlpResource>,
+    pub scope_metrics: Option<Vec<OtlpScopeMetrics>>,
+}
+
+/// Metrics grouped by instrumentation scope.
+#[derive(Deserialize)]
+pub struct OtlpScopeMetrics {
+    pub metrics: Option<Vec<OtlpMetric>>,
+}
+
+/// A single OTLP metric (may contain gauge, sum, or histogram data).
+#[derive(Deserialize)]
+pub struct OtlpMetric {
+    pub name: Option<String>,
+    pub unit: Option<String>,
+    pub gauge: Option<OtlpGauge>,
+    pub sum: Option<OtlpSum>,
+    pub histogram: Option<OtlpHistogram>,
+}
+
+/// OTLP Gauge metric data.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OtlpGauge {
+    pub data_points: Option<Vec<OtlpNumberDataPoint>>,
+}
+
+/// OTLP Sum (counter) metric data.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OtlpSum {
+    pub data_points: Option<Vec<OtlpNumberDataPoint>>,
+    /// True if monotonic (cumulative counter).
+    #[serde(default)]
+    pub is_monotonic: bool,
+}
+
+/// OTLP Histogram metric data.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OtlpHistogram {
+    pub data_points: Option<Vec<OtlpHistogramDataPoint>>,
+}
+
+/// A single number data point (used by Gauge and Sum).
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OtlpNumberDataPoint {
+    pub time_unix_nano: Option<u64>,
+    pub start_time_unix_nano: Option<u64>,
+    pub as_double: Option<f64>,
+    pub as_int: Option<i64>,
+    pub attributes: Option<Vec<OtlpAttribute>>,
+}
+
+impl OtlpNumberDataPoint {
+    /// Get the value as f64, preferring as_double over as_int.
+    pub fn value(&self) -> f64 {
+        self.as_double
+            .unwrap_or_else(|| self.as_int.map(|i| i as f64).unwrap_or(0.0))
+    }
+}
+
+/// A single histogram data point.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OtlpHistogramDataPoint {
+    pub time_unix_nano: Option<u64>,
+    pub start_time_unix_nano: Option<u64>,
+    pub count: Option<u64>,
+    pub sum: Option<f64>,
+    pub min: Option<f64>,
+    pub max: Option<f64>,
+    pub bucket_counts: Option<Vec<u64>>,
+    pub explicit_bounds: Option<Vec<f64>>,
+    pub attributes: Option<Vec<OtlpAttribute>>,
+}
+
+// ============================================================================
 // OTLP Traces Export Request
 // ============================================================================
 

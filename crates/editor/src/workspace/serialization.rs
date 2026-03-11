@@ -54,7 +54,8 @@ impl Workspace {
                         crate::components::util::query_executor::Backend::Prometheus(ep) => {
                             Some(ep.clone())
                         }
-                        _ => None,
+                        crate::components::util::query_executor::Backend::Demo
+                        | crate::components::util::query_executor::Backend::Otlp => None,
                     })
                     .or_else(|| self.pending_connection_endpoint.clone())
                     .unwrap_or_default(),

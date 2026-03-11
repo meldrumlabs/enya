@@ -12,6 +12,7 @@ use rustc_hash::FxHashMap;
 
 use crate::logs::LogEntry;
 use crate::tracing::tempo::types::{Trace, TraceSummary};
+use crate::types::{MetricsBucket, MetricsGroup, QueryResponse, ResultType, Timestamp};
 
 /// Configuration for the telemetry store's bounded capacity.
 #[derive(Debug, Clone)]
@@ -20,6 +21,8 @@ pub struct StoreConfig {
     pub max_traces: usize,
     /// Maximum number of log entries to retain (default: 50_000).
     pub max_log_entries: usize,
+    /// Maximum number of data points per metric time series (default: 10_000).
+    pub max_metric_data_points: usize,
 }
 
 impl Default for StoreConfig {
@@ -27,6 +30,7 @@ impl Default for StoreConfig {
         Self {
             max_traces: 1000,
             max_log_entries: 50_000,
+            max_metric_data_points: 10_000,
         }
     }
 }
@@ -39,6 +43,7 @@ impl Default for StoreConfig {
 pub struct TelemetryStore {
     traces: RwLock<TraceStore>,
     logs: RwLock<LogStore>,
+    metrics: RwLock<MetricsStore>,
 }
 
 impl TelemetryStore {
@@ -47,6 +52,7 @@ impl TelemetryStore {
         Arc::new(Self {
             traces: RwLock::new(TraceStore::new(config.max_traces)),
             logs: RwLock::new(LogStore::new(config.max_log_entries)),
+            metrics: RwLock::new(MetricsStore::new(config.max_metric_data_points)),
         })
     }
 
@@ -119,6 +125,60 @@ impl TelemetryStore {
     /// Get the number of stored log entries.
     pub fn log_count(&self) -> usize {
         self.logs.read().len()
+    }
+
+    // === Metrics operations ===
+
+    /// Insert a metric data point into the store.
+    pub fn insert_metric_point(&self, point: MetricDataPoint) {
+        self.metrics.write().insert(point);
+    }
+
+    /// Insert a batch of metric data points.
+    pub fn insert_metric_points(&self, points: Vec<MetricDataPoint>) {
+        let mut store = self.metrics.write();
+        for point in points {
+            store.insert(point);
+        }
+    }
+
+    /// Get all known metric names.
+    pub fn metric_names(&self) -> Vec<String> {
+        self.metrics.read().metric_names()
+    }
+
+    /// Get all known label names for a specific metric.
+    pub fn metric_label_names(&self, metric: &str) -> Vec<String> {
+        self.metrics.read().label_names(metric)
+    }
+
+    /// Get all known label values for a specific metric and label name.
+    pub fn metric_label_values(&self, metric: &str, label: &str) -> Vec<String> {
+        self.metrics.read().label_values(metric, label)
+    }
+
+    /// Query a metric and return a QueryResponse compatible with the Prometheus format.
+    pub fn query_metric(
+        &self,
+        metric: &str,
+        labels: &FxHashMap<String, String>,
+        start_ns: u64,
+        end_ns: u64,
+        step_ns: u64,
+    ) -> QueryResponse {
+        self.metrics
+            .read()
+            .query(metric, labels, start_ns, end_ns, step_ns)
+    }
+
+    /// Get the number of stored metric time series.
+    pub fn metric_series_count(&self) -> usize {
+        self.metrics.read().series_count()
+    }
+
+    /// Get the total number of stored metric data points.
+    pub fn metric_point_count(&self) -> usize {
+        self.metrics.read().point_count()
     }
 }
 
@@ -256,6 +316,285 @@ impl TraceStore {
 }
 
 // ============================================================================
+// MetricsStore: bounded time-series storage for OTLP metrics
+// ============================================================================
+
+/// A single metric data point to be inserted into the store.
+#[derive(Debug, Clone)]
+pub struct MetricDataPoint {
+    /// Metric name (e.g., "http_requests_total").
+    pub name: String,
+    /// Labels/attributes (e.g., {"method": "GET", "service": "api"}).
+    pub labels: FxHashMap<String, String>,
+    /// Timestamp in nanoseconds since epoch.
+    pub timestamp_ns: u64,
+    /// The metric value.
+    pub value: f64,
+}
+
+/// A unique time series identified by metric name + sorted label set.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct SeriesKey {
+    name: String,
+    /// Labels as a sorted string: "k1=v1,k2=v2"
+    labels_key: String,
+}
+
+/// A time-ordered data point within a series.
+#[derive(Debug, Clone)]
+struct StoredPoint {
+    timestamp_ns: u64,
+    value: f64,
+}
+
+struct MetricsStore {
+    /// Time series indexed by their unique key.
+    series: FxHashMap<SeriesKey, TimeSeries>,
+    /// Maximum data points per series.
+    max_points_per_series: usize,
+}
+
+struct TimeSeries {
+    /// The original labels for this series.
+    labels: FxHashMap<String, String>,
+    /// Metric name.
+    name: String,
+    /// Data points sorted by timestamp.
+    points: VecDeque<StoredPoint>,
+}
+
+impl MetricsStore {
+    fn new(max_points_per_series: usize) -> Self {
+        Self {
+            series: FxHashMap::default(),
+            max_points_per_series,
+        }
+    }
+
+    fn make_key(name: &str, labels: &FxHashMap<String, String>) -> SeriesKey {
+        let mut pairs: Vec<_> = labels.iter().collect();
+        pairs.sort_by_key(|(k, _)| *k);
+        let labels_key = pairs
+            .iter()
+            .map(|(k, v)| format!("{k}={v}"))
+            .collect::<Vec<_>>()
+            .join(",");
+        SeriesKey {
+            name: name.to_string(),
+            labels_key,
+        }
+    }
+
+    fn insert(&mut self, point: MetricDataPoint) {
+        let key = Self::make_key(&point.name, &point.labels);
+        let series = self.series.entry(key).or_insert_with(|| TimeSeries {
+            labels: point.labels.clone(),
+            name: point.name.clone(),
+            points: VecDeque::new(),
+        });
+
+        // Insert in timestamp order (usually appending)
+        let stored = StoredPoint {
+            timestamp_ns: point.timestamp_ns,
+            value: point.value,
+        };
+
+        if series
+            .points
+            .back()
+            .is_none_or(|last| last.timestamp_ns <= stored.timestamp_ns)
+        {
+            series.points.push_back(stored);
+        } else {
+            // Out-of-order: find insertion point
+            let pos = series
+                .points
+                .iter()
+                .position(|p| p.timestamp_ns > stored.timestamp_ns)
+                .unwrap_or(series.points.len());
+            series.points.insert(pos, stored);
+        }
+
+        // Evict oldest if over capacity
+        while series.points.len() > self.max_points_per_series {
+            series.points.pop_front();
+        }
+    }
+
+    fn metric_names(&self) -> Vec<String> {
+        let mut names: rustc_hash::FxHashSet<String> = rustc_hash::FxHashSet::default();
+        for series in self.series.values() {
+            names.insert(series.name.clone());
+        }
+        let mut sorted: Vec<String> = names.into_iter().collect();
+        sorted.sort();
+        sorted
+    }
+
+    fn label_names(&self, metric: &str) -> Vec<String> {
+        let mut names: rustc_hash::FxHashSet<String> = rustc_hash::FxHashSet::default();
+        for series in self.series.values() {
+            if series.name == metric {
+                for key in series.labels.keys() {
+                    names.insert(key.clone());
+                }
+            }
+        }
+        let mut sorted: Vec<String> = names.into_iter().collect();
+        sorted.sort();
+        sorted
+    }
+
+    fn label_values(&self, metric: &str, label: &str) -> Vec<String> {
+        let mut values: rustc_hash::FxHashSet<String> = rustc_hash::FxHashSet::default();
+        for series in self.series.values() {
+            if series.name == metric {
+                if let Some(v) = series.labels.get(label) {
+                    values.insert(v.clone());
+                }
+            }
+        }
+        let mut sorted: Vec<String> = values.into_iter().collect();
+        sorted.sort();
+        sorted
+    }
+
+    fn query(
+        &self,
+        metric: &str,
+        label_filter: &FxHashMap<String, String>,
+        start_ns: u64,
+        end_ns: u64,
+        step_ns: u64,
+    ) -> QueryResponse {
+        let matching_series: Vec<&TimeSeries> = self
+            .series
+            .values()
+            .filter(|s| {
+                if s.name != metric {
+                    return false;
+                }
+                for (k, v) in label_filter {
+                    match s.labels.get(k) {
+                        Some(sv) if sv == v => {}
+                        _ => return false,
+                    }
+                }
+                true
+            })
+            .collect();
+
+        let step_ns = if step_ns == 0 {
+            // Auto-calculate: aim for ~200 data points
+            let range = end_ns.saturating_sub(start_ns);
+            (range / 200).max(1_000_000_000) // at least 1 second
+        } else {
+            step_ns
+        };
+
+        let groups: Vec<MetricsGroup> = matching_series
+            .iter()
+            .map(|series| {
+                // Build group label string
+                let mut pairs: Vec<_> = series.labels.iter().collect();
+                pairs.sort_by_key(|(k, _)| *k);
+                let group = pairs
+                    .iter()
+                    .map(|(k, v)| format!("{k}:{v}"))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+
+                // Bucket the data points
+                let buckets = bucket_points(&series.points, start_ns, end_ns, step_ns);
+
+                MetricsGroup {
+                    group: if group.is_empty() {
+                        metric.to_string()
+                    } else {
+                        group
+                    },
+                    buckets,
+                }
+            })
+            .collect();
+
+        QueryResponse {
+            metric: metric.to_string(),
+            query: metric.to_string(),
+            parsed_agg: None,
+            parsed_filter: String::new(),
+            parsed_grouping: None,
+            parsed_time_range: None,
+            start: Some(start_ns as Timestamp),
+            end: Some(end_ns as Timestamp),
+            granularity_ns: step_ns as u128,
+            groups,
+            result_type: ResultType::Matrix,
+        }
+    }
+
+    fn series_count(&self) -> usize {
+        self.series.len()
+    }
+
+    fn point_count(&self) -> usize {
+        self.series.values().map(|s| s.points.len()).sum()
+    }
+}
+
+/// Bucket data points into fixed-width time windows, taking the last value per bucket.
+///
+/// Single-pass O(N) algorithm: since points are sorted by timestamp, we advance
+/// through points once, assigning each to its bucket.
+fn bucket_points(
+    points: &VecDeque<StoredPoint>,
+    start_ns: u64,
+    end_ns: u64,
+    step_ns: u64,
+) -> Vec<MetricsBucket> {
+    if points.is_empty() || start_ns >= end_ns || step_ns == 0 {
+        return Vec::new();
+    }
+
+    let num_buckets = (end_ns - start_ns).div_ceil(step_ns);
+    let mut bucket_data: Vec<Option<(f64, usize)>> = vec![None; num_buckets as usize];
+
+    for p in points.iter() {
+        if p.timestamp_ns < start_ns || p.timestamp_ns >= end_ns {
+            continue;
+        }
+        let idx = ((p.timestamp_ns - start_ns) / step_ns) as usize;
+        if idx < bucket_data.len() {
+            match &mut bucket_data[idx] {
+                Some((val, count)) => {
+                    *val = p.value;
+                    *count += 1;
+                }
+                slot @ None => {
+                    *slot = Some((p.value, 1));
+                }
+            }
+        }
+    }
+
+    bucket_data
+        .into_iter()
+        .enumerate()
+        .filter_map(|(i, data)| {
+            let (value, count) = data?;
+            let bucket_start = start_ns + (i as u64) * step_ns;
+            let bucket_end = (bucket_start + step_ns).min(end_ns);
+            Some(MetricsBucket {
+                start: bucket_start as Timestamp,
+                end: bucket_end as Timestamp,
+                value,
+                count,
+            })
+        })
+        .collect()
+}
+
+// ============================================================================
 // LogStore: bounded log entry ring buffer
 // ============================================================================
 
@@ -291,6 +630,7 @@ impl LogStore {
         contains: Option<&str>,
         limit: usize,
     ) -> Vec<LogEntry> {
+        let contains_lower = contains.map(|t| t.to_lowercase());
         self.entries
             .iter()
             .filter(|entry| {
@@ -306,8 +646,8 @@ impl LogStore {
                     }
                 }
                 // Text search
-                if let Some(text) = contains {
-                    if !entry.message.to_lowercase().contains(&text.to_lowercase()) {
+                if let Some(ref pattern) = contains_lower {
+                    if !entry.message.to_lowercase().contains(pattern) {
                         return false;
                     }
                 }

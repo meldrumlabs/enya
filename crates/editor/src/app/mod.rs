@@ -471,6 +471,18 @@ impl EnyaApp {
         self.startup_snapshot = Some(id);
     }
 
+    /// Set the shared OTLP telemetry store on the workspace.
+    ///
+    /// When set, the editor can receive OTel data via the embedded OTLP receiver
+    /// and display it using in-memory OTLP clients.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn set_telemetry_store(
+        &mut self,
+        store: std::sync::Arc<enya_client::otlp::TelemetryStore>,
+    ) {
+        self.workspace.set_telemetry_store(store);
+    }
+
     fn check_keyboard_shortcuts(&self, egui_ctx: &egui::Context) {
         // Skip global shortcuts when in settings — keys like ':' should not
         // open the command palette while the user is on the settings page.

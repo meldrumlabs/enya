@@ -12,6 +12,9 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Added
 
+- **OTLP metrics ingestion**: The Enya agent now accepts OpenTelemetry metrics via `POST /v1/metrics` (OTLP HTTP JSON and protobuf), in addition to existing traces and logs support. Gauge, Sum (counter), and Histogram metrics are stored in-memory and queryable through the editor's existing query panes.
+- **Embedded OTLP receiver**: The native editor now starts an embedded OTLP HTTP receiver on `localhost:4318` (the standard OTLP port). Developers can point their OTel SDK at Enya (`OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318`) to view metrics, logs, and traces without running separate Prometheus/Loki/Tempo infrastructure or the Enya agent.
+- **OTLP protobuf support**: All three OTLP signal types (traces, logs, metrics) now accept both JSON (`application/json`) and protobuf (`application/x-protobuf`) wire formats, auto-detected from the Content-Type header.
 - **SQL pane Flight SQL benchmarking**: The `/bench` command now works over Flight SQL connections with per-phase timing breakdown matching dft's Flight SQL benchmarks: Get Flight Info, Time to First Byte (TTFB), Do Get, and Total. Phase labels adapt automatically for Flight vs local backends.
 
 ### Changed

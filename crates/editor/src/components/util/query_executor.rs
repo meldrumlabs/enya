@@ -5,6 +5,8 @@
 
 use rustc_hash::FxHashMap;
 
+#[cfg(not(target_arch = "wasm32"))]
+use enya_client::otlp::OtlpMetricsClient;
 use enya_client::{
     DemoMetricsClient, HealthCheckManager, LabelsManager, MetricLabels, MetricLabelsManager,
     QueryManager, QueryRequest, QueryResponse, prometheus::PrometheusClient,
@@ -23,6 +25,8 @@ pub enum Backend {
     Demo,
     /// Prometheus backend
     Prometheus(String),
+    /// In-memory OTLP backend (reads from embedded TelemetryStore)
+    Otlp,
 }
 
 impl Default for Backend {
@@ -110,6 +114,9 @@ pub struct QueryExecutor {
     demo_client: DemoMetricsClient,
     /// Prometheus client (if connected)
     prometheus_client: Option<PrometheusClient>,
+    /// OTLP in-memory metrics client (if telemetry store is available)
+    #[cfg(not(target_arch = "wasm32"))]
+    otlp_client: Option<OtlpMetricsClient>,
     /// Query manager for tracking multiple in-flight queries by pane ID
     query_manager: QueryManager,
     /// Labels manager for fetching metric names
@@ -141,6 +148,7 @@ impl QueryExecutor {
             backend: Backend::Demo,
             demo_client: DemoMetricsClient::new(),
             prometheus_client: None,
+            otlp_client: None,
             query_manager: QueryManager::new(),
             labels_manager: LabelsManager::new(),
             label_names_manager: LabelsManager::new(),
@@ -193,9 +201,27 @@ impl QueryExecutor {
         }
     }
 
+    /// Connect to the in-memory OTLP telemetry store and initiate a health check.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn connect_otlp(
+        &mut self,
+        store: std::sync::Arc<enya_client::otlp::TelemetryStore>,
+        ctx: &egui::Context,
+    ) {
+        let client = OtlpMetricsClient::new(store);
+        self.health_check_manager.check(&client, ctx);
+        self.otlp_client = Some(client);
+        self.backend = Backend::Otlp;
+        self.connection_health = ConnectionHealth::Checking;
+    }
+
     /// Disconnect and return to demo mode.
     pub fn disconnect(&mut self) {
         self.prometheus_client = None;
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.otlp_client = None;
+        }
         self.backend = Backend::Demo;
         self.connection_health = ConnectionHealth::Offline;
         self.query_manager.cancel_all();
@@ -318,6 +344,14 @@ impl QueryExecutor {
                     self.labels_manager.fetch_metric_names(client, ctx);
                 }
             }
+            #[cfg(not(target_arch = "wasm32"))]
+            Backend::Otlp => {
+                if let Some(client) = &self.otlp_client {
+                    self.labels_manager.fetch_metric_names(client, ctx);
+                }
+            }
+            #[cfg(target_arch = "wasm32")]
+            Backend::Otlp => {}
         }
     }
 
@@ -367,6 +401,14 @@ impl QueryExecutor {
                     self.label_names_manager.fetch_label_names(client, ctx);
                 }
             }
+            #[cfg(not(target_arch = "wasm32"))]
+            Backend::Otlp => {
+                if let Some(client) = &self.otlp_client {
+                    self.label_names_manager.fetch_label_names(client, ctx);
+                }
+            }
+            #[cfg(target_arch = "wasm32")]
+            Backend::Otlp => {}
         }
     }
 
@@ -425,6 +467,14 @@ impl QueryExecutor {
                     self.metric_labels_manager.fetch(client, metric, ctx);
                 }
             }
+            #[cfg(not(target_arch = "wasm32"))]
+            Backend::Otlp => {
+                if let Some(client) = &self.otlp_client {
+                    self.metric_labels_manager.fetch(client, metric, ctx);
+                }
+            }
+            #[cfg(target_arch = "wasm32")]
+            Backend::Otlp => {}
         }
     }
 
@@ -517,6 +567,20 @@ impl QueryExecutor {
                     self.query_manager.execute(pane_id, client, request, ctx);
                 }
             }
+            #[cfg(not(target_arch = "wasm32"))]
+            Backend::Otlp => {
+                if let Some(client) = &self.otlp_client {
+                    log::debug!(
+                        "Executing OTLP query for pane {}: metric '{}': {}",
+                        pane_id,
+                        params.metric,
+                        params.query
+                    );
+                    self.query_manager.execute(pane_id, client, request, ctx);
+                }
+            }
+            #[cfg(target_arch = "wasm32")]
+            Backend::Otlp => {}
         }
     }
 
@@ -528,6 +592,7 @@ impl QueryExecutor {
         let backend_name = match &self.backend {
             Backend::Demo => "Demo",
             Backend::Prometheus(_) => "Prometheus",
+            Backend::Otlp => "OTLP",
         };
 
         self.query_manager
