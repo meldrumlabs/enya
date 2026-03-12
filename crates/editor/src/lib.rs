@@ -149,24 +149,25 @@ pub fn run_native_app(
         ..Default::default()
     };
 
-    // Start embedded OTLP receiver so instrumented apps can send telemetry
-    // directly to the editor on the standard OTLP HTTP port (4318).
+    // Clone the tokio handle before moving runtime into the closure.
     #[cfg(feature = "otlp")]
-    let telemetry_store = {
-        let store =
-            enya_client::otlp::TelemetryStore::new(enya_client::otlp::StoreConfig::default());
-        otlp_receiver::start(std::sync::Arc::clone(&store), tokio_runtime.handle());
-        Some(store)
-    };
-    #[cfg(not(feature = "otlp"))]
-    let telemetry_store: Option<std::sync::Arc<enya_client::otlp::TelemetryStore>> = None;
+    let tokio_handle = tokio_runtime.handle().clone();
 
     let result = eframe::run_native(
         "",
         native_options,
         Box::new(move |cc| {
             let mut app = EnyaApp::new(cc, async_runtime);
-            if let Some(store) = telemetry_store {
+
+            // Start embedded OTLP receiver so instrumented apps can send telemetry
+            // directly to the editor. Port is read from settings (default: 4318).
+            #[cfg(feature = "otlp")]
+            {
+                let store = enya_client::otlp::TelemetryStore::new(
+                    enya_client::otlp::StoreConfig::default(),
+                );
+                let port = app.otlp_port();
+                otlp_receiver::start(std::sync::Arc::clone(&store), &tokio_handle, port);
                 app.set_telemetry_store(store);
             }
             if let Some(ws) = startup_workspace {

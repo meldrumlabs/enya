@@ -151,6 +151,14 @@ pub struct AppSettings {
     /// Projects that group workspaces together in the sidebar.
     #[serde(default)]
     pub projects: Vec<ProjectEntry>,
+    /// Port for the embedded OTLP HTTP receiver (default: 4318).
+    /// Changes take effect on next app launch.
+    #[serde(default = "default_otlp_port")]
+    pub otlp_port: u16,
+}
+
+fn default_otlp_port() -> u16 {
+    4318
 }
 
 impl AppSettings {

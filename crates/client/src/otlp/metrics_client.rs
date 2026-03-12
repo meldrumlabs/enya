@@ -28,6 +28,15 @@ impl OtlpMetricsClient {
 
 impl MetricsClient for OtlpMetricsClient {
     fn query(&self, request: QueryRequest, _ctx: &egui::Context) -> Promise<QueryResult> {
+        // Use the query string as the metric name (request.metric is the pane
+        // display name, not the actual metric). Fall back to request.metric if
+        // query is empty or a wildcard.
+        let metric = if request.query.is_empty() || request.query == "*" {
+            &request.metric
+        } else {
+            &request.query
+        };
+
         // Parse time range from nanoseconds
         let now_ns = crate::now_unix_secs() * 1_000_000_000;
         let start_ns = request
@@ -37,7 +46,7 @@ impl MetricsClient for OtlpMetricsClient {
         let step_ns = request.step_secs * 1_000_000_000;
 
         let response = self.store.query_metric(
-            &request.metric,
+            metric,
             &rustc_hash::FxHashMap::default(),
             start_ns,
             end_ns,

@@ -25,9 +25,9 @@ const MAX_BODY_SIZE: usize = 10 * 1024 * 1024;
 
 /// Start the embedded OTLP receiver in the background.
 ///
-/// Binds to `127.0.0.1:4318` and serves the standard OTLP HTTP endpoints.
+/// Binds to `127.0.0.1:{port}` and serves the standard OTLP HTTP endpoints.
 /// Returns immediately; the server runs on the provided tokio handle.
-pub fn start(store: Arc<TelemetryStore>, handle: &tokio::runtime::Handle) {
+pub fn start(store: Arc<TelemetryStore>, handle: &tokio::runtime::Handle, port: u16) {
     let app = Router::new()
         .route("/v1/traces", post(traces_handler))
         .route("/v1/logs", post(logs_handler))
@@ -35,7 +35,7 @@ pub fn start(store: Arc<TelemetryStore>, handle: &tokio::runtime::Handle) {
         .with_state(store);
 
     handle.spawn(async move {
-        let addr: std::net::SocketAddr = ([127, 0, 0, 1], OTLP_PORT).into();
+        let addr: std::net::SocketAddr = ([127, 0, 0, 1], port).into();
         match tokio::net::TcpListener::bind(addr).await {
             Ok(listener) => {
                 log::info!("OTLP receiver listening on http://{addr}");

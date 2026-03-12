@@ -7,13 +7,18 @@ All notable changes to the Enya editor will be documented in this file.
 ### Fixed
 
 - **macOS GUI app PATH resolution**: Fixed `npx`, `git`, and other developer commands failing when Enya.app is launched from Finder, Dock, or Spotlight. The app now resolves the user's login shell PATH at startup.
+- **Gauge/Stat/Bar/Sparkline visualizations showing demo data**: Non-time-series visualizations now display real query data instead of demo placeholder values. Previously, `populate_from_response` only handled time series; gauge/stat/bar/sparkline types were stuck showing demo data even with a real backend connected.
+- **OTLP JSON string-encoded integers**: Fixed deserialization of OTLP JSON payloads where 64-bit integers are string-encoded per the protobuf JSON spec (e.g. `"42"` instead of `42`).
+- **OTLP query routing using wrong field**: Fixed queries using pane display name instead of the actual metric name, causing "No data" results for OTLP metrics.
 - **Keybindings stuck after agent panel interaction**: Fixed keyboard shortcuts (Space+h, Space+f, aa, etc.) becoming unresponsive after clicking on a viewport pane while the agent panel had focus. Clicking the viewport now correctly transfers focus back from the agent panel.
 - **Codebase indexing per project**: Switching between projects now correctly resets the codebase manager, preventing the wrong repository from being indexed. Previously, loading a workspace from a different project could show or re-index the previous project's repo.
 
 ### Added
 
+- **OTLP Settings UI**: Added OTLP Receiver section to Settings → Connections showing the receiver endpoint (e.g. `localhost:4318`) with configurable port that takes effect on next launch.
 - **OTLP metrics ingestion**: The Enya agent now accepts OpenTelemetry metrics via `POST /v1/metrics` (OTLP HTTP JSON and protobuf), in addition to existing traces and logs support. Gauge, Sum (counter), and Histogram metrics are stored in-memory and queryable through the editor's existing query panes.
 - **Embedded OTLP receiver**: The native editor now starts an embedded OTLP HTTP receiver on `localhost:4318` (the standard OTLP port). Developers can point their OTel SDK at Enya (`OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318`) to view metrics, logs, and traces without running separate Prometheus/Loki/Tempo infrastructure or the Enya agent.
+- **OTLP as supplementary data source**: OTLP metrics are now available alongside Prometheus as an additional data source. When both are active, OTLP metric names appear in autocomplete and queries for OTLP-sourced metrics are automatically routed to the embedded receiver.
 - **OTLP protobuf support**: All three OTLP signal types (traces, logs, metrics) now accept both JSON (`application/json`) and protobuf (`application/x-protobuf`) wire formats, auto-detected from the Content-Type header.
 - **SQL pane Flight SQL benchmarking**: The `/bench` command now works over Flight SQL connections with per-phase timing breakdown matching dft's Flight SQL benchmarks: Get Flight Info, Time to First Byte (TTFB), Do Get, and Total. Phase labels adapt automatically for Flight vs local backends.
 
