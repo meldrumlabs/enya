@@ -473,9 +473,10 @@ impl BufferEditor {
 
     /// Set completions from MetricLabels data fetched from a backend.
     /// This replaces any existing completion data with the labels from the metric.
+    #[allow(clippy::disallowed_types)]
     pub fn set_completions_from_labels(
         &mut self,
-        labels: &rustc_hash::FxHashMap<String, Vec<String>>,
+        labels: &std::collections::HashMap<String, Vec<String>>,
     ) {
         // Clear existing completions
         self.completion.clear();

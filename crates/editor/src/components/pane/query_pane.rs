@@ -5,11 +5,13 @@ use crate::components::pane::visualization::{
     Visualization, VisualizationType, populate_demo_data,
 };
 use crate::components::util::id_generator::next_id_usize;
+use crate::components::util::query_executor::populate_from_response;
 use crate::components::util::query_state::QueryState;
 use crate::components::widget::buffer::{Buffer, BufferAction, BufferMode};
 use crate::ui::colors::text_color;
 use crate::ui::semantic_icons;
 use crate::ui::theme::AppTheme;
+use enya_client::QueryResponse;
 
 /// Render a skeleton loading state with shimmer effect
 fn render_loading_state(ui: &mut egui::Ui, theme: AppTheme) {
@@ -154,6 +156,8 @@ pub struct QueryPane {
     pending_demo_refresh: bool,
     /// Whether this pane was loaded from a snapshot (read-only data, no refresh)
     is_snapshot: bool,
+    /// Last query response, used to re-populate when visualization type changes
+    last_response: Option<QueryResponse>,
 }
 
 impl Default for QueryPane {
@@ -197,6 +201,7 @@ impl QueryPane {
             is_demo: false,
             pending_demo_refresh: false,
             is_snapshot: false,
+            last_response: None,
         }
     }
 
@@ -259,6 +264,7 @@ impl QueryPane {
             is_demo: false,
             pending_demo_refresh: false,
             is_snapshot: false,
+            last_response: None,
         }
     }
 
@@ -292,6 +298,7 @@ impl QueryPane {
             is_demo: true,
             pending_demo_refresh: false,
             is_snapshot: false,
+            last_response: None,
         }
     }
 
@@ -328,6 +335,7 @@ impl QueryPane {
             is_demo: false,
             pending_demo_refresh: false,
             is_snapshot: false,
+            last_response: None,
         }
     }
 
@@ -364,6 +372,7 @@ impl QueryPane {
             is_demo: true,
             pending_demo_refresh: false,
             is_snapshot: false,
+            last_response: None,
         }
     }
 
@@ -411,6 +420,7 @@ impl QueryPane {
             is_demo: true,
             pending_demo_refresh: false,
             is_snapshot: false,
+            last_response: None,
         }
     }
 
@@ -445,6 +455,7 @@ impl QueryPane {
             is_demo: false,
             pending_demo_refresh: false,
             is_snapshot: false,
+            last_response: None,
         }
     }
 
@@ -486,6 +497,7 @@ impl QueryPane {
             is_demo: false,
             pending_demo_refresh: false,
             is_snapshot: true,
+            last_response: None,
         }
     }
 
@@ -503,9 +515,7 @@ impl QueryPane {
     pub fn cycle_visualization(&mut self) {
         self.visualization.cycle();
         self.has_user_override = true;
-        // Re-populate demo data for the new visualization type
-        let query = self.buffer.saved_content().to_string();
-        populate_demo_data(&mut self.visualization, &query);
+        self.repopulate_visualization();
     }
 
     /// Set the visualization type explicitly (user action - sets override flag).
@@ -515,7 +525,7 @@ impl QueryPane {
             self.visualization = Visualization::new(viz_type, &query);
             self.visualization.set_theme(self.theme);
             self.has_user_override = true;
-            populate_demo_data(&mut self.visualization, &query);
+            self.repopulate_visualization();
         }
     }
 
@@ -531,6 +541,21 @@ impl QueryPane {
             self.visualization.set_theme(self.theme);
             // Note: does NOT set has_user_override = true
             // Note: does NOT populate demo data - real data is already being set
+        }
+    }
+
+    /// Store the last query response for re-populating on visualization type changes.
+    pub fn store_response(&mut self, response: QueryResponse) {
+        self.last_response = Some(response);
+    }
+
+    /// Re-populate the current visualization from the last response, or fall back to demo data.
+    fn repopulate_visualization(&mut self) {
+        if let Some(response) = &self.last_response {
+            populate_from_response(&mut self.visualization, response);
+        } else {
+            let query = self.buffer.saved_content().to_string();
+            populate_demo_data(&mut self.visualization, &query);
         }
     }
 

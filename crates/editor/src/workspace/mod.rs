@@ -357,8 +357,10 @@ pub struct Workspace {
 
     // ==================== OTLP Telemetry ====================
     /// Shared in-memory telemetry store for OTLP datasource.
-    /// Set when the daemon has `[otlp] enabled = true`. Used by OTLP logs/tracing panes.
     telemetry_store: Option<std::sync::Arc<enya_client::otlp::TelemetryStore>>,
+    /// Whether to connect the OTLP telemetry store on the next frame.
+    /// Deferred because `set_telemetry_store` is called before `ctx` is available.
+    pending_otlp_connect: bool,
 
     // ==================== Tracing Backend ====================
     /// Client for fetching distributed traces (Tempo, OTLP HTTP, or in-process OTLP).
@@ -482,6 +484,7 @@ impl Workspace {
             plugin_pane_last_refresh: FxHashMap::default(),
             // OTLP telemetry store
             telemetry_store: None,
+            pending_otlp_connect: false,
             // Tracing backend
             tracing_client: None,
             trace_manager: enya_client::tracing::TraceManager::new(),
@@ -524,13 +527,14 @@ impl Workspace {
 
     /// Set the shared OTLP telemetry store.
     ///
-    /// When set, workspaces configured with `backend = "otlp"` will read
-    /// traces and logs from this in-memory store.
+    /// When set, the editor connects the OTLP metrics backend on the next
+    /// frame and uses in-memory clients for logs and traces.
     pub fn set_telemetry_store(
         &mut self,
         store: std::sync::Arc<enya_client::otlp::TelemetryStore>,
     ) {
         self.telemetry_store = Some(store);
+        self.pending_otlp_connect = true;
     }
 
     /// Get the shared OTLP telemetry store (if available).
@@ -677,6 +681,41 @@ impl Workspace {
             // Start fetching metadata for autocomplete
             self.query_executor.fetch_metric_names(ctx);
             self.query_executor.fetch_label_names(ctx);
+        }
+
+        // Connect the OTLP metrics backend if a telemetry store was set.
+        // On initial startup (from set_telemetry_store), only auto-connect if no
+        // When a telemetry store is available, set it as a supplementary OTLP
+        // data source on the query executor (merges metric names alongside the
+        // primary Prometheus backend) and set up the tracing client.
+        // If no Prometheus endpoint is configured, OTLP becomes the primary backend.
+        #[cfg(not(target_arch = "wasm32"))]
+        if self.pending_otlp_connect {
+            self.pending_otlp_connect = false;
+            if let Some(store) = &self.telemetry_store {
+                let store = std::sync::Arc::clone(store);
+                // Always set as supplementary source for metric name merging
+                self.query_executor.set_otlp_client(store.clone());
+                // If no other backend is active, make OTLP the primary
+                if !self.query_executor.is_connected() {
+                    log::info!(
+                        "Connecting OTLP as primary metrics backend (no Prometheus configured)"
+                    );
+                    self.query_executor.connect_otlp(store.clone(), ctx);
+                    self.query_executor.fetch_metric_names(ctx);
+                    self.query_executor.fetch_label_names(ctx);
+                    // Enable auto-refresh for live OTLP data
+                    if self.refresh_interval.is_none() {
+                        self.set_refresh_interval(RefreshInterval::TenSeconds);
+                    }
+                }
+                // Set up tracing client for in-process OTLP
+                if self.tracing_client.is_none() {
+                    self.tracing_client = Some(std::sync::Arc::new(
+                        enya_client::otlp::OtlpTracingClient::new(store),
+                    ));
+                }
+            }
         }
 
         // Eagerly fetch metric names for @ mention autocomplete (demo backend only).
@@ -1391,7 +1430,6 @@ impl Workspace {
                 flight_sql_endpoint,
                 project,
             } => {
-                // Set pending connection endpoint to apply
                 self.pending_connection_endpoint = Some(endpoint);
                 // Store git repo path for codebase integration (native only with codebase feature)
                 #[cfg(not(target_arch = "wasm32"))]
@@ -1573,7 +1611,8 @@ impl Workspace {
         let modal_open = native_promo_open
             || self.command_palette.is_open()
             || self.which_key.is_open()
-            || self.plugins_overlay.is_open();
+            || self.plugins_overlay.is_open()
+            || self.workspace_creator.is_open();
         self.landing_page.set_keyboard_disabled(modal_open);
 
         // Show the landing page in the central panel
@@ -1751,7 +1790,6 @@ impl Workspace {
                 flight_sql_endpoint,
                 project,
             } => {
-                // Set pending connection endpoint to apply
                 self.pending_connection_endpoint = Some(endpoint);
                 // Store git repo path for codebase integration (native only with codebase feature)
                 #[cfg(not(target_arch = "wasm32"))]
@@ -1904,6 +1942,15 @@ impl Workspace {
                 self.pending_open_settings = true;
                 WorkspaceAction::None
             }
+            CommandResult::AddMetric(name) => {
+                if let Some(metric) = name {
+                    self.add_query_pane(&metric, None);
+                } else {
+                    // Open an empty buffer editor for the user to type a metric name
+                    self.buffer_editor.open("", "");
+                }
+                WorkspaceAction::None
+            }
             CommandResult::PluginCommand(command, args) => {
                 WorkspaceAction::PluginCommand { command, args }
             }
@@ -2012,6 +2059,10 @@ impl Workspace {
                     log::debug!("Applied query to LogsPane: {query}");
                 }
             }
+        } else if !query.is_empty() {
+            // No existing tile — create a new query pane (e.g., from :new or :metric)
+            self.add_query_pane(&query, None);
+            log::debug!("Created new query pane: {query}");
         }
     }
 

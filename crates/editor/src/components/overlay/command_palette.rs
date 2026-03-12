@@ -122,6 +122,8 @@ pub enum CommandResult {
     OpenTutorial,
     /// Open the settings overlay
     OpenSettings,
+    /// Add a new metric/query pane (optionally with a metric name)
+    AddMetric(Option<String>),
     /// Try to execute a plugin command (command name, args)
     PluginCommand(String, String),
     /// No-op (command not recognized or cancelled)
@@ -213,6 +215,18 @@ const BASE_COMMANDS: &[PaletteCommand] = &[
         aliases: &["set", "prefs", "preferences"],
         description: "Open settings (AI, styling, connections)",
         kind: CommandKind::NoArgs,
+    },
+    PaletteCommand {
+        name: "new",
+        aliases: &["n", "add"],
+        description: "Add a new metric/query pane",
+        kind: CommandKind::SingleArg,
+    },
+    PaletteCommand {
+        name: "metric",
+        aliases: &["m"],
+        description: "Add a metric pane by name",
+        kind: CommandKind::SingleArg,
     },
 ];
 
@@ -562,6 +576,14 @@ impl CommandPalette {
             "dock" | "dk" => CommandResult::DockAllPanes,
             "tutorial" | "tut" => CommandResult::OpenTutorial,
             "settings" | "set" | "prefs" | "preferences" => CommandResult::OpenSettings,
+            "new" | "n" | "add" | "metric" | "m" => {
+                let name = if args.is_empty() {
+                    None
+                } else {
+                    Some(args.join(" "))
+                };
+                CommandResult::AddMetric(name)
+            }
             "sync" => {
                 if args.is_empty() {
                     CommandResult::Error("Usage: :sync git".to_string())

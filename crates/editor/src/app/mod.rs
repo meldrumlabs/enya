@@ -471,6 +471,23 @@ impl EnyaApp {
         self.startup_snapshot = Some(id);
     }
 
+    /// Set the shared OTLP telemetry store on the workspace.
+    ///
+    /// When set, the editor can receive OTel data via the embedded OTLP receiver
+    /// and display it using in-memory OTLP clients.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn set_telemetry_store(
+        &mut self,
+        store: std::sync::Arc<enya_client::otlp::TelemetryStore>,
+    ) {
+        self.workspace.set_telemetry_store(store);
+    }
+
+    /// Get the configured OTLP receiver port from settings.
+    pub fn otlp_port(&self) -> u16 {
+        self.state.settings.otlp_port
+    }
+
     fn check_keyboard_shortcuts(&self, egui_ctx: &egui::Context) {
         // Skip global shortcuts when in settings — keys like ':' should not
         // open the command palette while the user is on the settings page.
@@ -907,6 +924,7 @@ impl EnyaApp {
                     check_for_updates,
                     notify_new_models,
                     git_sync_interval,
+                    otlp_port,
                 } = page_result
                 {
                     self.state.settings.ai_provider = ai_provider;
@@ -923,6 +941,7 @@ impl EnyaApp {
                     self.state.settings.check_for_updates = check_for_updates;
                     self.state.settings.notify_new_models = notify_new_models;
                     self.state.settings.git_sync_interval = git_sync_interval;
+                    self.state.settings.otlp_port = otlp_port;
                     #[cfg(not(target_arch = "wasm32"))]
                     self.update_checker.set_enabled(check_for_updates);
                     // Propagate provider/model to agent panel
@@ -1518,6 +1537,7 @@ impl EnyaApp {
                     self.state.settings.check_for_updates,
                     self.state.settings.notify_new_models,
                     self.state.settings.git_sync_interval,
+                    self.state.settings.otlp_port,
                 );
             }
         }

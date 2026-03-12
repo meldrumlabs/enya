@@ -58,6 +58,10 @@ pub mod platform;
 /// Plugin system for extending editor functionality.
 pub mod plugin;
 
+/// Embedded OTLP HTTP receiver for local OTel ingestion (native only, requires "otlp" feature).
+#[cfg(all(not(target_arch = "wasm32"), feature = "otlp"))]
+pub mod otlp_receiver;
+
 pub use plugin::{
     Plugin, PluginCapabilities, PluginContext, PluginError, PluginId, PluginInfo, PluginRegistry,
     PluginResult, PluginState,
@@ -145,11 +149,27 @@ pub fn run_native_app(
         ..Default::default()
     };
 
+    // Clone the tokio handle before moving runtime into the closure.
+    #[cfg(feature = "otlp")]
+    let tokio_handle = tokio_runtime.handle().clone();
+
     let result = eframe::run_native(
         "",
         native_options,
         Box::new(move |cc| {
             let mut app = EnyaApp::new(cc, async_runtime);
+
+            // Start embedded OTLP receiver so instrumented apps can send telemetry
+            // directly to the editor. Port is read from settings (default: 4318).
+            #[cfg(feature = "otlp")]
+            {
+                let store = enya_client::otlp::TelemetryStore::new(
+                    enya_client::otlp::StoreConfig::default(),
+                );
+                let port = app.otlp_port();
+                otlp_receiver::start(std::sync::Arc::clone(&store), &tokio_handle, port);
+                app.set_telemetry_store(store);
+            }
             if let Some(ws) = startup_workspace {
                 app.set_startup_workspace(ws);
             }

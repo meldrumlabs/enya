@@ -43,6 +43,7 @@ pub enum SettingsPageResult {
         check_for_updates: bool,
         notify_new_models: bool,
         git_sync_interval: GitSyncInterval,
+        otlp_port: u16,
     },
     /// Live preview of a builtin theme change.
     ThemePreview(AppTheme),
@@ -143,6 +144,7 @@ enum EditingField {
     PrometheusEndpoint,
     LokiEndpoint,
     TempoEndpoint,
+    OtlpPort,
 }
 
 /// Full-page settings component.
@@ -165,6 +167,7 @@ pub struct SettingsPage {
     default_prometheus_endpoint: String,
     default_loki_endpoint: String,
     default_tempo_endpoint: String,
+    otlp_port: String,
     // Flight SQL connection list (replacing single endpoint)
     flight_sql_connections: Vec<crate::ui::settings_screen::FlightSqlConnection>,
     /// Which Flight SQL connection index is being edited (None = not editing)
@@ -243,6 +246,7 @@ impl SettingsPage {
             default_prometheus_endpoint: String::new(),
             default_loki_endpoint: String::new(),
             default_tempo_endpoint: String::new(),
+            otlp_port: "localhost:4318".to_string(),
             flight_sql_connections: Vec::new(),
             editing_flight_idx: None,
             adding_flight_sql: false,
@@ -355,6 +359,7 @@ impl SettingsPage {
         check_for_updates: bool,
         notify_new_models: bool,
         git_sync_interval: GitSyncInterval,
+        otlp_port: u16,
     ) {
         self.is_open = true;
         self.active_category = SettingsCategory::Profile;
@@ -383,6 +388,7 @@ impl SettingsPage {
         self.default_prometheus_endpoint = default_prometheus_endpoint;
         self.default_loki_endpoint = default_loki_endpoint;
         self.default_tempo_endpoint = default_tempo_endpoint;
+        self.otlp_port = format!("localhost:{otlp_port}");
         self.flight_sql_connections = flight_sql_connections;
         self.editing_flight_idx = None;
         self.adding_flight_sql = false;
@@ -434,7 +440,7 @@ impl SettingsPage {
         match self.active_category {
             SettingsCategory::Profile => 5, // Auth, workspace, timezone, time range, startup
             SettingsCategory::Notifications => 2, // Check for updates + notify new models
-            SettingsCategory::Connections => 3 + self.flight_sql_connections.len() + 1, // Prom, Loki, Tempo, each Flight SQL conn, + Add button
+            SettingsCategory::Connections => 4 + self.flight_sql_connections.len() + 1, // Prom, Loki, Tempo, OTLP, each Flight SQL conn, + Add button
             SettingsCategory::Codebases => 2, // Git repo URL, sync interval
             SettingsCategory::Ai => 2,        // Provider, Model
             SettingsCategory::ThemeFont => 0, // Panel-based navigation
@@ -524,6 +530,12 @@ impl SettingsPage {
             check_for_updates: self.check_for_updates,
             notify_new_models: self.notify_new_models,
             git_sync_interval: self.git_sync_interval,
+            otlp_port: self
+                .otlp_port
+                .rsplit(':')
+                .next()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(4318),
         }
     }
 
@@ -2086,6 +2098,14 @@ impl SettingsPage {
                 EditingField::TempoEndpoint,
                 "https://tempo.example.com",
             ),
+            (
+                3,
+                regular::ANTENNA,
+                "OTLP Receiver",
+                "Embedded receiver port (restart to apply)",
+                EditingField::OtlpPort,
+                "4318",
+            ),
         ];
 
         for (i, (index, icon, label, desc, field, placeholder)) in rows.iter().enumerate() {
@@ -2156,7 +2176,7 @@ impl SettingsPage {
         let mut delete_idx: Option<usize> = None;
         let num_conns = self.flight_sql_connections.len();
         for i in 0..num_conns {
-            let field_idx = 3 + i; // offset past Prometheus + Loki + Tempo
+            let field_idx = 4 + i; // offset past Prometheus + Loki + Tempo + OTLP
             let is_focused = self.field_index == field_idx
                 && self.editing_field.is_none()
                 && !self.sidebar_focused;
@@ -2713,6 +2733,7 @@ impl SettingsPage {
                         }
                         Some(EditingField::LokiEndpoint) => &mut self.default_loki_endpoint,
                         Some(EditingField::TempoEndpoint) => &mut self.default_tempo_endpoint,
+                        Some(EditingField::OtlpPort) => &mut self.otlp_port,
                         None => return,
                     };
 
@@ -2845,6 +2866,7 @@ impl SettingsPage {
             EditingField::PrometheusEndpoint => self.default_prometheus_endpoint.clone(),
             EditingField::LokiEndpoint => self.default_loki_endpoint.clone(),
             EditingField::TempoEndpoint => self.default_tempo_endpoint.clone(),
+            EditingField::OtlpPort => self.otlp_port.clone(),
             EditingField::GitRepoUrl => self.git_repo_url.clone(),
         }
     }
@@ -4255,14 +4277,15 @@ impl SettingsPage {
                             0 => self.editing_field = Some(EditingField::PrometheusEndpoint),
                             1 => self.editing_field = Some(EditingField::LokiEndpoint),
                             2 => self.editing_field = Some(EditingField::TempoEndpoint),
-                            idx if idx >= 3 && idx < 3 + self.flight_sql_connections.len() => {
+                            3 => self.editing_field = Some(EditingField::OtlpPort),
+                            idx if idx >= 4 && idx < 4 + self.flight_sql_connections.len() => {
                                 // Edit an existing Flight SQL connection
-                                self.editing_flight_idx = Some(idx - 3);
-                                let conn = &self.flight_sql_connections[idx - 3];
+                                self.editing_flight_idx = Some(idx - 4);
+                                let conn = &self.flight_sql_connections[idx - 4];
                                 self.new_flight_name = conn.name.clone();
                                 self.new_flight_endpoint = conn.endpoint.clone();
                             }
-                            idx if idx == 3 + self.flight_sql_connections.len() => {
+                            idx if idx == 4 + self.flight_sql_connections.len() => {
                                 // "Add connection" button
                                 self.adding_flight_sql = true;
                                 self.new_flight_name.clear();
@@ -4320,6 +4343,7 @@ mod tests {
             true,
             true,
             GitSyncInterval::default(),
+            4318,
         );
         assert!(page.is_open());
         page.close();
@@ -4334,7 +4358,7 @@ mod tests {
         page.active_category = SettingsCategory::Notifications;
         assert_eq!(page.field_count(), 2);
         page.active_category = SettingsCategory::Connections;
-        assert_eq!(page.field_count(), 4); // 3 (Prom+Loki+Tempo) + 0 connections + 1 (Add button)
+        assert_eq!(page.field_count(), 5); // 4 (Prom+Loki+Tempo+OTLP) + 0 connections + 1 (Add button)
         page.active_category = SettingsCategory::Codebases;
         assert_eq!(page.field_count(), 2);
         page.active_category = SettingsCategory::Ai;

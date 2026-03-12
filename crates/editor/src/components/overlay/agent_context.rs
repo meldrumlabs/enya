@@ -799,6 +799,7 @@ pub fn build_connection_context(executor: &QueryExecutor) -> ConnectionContext {
     let backend_str = match executor.backend() {
         Backend::Demo => "demo".to_string(),
         Backend::Prometheus(url) => format!("prometheus:{url}"),
+        Backend::Otlp => "otlp".to_string(),
     };
 
     let (is_online, version) = match executor.connection_health() {

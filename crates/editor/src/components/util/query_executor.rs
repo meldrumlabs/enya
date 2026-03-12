@@ -5,6 +5,8 @@
 
 use rustc_hash::FxHashMap;
 
+#[cfg(not(target_arch = "wasm32"))]
+use enya_client::otlp::OtlpMetricsClient;
 use enya_client::{
     DemoMetricsClient, HealthCheckManager, LabelsManager, MetricLabels, MetricLabelsManager,
     QueryManager, QueryRequest, QueryResponse, prometheus::PrometheusClient,
@@ -13,7 +15,7 @@ use enya_client::{
 use crate::AsyncRuntime;
 use crate::components::pane::time_series_chart::{DataPoint, Series};
 use crate::components::pane::visualization::{
-    ResultCharacteristics, Visualization, VisualizationType, suggest_visualization,
+    Bar, ResultCharacteristics, Visualization, VisualizationType, suggest_visualization,
 };
 
 /// Backend type for query execution.
@@ -23,6 +25,8 @@ pub enum Backend {
     Demo,
     /// Prometheus backend
     Prometheus(String),
+    /// In-memory OTLP backend (reads from embedded TelemetryStore)
+    Otlp,
 }
 
 impl Default for Backend {
@@ -110,6 +114,13 @@ pub struct QueryExecutor {
     demo_client: DemoMetricsClient,
     /// Prometheus client (if connected)
     prometheus_client: Option<PrometheusClient>,
+    /// OTLP in-memory metrics client — available as a supplementary data source
+    /// alongside the primary backend, or as the primary backend itself.
+    #[cfg(not(target_arch = "wasm32"))]
+    otlp_client: Option<OtlpMetricsClient>,
+    /// Reference to the telemetry store for checking which metrics are OTLP-sourced.
+    #[cfg(not(target_arch = "wasm32"))]
+    otlp_store: Option<std::sync::Arc<enya_client::otlp::TelemetryStore>>,
     /// Query manager for tracking multiple in-flight queries by pane ID
     query_manager: QueryManager,
     /// Labels manager for fetching metric names
@@ -141,6 +152,8 @@ impl QueryExecutor {
             backend: Backend::Demo,
             demo_client: DemoMetricsClient::new(),
             prometheus_client: None,
+            otlp_client: None,
+            otlp_store: None,
             query_manager: QueryManager::new(),
             labels_manager: LabelsManager::new(),
             label_names_manager: LabelsManager::new(),
@@ -193,9 +206,47 @@ impl QueryExecutor {
         }
     }
 
+    /// Connect to the in-memory OTLP telemetry store and initiate a health check.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn connect_otlp(
+        &mut self,
+        store: std::sync::Arc<enya_client::otlp::TelemetryStore>,
+        ctx: &egui::Context,
+    ) {
+        let client = OtlpMetricsClient::new(store);
+        self.health_check_manager.check(&client, ctx);
+        self.otlp_client = Some(client);
+        self.backend = Backend::Otlp;
+        self.connection_health = ConnectionHealth::Checking;
+    }
+
+    /// Set the OTLP client as a supplementary data source without changing
+    /// the primary backend. OTLP metric names will be merged into autocomplete,
+    /// and queries for OTLP-only metrics will be routed to this client.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn set_otlp_client(&mut self, store: std::sync::Arc<enya_client::otlp::TelemetryStore>) {
+        self.otlp_store = Some(store.clone());
+        if self.otlp_client.is_none() {
+            self.otlp_client = Some(OtlpMetricsClient::new(store));
+        }
+    }
+
+    /// Check whether a metric name exists in the OTLP telemetry store.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn is_otlp_metric(&self, metric: &str) -> bool {
+        self.otlp_store
+            .as_ref()
+            .map(|store| store.metric_names().iter().any(|n| n == metric))
+            .unwrap_or(false)
+    }
+
     /// Disconnect and return to demo mode.
     pub fn disconnect(&mut self) {
         self.prometheus_client = None;
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.otlp_client = None;
+        }
         self.backend = Backend::Demo;
         self.connection_health = ConnectionHealth::Offline;
         self.query_manager.cancel_all();
@@ -318,6 +369,14 @@ impl QueryExecutor {
                     self.labels_manager.fetch_metric_names(client, ctx);
                 }
             }
+            #[cfg(not(target_arch = "wasm32"))]
+            Backend::Otlp => {
+                if let Some(client) = &self.otlp_client {
+                    self.labels_manager.fetch_metric_names(client, ctx);
+                }
+            }
+            #[cfg(target_arch = "wasm32")]
+            Backend::Otlp => {}
         }
     }
 
@@ -329,11 +388,35 @@ impl QueryExecutor {
     /// Poll for metric names fetch completion.
     ///
     /// Returns `true` if new metric names were received.
+    /// When OTLP is available as a supplementary source, its metric names
+    /// are merged into the list alongside the primary backend's names.
     pub fn poll_metric_names(&mut self) -> bool {
         if let Some(result) = self.labels_manager.poll() {
             match result {
-                Ok(names) => {
-                    log::debug!("Fetched {} metric names from Prometheus", names.len());
+                #[allow(unused_mut)]
+                Ok(mut names) => {
+                    log::debug!("Fetched {} metric names from primary backend", names.len());
+                    // Merge OTLP metric names when it's a supplementary source
+                    #[cfg(not(target_arch = "wasm32"))]
+                    if !matches!(self.backend, Backend::Otlp) {
+                        if let Some(store) = &self.otlp_store {
+                            let otlp_names = store.metric_names();
+                            if !otlp_names.is_empty() {
+                                log::debug!(
+                                    "Merging {} OTLP metric names into autocomplete",
+                                    otlp_names.len()
+                                );
+                                let existing: rustc_hash::FxHashSet<String> =
+                                    names.iter().cloned().collect();
+                                for name in otlp_names {
+                                    if !existing.contains(&name) {
+                                        names.push(name);
+                                    }
+                                }
+                                names.sort();
+                            }
+                        }
+                    }
                     self.metric_names = names;
                     true
                 }
@@ -347,9 +430,15 @@ impl QueryExecutor {
         }
     }
 
-    /// Get the cached metric names.
+    /// Get the cached metric names (includes merged OTLP names when available).
     pub fn metric_names(&self) -> &[String] {
         &self.metric_names
+    }
+
+    /// Check whether a supplementary OTLP data source is available.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn has_otlp_supplementary(&self) -> bool {
+        self.otlp_store.is_some()
     }
 
     /// Fetch label names (tag keys) from the backend.
@@ -367,6 +456,14 @@ impl QueryExecutor {
                     self.label_names_manager.fetch_label_names(client, ctx);
                 }
             }
+            #[cfg(not(target_arch = "wasm32"))]
+            Backend::Otlp => {
+                if let Some(client) = &self.otlp_client {
+                    self.label_names_manager.fetch_label_names(client, ctx);
+                }
+            }
+            #[cfg(target_arch = "wasm32")]
+            Backend::Otlp => {}
         }
     }
 
@@ -409,10 +506,20 @@ impl QueryExecutor {
     ///
     /// If the labels are already cached, this does nothing.
     /// If a fetch is already in flight, this does nothing.
+    /// Routes to OTLP when the metric exists in the supplementary store.
     pub fn fetch_metric_labels(&mut self, metric: &str, ctx: &egui::Context) {
         // Check cache first
         if self.metric_labels_cache.contains_key(metric) {
             return;
+        }
+
+        // Route to supplementary OTLP if the metric lives there
+        #[cfg(not(target_arch = "wasm32"))]
+        if matches!(self.backend, Backend::Prometheus(_)) && self.is_otlp_metric(metric) {
+            if let Some(client) = &self.otlp_client {
+                self.metric_labels_manager.fetch(client, metric, ctx);
+                return;
+            }
         }
 
         match &self.backend {
@@ -425,6 +532,14 @@ impl QueryExecutor {
                     self.metric_labels_manager.fetch(client, metric, ctx);
                 }
             }
+            #[cfg(not(target_arch = "wasm32"))]
+            Backend::Otlp => {
+                if let Some(client) = &self.otlp_client {
+                    self.metric_labels_manager.fetch(client, metric, ctx);
+                }
+            }
+            #[cfg(target_arch = "wasm32")]
+            Backend::Otlp => {}
         }
     }
 
@@ -493,6 +608,27 @@ impl QueryExecutor {
             request = request.with_range(start, end);
         }
 
+        // When the primary backend is Prometheus but the metric exists in the
+        // supplementary OTLP store, route the query to OTLP instead.
+        #[cfg(not(target_arch = "wasm32"))]
+        let use_otlp_supplementary = matches!(self.backend, Backend::Prometheus(_))
+            && self.otlp_client.is_some()
+            && self.is_otlp_metric(params.query);
+
+        #[cfg(not(target_arch = "wasm32"))]
+        if use_otlp_supplementary {
+            if let Some(client) = &self.otlp_client {
+                log::debug!(
+                    "Executing OTLP (supplementary) query for pane {}: metric '{}': {}",
+                    pane_id,
+                    params.metric,
+                    params.query
+                );
+                self.query_manager.execute(pane_id, client, request, ctx);
+                return;
+            }
+        }
+
         match &self.backend {
             Backend::Demo => {
                 // Demo mode - use demo client for realistic data generation
@@ -517,6 +653,20 @@ impl QueryExecutor {
                     self.query_manager.execute(pane_id, client, request, ctx);
                 }
             }
+            #[cfg(not(target_arch = "wasm32"))]
+            Backend::Otlp => {
+                if let Some(client) = &self.otlp_client {
+                    log::debug!(
+                        "Executing OTLP query for pane {}: metric '{}': {}",
+                        pane_id,
+                        params.metric,
+                        params.query
+                    );
+                    self.query_manager.execute(pane_id, client, request, ctx);
+                }
+            }
+            #[cfg(target_arch = "wasm32")]
+            Backend::Otlp => {}
         }
     }
 
@@ -528,6 +678,7 @@ impl QueryExecutor {
         let backend_name = match &self.backend {
             Backend::Demo => "Demo",
             Backend::Prometheus(_) => "Prometheus",
+            Backend::Otlp => "OTLP",
         };
 
         self.query_manager
@@ -566,9 +717,82 @@ impl QueryExecutor {
 }
 
 /// Convert a QueryResponse to visualization data.
+///
+/// For time series: converts groups into Series with data points.
+/// For gauge/stat/sparkline/bar: extracts scalar values from the response.
 pub fn populate_from_response(visualization: &mut Visualization, response: &QueryResponse) {
-    let series_list = response_to_series(response);
-    visualization.set_series(series_list);
+    match visualization {
+        Visualization::TimeSeries(_) => {
+            let series_list = response_to_series(response);
+            visualization.set_series(series_list);
+        }
+        Visualization::Gauge(gauge) => {
+            if let Some(value) = extract_latest_value(response) {
+                gauge.set_value(value);
+                // Auto-set range: use 0 to max(value * 1.5, 100) so the gauge looks reasonable
+                let max = if value > 0.0 {
+                    (value * 1.5).max(100.0)
+                } else {
+                    100.0
+                };
+                gauge.set_range(0.0, max);
+                gauge.set_unit("");
+            }
+        }
+        Visualization::Stat(stat) => {
+            if let Some(value) = extract_latest_value(response) {
+                stat.set_value(value);
+                stat.set_unit("");
+                // Build sparkline from the most recent series data points
+                if let Some(group) = response.groups.first() {
+                    let sparkline: Vec<f64> = group.buckets.iter().map(|b| b.value).collect();
+                    stat.set_sparkline_data(sparkline);
+                }
+            }
+        }
+        Visualization::BarChart(bar) => {
+            let bars: Vec<Bar> = response
+                .groups
+                .iter()
+                .map(|group| {
+                    let label = if group.group.is_empty() {
+                        &response.metric
+                    } else {
+                        &group.group
+                    };
+                    let value = group.buckets.last().map(|b| b.value).unwrap_or(0.0);
+                    Bar::new(label, value)
+                })
+                .collect();
+            bar.set_bars(bars);
+        }
+        Visualization::Sparkline(spark) => {
+            if let Some(group) = response.groups.first() {
+                let data: Vec<f64> = group.buckets.iter().map(|b| b.value).collect();
+                spark.set_data(data);
+            }
+        }
+        Visualization::Heatmap(_) => {
+            // Heatmap needs histogram data which isn't available from standard queries
+            let series_list = response_to_series(response);
+            visualization.set_series(series_list);
+        }
+    }
+}
+
+/// Extract the latest non-zero value from a query response.
+///
+/// Looks at the last bucket of the first group.
+fn extract_latest_value(response: &QueryResponse) -> Option<f64> {
+    response.groups.first().and_then(|group| {
+        group
+            .buckets
+            .iter()
+            .rev()
+            .find(|b| b.value != 0.0)
+            .or(group.buckets.last())
+            .map(|b| b.value)
+    })
 }
 
 /// Convert a QueryResponse to a list of Series for time series charts.

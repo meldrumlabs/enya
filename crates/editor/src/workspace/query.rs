@@ -144,11 +144,8 @@ impl Workspace {
                                     // Clear any previous errors for this pane
                                     self.diagnostics_pane.clear_for_pane(pane_id);
 
-                                    // Populate visualization from response
-                                    let viz = query_pane.visualization_mut();
-                                    viz.clear();
-                                    viz.set_metric_name(&response.metric);
-                                    populate_from_response(viz, &response);
+                                    // Store the response for re-populating on viz type changes
+                                    query_pane.store_response(*response.clone());
 
                                     // Apply suggested visualization if user hasn't manually overridden
                                     if !query_pane.has_user_override() {
@@ -157,6 +154,12 @@ impl Workspace {
                                             "Auto-selected visualization {suggested_viz:?} for pane '{pane_name}'"
                                         );
                                     }
+
+                                    // Populate visualization from response (after viz type is set)
+                                    let viz = query_pane.visualization_mut();
+                                    viz.clear();
+                                    viz.set_metric_name(&response.metric);
+                                    populate_from_response(viz, &response);
 
                                     if series_count == 0 || point_count == 0 {
                                         // Query succeeded but returned no data - add info diagnostic

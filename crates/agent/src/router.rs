@@ -104,12 +104,14 @@ pub fn run(workspace: Option<&str>, port: u16, bind: &str, open: bool) -> Result
         info!(
             max_traces = config.otlp.max_traces,
             max_log_entries = config.otlp.max_log_entries,
+            max_metric_data_points = config.otlp.max_metric_data_points,
             "OTLP receiver enabled"
         );
         Some(enya_client::otlp::TelemetryStore::new(
             enya_client::otlp::StoreConfig {
                 max_traces: config.otlp.max_traces,
                 max_log_entries: config.otlp.max_log_entries,
+                max_metric_data_points: config.otlp.max_metric_data_points,
             },
         ))
     } else {
@@ -188,11 +190,23 @@ fn router(state: ServeState) -> Router {
         // OTLP receiver endpoints (ingest)
         .route("/v1/traces", post(otlp_traces_handler))
         .route("/v1/logs", post(otlp_logs_handler))
+        .route("/v1/metrics", post(otlp_metrics_handler))
         // OTLP query endpoints (read from store)
         .route("/api/otlp/traces/search", get(otlp_search_traces_handler))
         .route("/api/otlp/traces/{trace_id}", get(otlp_get_trace_handler))
         .route("/api/otlp/logs/query", get(otlp_query_logs_handler))
         .route("/api/otlp/labels", get(otlp_labels_handler))
+        .route("/api/otlp/metrics/query", get(otlp_metrics_query_handler))
+        .route("/api/otlp/metrics/names", get(otlp_metrics_names_handler))
+        .route("/api/otlp/metrics/labels", get(otlp_metrics_labels_handler))
+        .route(
+            "/api/otlp/metrics/label_values",
+            get(otlp_metrics_label_values_handler),
+        )
+        .route(
+            "/api/otlp/metrics/metric_labels",
+            get(otlp_metrics_metric_labels_handler),
+        )
         .route("/api/otlp/health", get(otlp_health_handler))
         .fallback(static_handler)
         .layer(TraceLayer::new_for_http())
@@ -449,8 +463,18 @@ async fn list_workspaces_handler() -> impl IntoResponse {
 
 // -- OTLP receiver handlers --
 
-/// POST /v1/traces — accept OTLP trace data.
-async fn otlp_traces_handler(State(state): State<ServeState>, body: axum::body::Bytes) -> Response {
+/// Returns true if the Content-Type header indicates protobuf.
+fn is_protobuf(req: &Request) -> bool {
+    req.headers()
+        .get(header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|ct| {
+            ct.contains("application/x-protobuf") || ct.contains("application/protobuf")
+        })
+}
+
+/// POST /v1/traces — accept OTLP trace data (JSON or protobuf).
+async fn otlp_traces_handler(State(state): State<ServeState>, req: Request) -> Response {
     let Some(ref store) = state.telemetry_store else {
         return error_response(
             StatusCode::SERVICE_UNAVAILABLE,
@@ -458,17 +482,34 @@ async fn otlp_traces_handler(State(state): State<ServeState>, body: axum::body::
         );
     };
 
-    match enya_client::otlp::ingest::ingest_traces(store, &body) {
+    let proto = is_protobuf(&req);
+    let body = match axum::body::to_bytes(req.into_body(), MAX_BODY_SIZE).await {
+        Ok(b) => b,
+        Err(e) => {
+            return error_response(
+                StatusCode::BAD_REQUEST,
+                &format!("failed to read body: {e}"),
+            );
+        }
+    };
+
+    let result = if proto {
+        enya_client::otlp::ingest::ingest_traces_proto(store, &body)
+    } else {
+        enya_client::otlp::ingest::ingest_traces(store, &body)
+    };
+
+    match result {
         Ok(count) => {
-            tracing::debug!(spans = count, "ingested OTLP traces");
+            tracing::debug!(spans = count, proto, "ingested OTLP traces");
             Json(serde_json::json!({ "accepted_spans": count })).into_response()
         }
         Err(e) => error_response(StatusCode::BAD_REQUEST, &e.to_string()),
     }
 }
 
-/// POST /v1/logs — accept OTLP log data.
-async fn otlp_logs_handler(State(state): State<ServeState>, body: axum::body::Bytes) -> Response {
+/// POST /v1/logs — accept OTLP log data (JSON or protobuf).
+async fn otlp_logs_handler(State(state): State<ServeState>, req: Request) -> Response {
     let Some(ref store) = state.telemetry_store else {
         return error_response(
             StatusCode::SERVICE_UNAVAILABLE,
@@ -476,10 +517,62 @@ async fn otlp_logs_handler(State(state): State<ServeState>, body: axum::body::By
         );
     };
 
-    match enya_client::otlp::ingest::ingest_logs(store, &body) {
+    let proto = is_protobuf(&req);
+    let body = match axum::body::to_bytes(req.into_body(), MAX_BODY_SIZE).await {
+        Ok(b) => b,
+        Err(e) => {
+            return error_response(
+                StatusCode::BAD_REQUEST,
+                &format!("failed to read body: {e}"),
+            );
+        }
+    };
+
+    let result = if proto {
+        enya_client::otlp::ingest::ingest_logs_proto(store, &body)
+    } else {
+        enya_client::otlp::ingest::ingest_logs(store, &body)
+    };
+
+    match result {
         Ok(count) => {
-            tracing::debug!(entries = count, "ingested OTLP logs");
+            tracing::debug!(entries = count, proto, "ingested OTLP logs");
             Json(serde_json::json!({ "accepted_log_entries": count })).into_response()
+        }
+        Err(e) => error_response(StatusCode::BAD_REQUEST, &e.to_string()),
+    }
+}
+
+/// POST /v1/metrics — accept OTLP metric data (JSON or protobuf).
+async fn otlp_metrics_handler(State(state): State<ServeState>, req: Request) -> Response {
+    let Some(ref store) = state.telemetry_store else {
+        return error_response(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "OTLP receiver not enabled (set otlp.enabled = true in ~/.enya/config.toml)",
+        );
+    };
+
+    let proto = is_protobuf(&req);
+    let body = match axum::body::to_bytes(req.into_body(), MAX_BODY_SIZE).await {
+        Ok(b) => b,
+        Err(e) => {
+            return error_response(
+                StatusCode::BAD_REQUEST,
+                &format!("failed to read body: {e}"),
+            );
+        }
+    };
+
+    let result = if proto {
+        enya_client::otlp::ingest::ingest_metrics_proto(store, &body)
+    } else {
+        enya_client::otlp::ingest::ingest_metrics(store, &body)
+    };
+
+    match result {
+        Ok(count) => {
+            tracing::debug!(data_points = count, proto, "ingested OTLP metrics");
+            Json(serde_json::json!({ "accepted_data_points": count })).into_response()
         }
         Err(e) => error_response(StatusCode::BAD_REQUEST, &e.to_string()),
     }
@@ -624,6 +717,133 @@ async fn otlp_query_logs_handler(
     .into_response()
 }
 
+// -- OTLP metrics query endpoints --
+
+/// Query parameters for metric queries.
+#[derive(Deserialize)]
+struct OtlpMetricsQueryParams {
+    metric: String,
+    #[serde(default)]
+    start_ns: Option<u64>,
+    #[serde(default)]
+    end_ns: Option<u64>,
+    #[serde(default)]
+    step_ns: Option<u64>,
+    /// Labels as a JSON-encoded object (e.g., `{"service":"api"}`)
+    #[serde(default)]
+    labels: Option<String>,
+}
+
+/// GET /api/otlp/metrics/query — query metrics from the OTLP store.
+async fn otlp_metrics_query_handler(
+    State(state): State<ServeState>,
+    Query(params): Query<OtlpMetricsQueryParams>,
+) -> Response {
+    let Some(ref store) = state.telemetry_store else {
+        return error_response(StatusCode::SERVICE_UNAVAILABLE, "OTLP store not enabled");
+    };
+
+    let now_ns = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos() as u64;
+    let start_ns = params.start_ns.unwrap_or(now_ns - 3_600_000_000_000); // default: 1h ago
+    let end_ns = params.end_ns.unwrap_or(now_ns);
+    let step_ns = params.step_ns.unwrap_or(0); // 0 = auto
+
+    let labels: rustc_hash::FxHashMap<String, String> = params
+        .labels
+        .as_deref()
+        .and_then(|s| serde_json::from_str(s).ok())
+        .unwrap_or_default();
+
+    let response = store.query_metric(&params.metric, &labels, start_ns, end_ns, step_ns);
+    Json(response).into_response()
+}
+
+/// GET /api/otlp/metrics/names — list all metric names.
+async fn otlp_metrics_names_handler(State(state): State<ServeState>) -> Response {
+    let Some(ref store) = state.telemetry_store else {
+        return error_response(StatusCode::SERVICE_UNAVAILABLE, "OTLP store not enabled");
+    };
+
+    Json(store.metric_names()).into_response()
+}
+
+/// GET /api/otlp/metrics/labels — list all label names across all metrics.
+async fn otlp_metrics_labels_handler(State(state): State<ServeState>) -> Response {
+    let Some(ref store) = state.telemetry_store else {
+        return error_response(StatusCode::SERVICE_UNAVAILABLE, "OTLP store not enabled");
+    };
+
+    let mut all_labels: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    for name in store.metric_names() {
+        for label in store.metric_label_names(&name) {
+            if !label.starts_with("__") {
+                all_labels.insert(label);
+            }
+        }
+    }
+    let labels: Vec<String> = all_labels.into_iter().collect();
+    Json(labels).into_response()
+}
+
+/// Query params for label values endpoint.
+#[derive(Deserialize)]
+struct LabelValuesQuery {
+    label: String,
+}
+
+/// GET /api/otlp/metrics/label_values — get values for a label across all metrics.
+async fn otlp_metrics_label_values_handler(
+    State(state): State<ServeState>,
+    Query(params): Query<LabelValuesQuery>,
+) -> Response {
+    let Some(ref store) = state.telemetry_store else {
+        return error_response(StatusCode::SERVICE_UNAVAILABLE, "OTLP store not enabled");
+    };
+
+    let mut all_values: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    for name in store.metric_names() {
+        for value in store.metric_label_values(&name, &params.label) {
+            all_values.insert(value);
+        }
+    }
+    let values: Vec<String> = all_values.into_iter().collect();
+    Json(values).into_response()
+}
+
+/// Query params for per-metric label values endpoint.
+#[derive(Deserialize)]
+struct MetricLabelsQuery {
+    metric: String,
+}
+
+/// GET /api/otlp/metrics/metric_labels — get label names and values for a specific metric.
+async fn otlp_metrics_metric_labels_handler(
+    State(state): State<ServeState>,
+    Query(params): Query<MetricLabelsQuery>,
+) -> Response {
+    let Some(ref store) = state.telemetry_store else {
+        return error_response(StatusCode::SERVICE_UNAVAILABLE, "OTLP store not enabled");
+    };
+
+    let label_names = store.metric_label_names(&params.metric);
+    let mut label_values: std::collections::HashMap<String, Vec<String>> =
+        std::collections::HashMap::new();
+    for name in &label_names {
+        if name.starts_with("__") {
+            continue;
+        }
+        let values = store.metric_label_values(&params.metric, name);
+        label_values.insert(name.clone(), values);
+    }
+    Json(enya_client::prometheus::response::MetricLabels {
+        labels: label_values,
+    })
+    .into_response()
+}
+
 /// GET /api/otlp/labels — list known log labels.
 async fn otlp_labels_handler(State(state): State<ServeState>) -> Response {
     let Some(ref store) = state.telemetry_store else {
@@ -642,9 +862,10 @@ async fn otlp_health_handler(State(state): State<ServeState>) -> Response {
     Json(enya_client::BackendInfo {
         backend_type: "otlp".to_string(),
         version: format!(
-            "in-memory ({} traces, {} logs)",
+            "in-memory ({} traces, {} logs, {} metric series)",
             store.trace_count(),
-            store.log_count()
+            store.log_count(),
+            store.metric_series_count()
         ),
     })
     .into_response()

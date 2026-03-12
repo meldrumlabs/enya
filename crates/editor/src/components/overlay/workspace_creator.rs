@@ -289,7 +289,7 @@ impl WorkspaceCreator {
                             &mut self.name,
                         ),
                         WorkspaceCreatorStep::Endpoint => (
-                            "Metrics Endpoint",
+                            "Connection Endpoint",
                             "Endpoint",
                             "Prometheus compatible endpoint URL",
                             &mut self.endpoint,

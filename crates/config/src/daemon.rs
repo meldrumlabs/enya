@@ -73,8 +73,8 @@ fn default_bind() -> String {
 /// OTLP receiver configuration.
 ///
 /// When enabled, Enya accepts OpenTelemetry data directly via OTLP HTTP
-/// endpoints (`/v1/traces`, `/v1/logs`), storing it in memory. This lets
-/// developers point their OTel SDKs at Enya without needing separate
+/// endpoints (`/v1/traces`, `/v1/logs`, `/v1/metrics`), storing it in memory.
+/// This lets developers point their OTel SDKs at Enya without needing separate
 /// Prometheus/Loki/Tempo infrastructure.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OtlpReceiver {
@@ -89,6 +89,10 @@ pub struct OtlpReceiver {
     /// Maximum number of log entries to store in memory (default: 50000).
     #[serde(default = "default_max_log_entries")]
     pub max_log_entries: usize,
+
+    /// Maximum number of data points per metric time series (default: 10000).
+    #[serde(default = "default_max_metric_data_points")]
+    pub max_metric_data_points: usize,
 }
 
 impl Default for OtlpReceiver {
@@ -97,6 +101,7 @@ impl Default for OtlpReceiver {
             enabled: false,
             max_traces: default_max_traces(),
             max_log_entries: default_max_log_entries(),
+            max_metric_data_points: default_max_metric_data_points(),
         }
     }
 }
@@ -107,6 +112,7 @@ impl OtlpReceiver {
         !self.enabled
             && self.max_traces == default_max_traces()
             && self.max_log_entries == default_max_log_entries()
+            && self.max_metric_data_points == default_max_metric_data_points()
     }
 }
 
@@ -116,6 +122,10 @@ fn default_max_traces() -> usize {
 
 fn default_max_log_entries() -> usize {
     50_000
+}
+
+fn default_max_metric_data_points() -> usize {
+    10_000
 }
 
 /// Top-level Enya daemon configuration.
@@ -208,11 +218,13 @@ bind = "0.0.0.0"
 enabled = true
 max_traces = 2000
 max_log_entries = 100000
+max_metric_data_points = 20000
 "#;
         let config: Config = toml::from_str(toml).unwrap();
         assert!(config.otlp.enabled);
         assert_eq!(config.otlp.max_traces, 2000);
         assert_eq!(config.otlp.max_log_entries, 100_000);
+        assert_eq!(config.otlp.max_metric_data_points, 20_000);
     }
 
     #[test]
@@ -221,6 +233,7 @@ max_log_entries = 100000
         assert!(!config.otlp.enabled);
         assert_eq!(config.otlp.max_traces, 1000);
         assert_eq!(config.otlp.max_log_entries, 50_000);
+        assert_eq!(config.otlp.max_metric_data_points, 10_000);
         assert!(config.otlp.is_default());
     }
 

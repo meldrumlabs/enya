@@ -6,6 +6,82 @@
 
 use serde::Deserialize;
 
+// ---------------------------------------------------------------------------
+// Lenient 64-bit integer deserializers
+// ---------------------------------------------------------------------------
+// The OTLP JSON Protobuf encoding represents 64-bit integers as JSON strings
+// to avoid precision loss. These helpers accept both `"42"` and `42`.
+
+mod lenient_u64 {
+    use serde::{self, Deserialize, Deserializer};
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Option<u64>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum StringOrNum {
+            Str(String),
+            Num(u64),
+        }
+        Option::<StringOrNum>::deserialize(deserializer).map(|opt| {
+            opt.and_then(|v| match v {
+                StringOrNum::Num(n) => Some(n),
+                StringOrNum::Str(s) => s.parse().ok(),
+            })
+        })
+    }
+}
+
+mod lenient_i64 {
+    use serde::{self, Deserialize, Deserializer};
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Option<i64>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum StringOrNum {
+            Str(String),
+            Num(i64),
+        }
+        Option::<StringOrNum>::deserialize(deserializer).map(|opt| {
+            opt.and_then(|v| match v {
+                StringOrNum::Num(n) => Some(n),
+                StringOrNum::Str(s) => s.parse().ok(),
+            })
+        })
+    }
+}
+
+mod lenient_u64_vec {
+    use serde::{self, Deserialize, Deserializer};
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Option<Vec<u64>>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum StringOrNum {
+            Str(String),
+            Num(u64),
+        }
+        Option::<Vec<StringOrNum>>::deserialize(deserializer).map(|opt| {
+            opt.map(|v| {
+                v.into_iter()
+                    .filter_map(|item| match item {
+                        StringOrNum::Num(n) => Some(n),
+                        StringOrNum::Str(s) => s.parse().ok(),
+                    })
+                    .collect()
+            })
+        })
+    }
+}
+
 /// A resource batch of spans in OTLP format.
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -38,9 +114,19 @@ pub struct OtlpSpan {
     #[serde(alias = "parentSpanId", alias = "parent_span_id")]
     pub parent_span_id: Option<String>,
     pub name: Option<String>,
-    #[serde(alias = "startTimeUnixNano", alias = "start_time_unix_nano")]
+    #[serde(
+        alias = "startTimeUnixNano",
+        alias = "start_time_unix_nano",
+        default,
+        deserialize_with = "lenient_u64::deserialize"
+    )]
     pub start_time_unix_nano: Option<u64>,
-    #[serde(alias = "endTimeUnixNano", alias = "end_time_unix_nano")]
+    #[serde(
+        alias = "endTimeUnixNano",
+        alias = "end_time_unix_nano",
+        default,
+        deserialize_with = "lenient_u64::deserialize"
+    )]
     pub end_time_unix_nano: Option<u64>,
     pub status: Option<OtlpStatus>,
     pub attributes: Option<Vec<OtlpAttribute>>,
@@ -67,7 +153,12 @@ pub struct OtlpAttribute {
 pub struct OtlpValue {
     #[serde(alias = "stringValue", alias = "string_value")]
     pub string_value: Option<String>,
-    #[serde(alias = "intValue", alias = "int_value")]
+    #[serde(
+        alias = "intValue",
+        alias = "int_value",
+        default,
+        deserialize_with = "lenient_i64::deserialize"
+    )]
     pub int_value: Option<i64>,
     #[serde(alias = "doubleValue", alias = "double_value")]
     pub double_value: Option<f64>,
@@ -79,6 +170,7 @@ pub struct OtlpValue {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OtlpEvent {
+    #[serde(default, deserialize_with = "lenient_u64::deserialize")]
     pub time_unix_nano: Option<u64>,
     pub name: Option<String>,
     pub attributes: Option<Vec<OtlpAttribute>>,
@@ -114,7 +206,9 @@ pub struct OtlpScopeLogs {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OtlpLogRecord {
+    #[serde(default, deserialize_with = "lenient_u64::deserialize")]
     pub time_unix_nano: Option<u64>,
+    #[serde(default, deserialize_with = "lenient_u64::deserialize")]
     pub observed_time_unix_nano: Option<u64>,
     pub severity_number: Option<i32>,
     pub severity_text: Option<String>,
@@ -131,9 +225,110 @@ pub struct OtlpLogRecord {
 #[serde(rename_all = "camelCase")]
 pub struct OtlpAnyValue {
     pub string_value: Option<String>,
+    #[serde(default, deserialize_with = "lenient_i64::deserialize")]
     pub int_value: Option<i64>,
     pub double_value: Option<f64>,
     pub bool_value: Option<bool>,
+}
+
+// ============================================================================
+// OTLP Metrics Types
+// ============================================================================
+
+/// Top-level OTLP metrics export request body.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OtlpMetricsData {
+    pub resource_metrics: Vec<OtlpResourceMetrics>,
+}
+
+/// Metrics grouped by resource.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OtlpResourceMetrics {
+    pub resource: Option<OtlpResource>,
+    pub scope_metrics: Option<Vec<OtlpScopeMetrics>>,
+}
+
+/// Metrics grouped by instrumentation scope.
+#[derive(Deserialize)]
+pub struct OtlpScopeMetrics {
+    pub metrics: Option<Vec<OtlpMetric>>,
+}
+
+/// A single OTLP metric (may contain gauge, sum, or histogram data).
+#[derive(Deserialize)]
+pub struct OtlpMetric {
+    pub name: Option<String>,
+    pub unit: Option<String>,
+    pub gauge: Option<OtlpGauge>,
+    pub sum: Option<OtlpSum>,
+    pub histogram: Option<OtlpHistogram>,
+}
+
+/// OTLP Gauge metric data.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OtlpGauge {
+    pub data_points: Option<Vec<OtlpNumberDataPoint>>,
+}
+
+/// OTLP Sum (counter) metric data.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OtlpSum {
+    pub data_points: Option<Vec<OtlpNumberDataPoint>>,
+    /// True if monotonic (cumulative counter).
+    #[serde(default)]
+    pub is_monotonic: bool,
+}
+
+/// OTLP Histogram metric data.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OtlpHistogram {
+    pub data_points: Option<Vec<OtlpHistogramDataPoint>>,
+}
+
+/// A single number data point (used by Gauge and Sum).
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OtlpNumberDataPoint {
+    #[serde(default, deserialize_with = "lenient_u64::deserialize")]
+    pub time_unix_nano: Option<u64>,
+    #[serde(default, deserialize_with = "lenient_u64::deserialize")]
+    pub start_time_unix_nano: Option<u64>,
+    pub as_double: Option<f64>,
+    #[serde(default, deserialize_with = "lenient_i64::deserialize")]
+    pub as_int: Option<i64>,
+    pub attributes: Option<Vec<OtlpAttribute>>,
+}
+
+impl OtlpNumberDataPoint {
+    /// Get the value as f64, preferring as_double over as_int.
+    pub fn value(&self) -> f64 {
+        self.as_double
+            .unwrap_or_else(|| self.as_int.map(|i| i as f64).unwrap_or(0.0))
+    }
+}
+
+/// A single histogram data point.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OtlpHistogramDataPoint {
+    #[serde(default, deserialize_with = "lenient_u64::deserialize")]
+    pub time_unix_nano: Option<u64>,
+    #[serde(default, deserialize_with = "lenient_u64::deserialize")]
+    pub start_time_unix_nano: Option<u64>,
+    #[serde(default, deserialize_with = "lenient_u64::deserialize")]
+    pub count: Option<u64>,
+    pub sum: Option<f64>,
+    pub min: Option<f64>,
+    pub max: Option<f64>,
+    #[serde(default, deserialize_with = "lenient_u64_vec::deserialize")]
+    pub bucket_counts: Option<Vec<u64>>,
+    pub explicit_bounds: Option<Vec<f64>>,
+    pub attributes: Option<Vec<OtlpAttribute>>,
 }
 
 // ============================================================================

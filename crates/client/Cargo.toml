@@ -17,9 +17,10 @@ poll-promise = { workspace = true }
 rustc-hash = { workspace = true }
 reqwest = { workspace = true }
 
-# Native: tokio for async runtime
+# Native: tokio for async runtime, prost for OTLP protobuf decoding
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tokio = { workspace = true }
+prost = "0.14"
 
 # WASM: wasm-bindgen-futures for async, web-time for timestamps
 [target.'cfg(target_arch = "wasm32")'.dependencies]

@@ -9,21 +9,29 @@
 pub mod types;
 
 mod logs_client;
+mod metrics_client;
 mod store;
 mod tracing_client;
 
 // HTTP-based clients that query the agent daemon over the network
 mod http_logs_client;
+mod http_metrics_client;
 mod http_tracing_client;
 
 // Native-only: OTLP ingestion functions that write to the store
 #[cfg(not(target_arch = "wasm32"))]
 pub mod ingest;
 
+// Native-only: prost-based protobuf message definitions for OTLP decoding
+#[cfg(not(target_arch = "wasm32"))]
+pub mod proto;
+
 pub use http_logs_client::OtlpHttpLogsClient;
+pub use http_metrics_client::OtlpHttpMetricsClient;
 pub use http_tracing_client::OtlpHttpTracingClient;
 pub use logs_client::OtlpLogsClient;
-pub use store::{StoreConfig, TelemetryStore};
+pub use metrics_client::OtlpMetricsClient;
+pub use store::{MetricDataPoint, StoreConfig, TelemetryStore};
 pub use tracing_client::OtlpTracingClient;
 
 use crate::error::ClientError;

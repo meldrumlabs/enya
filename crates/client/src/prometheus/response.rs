@@ -186,10 +186,10 @@ pub fn parse_labels_response(json: &[u8]) -> Result<Vec<String>, ClientError> {
 /// Metric label information extracted from series data.
 ///
 /// Contains label names and their possible values for a specific metric.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct MetricLabels {
     /// Map of label name -> set of possible values
-    pub labels: FxHashMap<String, Vec<String>>,
+    pub labels: std::collections::HashMap<String, Vec<String>>,
 }
 
 /// Parse a Prometheus series response into MetricLabels.
