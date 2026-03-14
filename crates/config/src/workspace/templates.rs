@@ -96,11 +96,11 @@ visualization = "time_series"
 granularity = "1m"
 
 [[panes]]
-query = "node_memory_bytes"
-name = "Memory Usage"
-description = "Memory utilization over time"
-unit = "MB"
-visualization = "time_series"
+query = "http_requests_total by region"
+name = "Traffic by Region"
+description = "Request distribution across regions"
+unit = "req/s"
+visualization = "pie_chart"
 granularity = "1m"
 
 [layout]

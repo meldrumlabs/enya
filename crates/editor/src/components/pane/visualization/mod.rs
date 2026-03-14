@@ -8,6 +8,7 @@ mod bar;
 mod demo;
 mod gauge;
 mod heatmap;
+mod pie_chart;
 mod sparkline;
 mod stat;
 mod suggester;
@@ -16,6 +17,7 @@ pub use bar::{Bar, BarChartViz};
 pub use demo::populate_demo_data;
 pub use gauge::GaugeChart;
 pub use heatmap::{HeatmapCell, HeatmapLabels, HeatmapViz};
+pub use pie_chart::{PieChartViz, Segment};
 pub use sparkline::SparklineViz;
 pub use stat::{StatChart, Threshold};
 pub use suggester::{ResultCharacteristics, suggest_visualization};
@@ -46,6 +48,8 @@ pub enum VisualizationType {
     BarChart,
     /// Compact inline line chart showing trends
     Sparkline,
+    /// Donut/pie chart for proportional data
+    PieChart,
     /// Heatmap for 2D data grids
     Heatmap,
 }
@@ -59,6 +63,7 @@ impl VisualizationType {
             Self::Gauge => "Gauge",
             Self::BarChart => "Bar Chart",
             Self::Sparkline => "Sparkline",
+            Self::PieChart => "Pie Chart",
             Self::Heatmap => "Heatmap",
         }
     }
@@ -71,6 +76,7 @@ impl VisualizationType {
             Self::Gauge => egui_nerdfonts::regular::GAUGE,
             Self::BarChart => egui_nerdfonts::regular::CHART_BAR,
             Self::Sparkline => egui_nerdfonts::regular::CHART_LINE,
+            Self::PieChart => egui_nerdfonts::regular::CHART_PIE,
             Self::Heatmap => egui_nerdfonts::regular::CHART_HISTOGRAM,
         }
     }
@@ -81,7 +87,8 @@ impl VisualizationType {
             Self::TimeSeries => Self::Stat,
             Self::Stat => Self::Gauge,
             Self::Gauge => Self::BarChart,
-            Self::BarChart => Self::Sparkline,
+            Self::BarChart => Self::PieChart,
+            Self::PieChart => Self::Sparkline,
             Self::Sparkline => Self::Heatmap,
             Self::Heatmap => Self::TimeSeries,
         }
@@ -94,6 +101,7 @@ impl VisualizationType {
             Self::Stat,
             Self::Gauge,
             Self::BarChart,
+            Self::PieChart,
             Self::Sparkline,
             Self::Heatmap,
         ]
@@ -107,6 +115,7 @@ impl VisualizationType {
             Self::Gauge => "gauge",
             Self::BarChart => "bar_chart",
             Self::Sparkline => "sparkline",
+            Self::PieChart => "pie_chart",
             Self::Heatmap => "heatmap",
         }
     }
@@ -118,6 +127,7 @@ impl VisualizationType {
             "gauge" => Self::Gauge,
             "bar_chart" => Self::BarChart,
             "sparkline" => Self::Sparkline,
+            "pie_chart" => Self::PieChart,
             "heatmap" => Self::Heatmap,
             _ => Self::TimeSeries, // Default to time series
         }
@@ -130,6 +140,7 @@ pub enum Visualization {
     Stat(StatChart),
     Gauge(GaugeChart),
     BarChart(BarChartViz),
+    PieChart(PieChartViz),
     Sparkline(SparklineViz),
     Heatmap(HeatmapViz),
 }
@@ -143,6 +154,7 @@ impl Visualization {
             VisualizationType::Stat => Self::Stat(StatChart::new(&name)),
             VisualizationType::Gauge => Self::Gauge(GaugeChart::new(&name)),
             VisualizationType::BarChart => Self::BarChart(BarChartViz::new(&name)),
+            VisualizationType::PieChart => Self::PieChart(PieChartViz::new(&name)),
             VisualizationType::Sparkline => Self::Sparkline(SparklineViz::new(&name)),
             VisualizationType::Heatmap => Self::Heatmap(HeatmapViz::new(&name)),
         }
@@ -155,6 +167,7 @@ impl Visualization {
             Self::Stat(_) => VisualizationType::Stat,
             Self::Gauge(_) => VisualizationType::Gauge,
             Self::BarChart(_) => VisualizationType::BarChart,
+            Self::PieChart(_) => VisualizationType::PieChart,
             Self::Sparkline(_) => VisualizationType::Sparkline,
             Self::Heatmap(_) => VisualizationType::Heatmap,
         }
@@ -177,6 +190,7 @@ impl Visualization {
             Self::Stat(stat) => &stat.metric_name,
             Self::Gauge(gauge) => &gauge.metric_name,
             Self::BarChart(bar) => &bar.metric_name,
+            Self::PieChart(pie) => &pie.metric_name,
             Self::Sparkline(spark) => &spark.metric_name,
             Self::Heatmap(heatmap) => &heatmap.metric_name,
         }
@@ -189,6 +203,7 @@ impl Visualization {
             Self::Stat(stat) => stat.theme,
             Self::Gauge(gauge) => gauge.theme,
             Self::BarChart(bar) => bar.theme,
+            Self::PieChart(pie) => pie.theme,
             Self::Sparkline(spark) => spark.theme,
             Self::Heatmap(heatmap) => heatmap.theme,
         }
@@ -201,6 +216,7 @@ impl Visualization {
             Self::Stat(stat) => stat.set_metric_name(name),
             Self::Gauge(gauge) => gauge.set_metric_name(name),
             Self::BarChart(bar) => bar.set_metric_name(name),
+            Self::PieChart(pie) => pie.set_metric_name(name),
             Self::Sparkline(spark) => spark.set_metric_name(name),
             Self::Heatmap(heatmap) => heatmap.set_metric_name(name),
         }
@@ -213,6 +229,7 @@ impl Visualization {
             Self::Stat(stat) => stat.set_theme(theme),
             Self::Gauge(gauge) => gauge.set_theme(theme),
             Self::BarChart(bar) => bar.set_theme(theme),
+            Self::PieChart(pie) => pie.set_theme(theme),
             Self::Sparkline(spark) => spark.set_theme(theme),
             Self::Heatmap(heatmap) => heatmap.set_theme(theme),
         }
@@ -225,6 +242,7 @@ impl Visualization {
             Self::Stat(stat) => stat.clear(),
             Self::Gauge(gauge) => gauge.clear(),
             Self::BarChart(bar) => bar.clear(),
+            Self::PieChart(pie) => pie.clear(),
             Self::Sparkline(spark) => spark.clear(),
             Self::Heatmap(heatmap) => heatmap.clear(),
         }
@@ -264,6 +282,13 @@ impl Visualization {
                     .bars()
                     .iter()
                     .map(|b| (b.label.clone(), b.value))
+                    .collect(),
+            },
+            Self::PieChart(pie) => SnapshotPaneData::PieChart {
+                segments: pie
+                    .segments()
+                    .iter()
+                    .map(|s| (s.label.clone(), s.value))
                     .collect(),
             },
             Self::Sparkline(spark) => SnapshotPaneData::TimeSeries {
@@ -335,6 +360,16 @@ impl Visualization {
                     );
                 }
             }
+            SnapshotPaneData::PieChart { segments } => {
+                if let Self::PieChart(pie) = self {
+                    pie.set_segments(
+                        segments
+                            .iter()
+                            .map(|(label, value)| Segment::new(label, *value))
+                            .collect(),
+                    );
+                }
+            }
             SnapshotPaneData::Heatmap { cols, rows, values } => {
                 if let Self::Heatmap(heatmap) = self {
                     // Convert flat values back to 2D array
@@ -363,6 +398,7 @@ impl Visualization {
             Self::Stat(stat) => stat.show(ui),
             Self::Gauge(gauge) => gauge.show(ui),
             Self::BarChart(bar) => bar.show(ui),
+            Self::PieChart(pie) => pie.show(ui),
             Self::Sparkline(spark) => spark.show(ui),
             Self::Heatmap(heatmap) => heatmap.show(ui),
         }
@@ -521,6 +557,22 @@ impl Visualization {
         }
     }
 
+    /// Get access to the underlying PieChartViz (if applicable)
+    pub fn as_pie_chart(&self) -> Option<&PieChartViz> {
+        match self {
+            Self::PieChart(pie) => Some(pie),
+            _ => None,
+        }
+    }
+
+    /// Get mutable access to the underlying PieChartViz (if applicable)
+    pub fn as_pie_chart_mut(&mut self) -> Option<&mut PieChartViz> {
+        match self {
+            Self::PieChart(pie) => Some(pie),
+            _ => None,
+        }
+    }
+
     /// Get access to the underlying HeatmapViz (if applicable)
     pub fn as_heatmap(&self) -> Option<&HeatmapViz> {
         match self {
@@ -544,6 +596,7 @@ impl Visualization {
             Self::Stat(stat) => stat.unit(),
             Self::Gauge(gauge) => gauge.unit(),
             Self::BarChart(bar) => bar.unit(),
+            Self::PieChart(pie) => pie.unit(),
             Self::Sparkline(spark) => spark.unit(),
             Self::Heatmap(_) => "",
         }
@@ -558,6 +611,7 @@ impl Visualization {
             Self::Stat(stat) => stat.set_unit(unit),
             Self::Gauge(gauge) => gauge.set_unit(unit),
             Self::BarChart(bar) => bar.set_unit(unit),
+            Self::PieChart(pie) => pie.set_unit(unit),
             Self::Sparkline(spark) => spark.set_unit(unit),
             Self::Heatmap(_) => {
                 // Heatmaps don't use simple unit suffixes
@@ -617,13 +671,17 @@ mod tests {
         assert_eq!(vt.next(), VisualizationType::Stat);
         assert_eq!(vt.next().next(), VisualizationType::Gauge);
         assert_eq!(vt.next().next().next(), VisualizationType::BarChart);
-        assert_eq!(vt.next().next().next().next(), VisualizationType::Sparkline);
+        assert_eq!(vt.next().next().next().next(), VisualizationType::PieChart);
         assert_eq!(
             vt.next().next().next().next().next(),
-            VisualizationType::Heatmap
+            VisualizationType::Sparkline
         );
         assert_eq!(
             vt.next().next().next().next().next().next(),
+            VisualizationType::Heatmap
+        );
+        assert_eq!(
+            vt.next().next().next().next().next().next().next(),
             VisualizationType::TimeSeries
         );
     }
@@ -634,6 +692,7 @@ mod tests {
         assert_eq!(VisualizationType::Stat.as_str(), "stat");
         assert_eq!(VisualizationType::Gauge.as_str(), "gauge");
         assert_eq!(VisualizationType::BarChart.as_str(), "bar_chart");
+        assert_eq!(VisualizationType::PieChart.as_str(), "pie_chart");
         assert_eq!(VisualizationType::Sparkline.as_str(), "sparkline");
         assert_eq!(VisualizationType::Heatmap.as_str(), "heatmap");
 
@@ -646,6 +705,10 @@ mod tests {
         assert_eq!(
             VisualizationType::parse("bar_chart"),
             VisualizationType::BarChart
+        );
+        assert_eq!(
+            VisualizationType::parse("pie_chart"),
+            VisualizationType::PieChart
         );
         assert_eq!(
             VisualizationType::parse("sparkline"),
@@ -676,6 +739,10 @@ mod tests {
 
         viz.cycle();
         assert_eq!(viz.viz_type(), VisualizationType::BarChart);
+        assert_eq!(viz.metric_name(), "test_metric");
+
+        viz.cycle();
+        assert_eq!(viz.viz_type(), VisualizationType::PieChart);
         assert_eq!(viz.metric_name(), "test_metric");
 
         viz.cycle();

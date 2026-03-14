@@ -190,6 +190,8 @@ pub enum SnapshotPaneData {
     Gauge { value: f64, min: f64, max: f64 },
     /// Bar chart: labeled bars
     BarChart { bars: Vec<(String, f64)> },
+    /// Pie chart: labeled segments
+    PieChart { segments: Vec<(String, f64)> },
     /// Heatmap: 2D grid of values
     Heatmap {
         cols: u16,
@@ -223,6 +225,7 @@ impl SnapshotPaneData {
             Self::Stat { sparkline, .. } => sparkline.is_empty(),
             Self::Gauge { .. } => false, // gauge always has a value
             Self::BarChart { bars } => bars.is_empty(),
+            Self::PieChart { segments } => segments.is_empty(),
             Self::Heatmap { values, .. } => values.is_empty(),
             Self::Logs { entries, .. } => entries.is_empty(),
             Self::Trace { spans, .. } => spans.is_empty(),

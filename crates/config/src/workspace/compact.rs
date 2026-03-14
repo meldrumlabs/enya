@@ -158,6 +158,7 @@ pub(crate) enum CompactVizData {
         max: f32,
     },
     BarChart(Vec<(String, f32)>),
+    PieChart(Vec<(String, f32)>),
     Heatmap {
         cols: u16,
         rows: u16,
@@ -370,6 +371,12 @@ impl CompactVizData {
             SnapshotPaneData::BarChart { bars } => {
                 CompactVizData::BarChart(bars.iter().map(|(k, v)| (k.clone(), *v as f32)).collect())
             }
+            SnapshotPaneData::PieChart { segments } => CompactVizData::PieChart(
+                segments
+                    .iter()
+                    .map(|(k, v)| (k.clone(), *v as f32))
+                    .collect(),
+            ),
             SnapshotPaneData::Heatmap { cols, rows, values } => CompactVizData::Heatmap {
                 cols: *cols,
                 rows: *rows,
@@ -499,6 +506,9 @@ impl CompactVizData {
             },
             CompactVizData::BarChart(bars) => SnapshotPaneData::BarChart {
                 bars: bars.into_iter().map(|(k, v)| (k, v as f64)).collect(),
+            },
+            CompactVizData::PieChart(segments) => SnapshotPaneData::PieChart {
+                segments: segments.into_iter().map(|(k, v)| (k, v as f64)).collect(),
             },
             CompactVizData::Heatmap { cols, rows, values } => {
                 SnapshotPaneData::Heatmap { cols, rows, values }
