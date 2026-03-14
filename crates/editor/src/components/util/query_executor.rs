@@ -766,6 +766,23 @@ pub fn populate_from_response(visualization: &mut Visualization, response: &Quer
                 .collect();
             bar.set_bars(bars);
         }
+        Visualization::PieChart(pie) => {
+            use crate::components::pane::visualization::Segment;
+            let segments: Vec<Segment> = response
+                .groups
+                .iter()
+                .map(|group| {
+                    let label = if group.group.is_empty() {
+                        &response.metric
+                    } else {
+                        &group.group
+                    };
+                    let value = group.buckets.last().map(|b| b.value).unwrap_or(0.0);
+                    Segment::new(label, value)
+                })
+                .collect();
+            pie.set_segments(segments);
+        }
         Visualization::Sparkline(spark) => {
             if let Some(group) = response.groups.first() {
                 let data: Vec<f64> = group.buckets.iter().map(|b| b.value).collect();

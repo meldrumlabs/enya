@@ -27,6 +27,8 @@ pub enum PaneVisualization {
     },
     /// Bar chart with labeled bars.
     BarChart { bars: Vec<(String, f64)> },
+    /// Pie/donut chart with labeled segments.
+    PieChart { segments: Vec<(String, f64)> },
     /// Sparkline (compact trend line).
     Sparkline { data: Vec<f64> },
     /// Heatmap placeholder (complex to embed, show as reference).

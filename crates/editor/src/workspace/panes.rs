@@ -1021,6 +1021,7 @@ impl Workspace {
             "stat" | "bignumber" | "single" => Some(VisualizationType::Stat),
             "gauge" | "dial" | "meter" => Some(VisualizationType::Gauge),
             "barchart" | "bar" | "bars" | "horizontal" => Some(VisualizationType::BarChart),
+            "piechart" | "pie" | "donut" => Some(VisualizationType::PieChart),
             "sparkline" | "spark" | "mini" => Some(VisualizationType::Sparkline),
             "heatmap" | "heat" | "matrix" => Some(VisualizationType::Heatmap),
             _ => None,
@@ -1889,6 +1890,16 @@ impl Workspace {
                         .bars()
                         .iter()
                         .map(|b| (b.label.clone(), b.value))
+                        .collect(),
+                }
+            }
+            VisualizationType::PieChart => {
+                let pie = viz.as_pie_chart()?;
+                PaneVisualization::PieChart {
+                    segments: pie
+                        .segments()
+                        .iter()
+                        .map(|s| (s.label.clone(), s.value))
                         .collect(),
                 }
             }

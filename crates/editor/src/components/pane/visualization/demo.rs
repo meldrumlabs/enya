@@ -16,6 +16,7 @@ use super::Threshold;
 use super::Visualization;
 use super::bar::{Bar, BarChartViz};
 use super::gauge::GaugeChart;
+use super::pie_chart::{PieChartViz, Segment};
 use super::sparkline::SparklineViz;
 use super::stat::StatChart;
 
@@ -36,6 +37,9 @@ pub fn populate_demo_data(viz: &mut Visualization, query: &str) {
         }
         Visualization::BarChart(bar) => {
             populate_bar_chart_demo(bar, query);
+        }
+        Visualization::PieChart(pie) => {
+            populate_pie_chart_demo(pie, query);
         }
         Visualization::Sparkline(spark) => {
             populate_sparkline_demo(spark, query);
@@ -297,6 +301,60 @@ fn populate_bar_chart_demo(bar: &mut BarChartViz, query: &str) {
         .collect();
 
     bar.set_bars(bars);
+}
+
+/// Populate demo data for pie chart visualization
+fn populate_pie_chart_demo(pie: &mut PieChartViz, query: &str) {
+    let hash = query
+        .bytes()
+        .fold(0u64, |acc, b| acc.wrapping_add(b as u64));
+
+    let categories: Vec<&str> = if query.contains("region") || query.contains("location") {
+        vec![
+            "us-east-1",
+            "us-west-2",
+            "eu-west-1",
+            "ap-south-1",
+            "ap-northeast-1",
+        ]
+    } else if query.contains("status") || query.contains("code") {
+        vec![
+            "200 OK",
+            "201 Created",
+            "400 Bad Request",
+            "404 Not Found",
+            "500 Error",
+        ]
+    } else if query.contains("service") || query.contains("app") {
+        vec![
+            "api-gateway",
+            "auth-service",
+            "db-primary",
+            "cache",
+            "worker",
+        ]
+    } else {
+        vec![
+            "Category A",
+            "Category B",
+            "Category C",
+            "Category D",
+            "Category E",
+        ]
+    };
+
+    let segments: Vec<Segment> = categories
+        .iter()
+        .enumerate()
+        .map(|(i, &label)| {
+            let base = 100.0 + (hash % 900) as f64;
+            let variation = ((hash.wrapping_add(i as u64 * 31)) % 100) as f64 / 100.0;
+            let value = base * (0.2 + variation * 0.8);
+            Segment::new(label, value)
+        })
+        .collect();
+
+    pie.set_segments(segments);
 }
 
 /// Populate demo data for sparkline visualization

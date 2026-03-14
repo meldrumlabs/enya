@@ -4,6 +4,10 @@ All notable changes to the Enya editor will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **Pie chart visualization**: New donut-style pie chart for proportional data with interactive hover, segment explosion, center total/detail display, and a scrollable legend. Available via the `cv` keybinding cycle or `set_visualization` command with `"pie_chart"` / `"pie"` / `"donut"`.
+
 ### Fixed
 
 - **macOS GUI app PATH resolution**: Fixed `npx`, `git`, and other developer commands failing when Enya.app is launched from Finder, Dock, or Spotlight. The app now resolves the user's login shell PATH at startup.

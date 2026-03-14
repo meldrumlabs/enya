@@ -267,7 +267,7 @@ impl EditorContext {
         parts.push("- `add_terminal_pane`: Create a terminal pane for running shell commands (native app only)\n".to_string());
         parts.push("  - Optional: `title`\n".to_string());
         parts.push("- `set_visualization`: Change the visualization type for a pane\n".to_string());
-        parts.push("  - Required: `viz_type` (\"time_series\", \"stat\", \"gauge\", \"bar_chart\", \"sparkline\", \"heatmap\")\n".to_string());
+        parts.push("  - Required: `viz_type` (\"time_series\", \"stat\", \"gauge\", \"bar_chart\", \"pie_chart\", \"sparkline\", \"heatmap\")\n".to_string());
         parts
             .push("  - Optional: `pane` (pane title/name, or omit for focused pane)\n".to_string());
         parts.push("- `set_absolute_time_range`: Set a specific time range (e.g., \"look at 2pm yesterday\")\n".to_string());
@@ -927,6 +927,21 @@ pub fn format_pane_context(
             }
             if bars.len() > 20 {
                 out.push_str(&format!("  - ... and {} more\n", bars.len() - 20));
+            }
+        }
+        PaneVisualization::PieChart { segments } => {
+            out.push_str(&format!("- Segments ({}):\n", segments.len()));
+            let total: f64 = segments.iter().map(|(_, v)| v).sum();
+            for (label, val) in segments.iter().take(20) {
+                let pct = if total > 0.0 {
+                    val / total * 100.0
+                } else {
+                    0.0
+                };
+                out.push_str(&format!("  - {label}: {val:.4} ({pct:.1}%)\n"));
+            }
+            if segments.len() > 20 {
+                out.push_str(&format!("  - ... and {} more\n", segments.len() - 20));
             }
         }
         PaneVisualization::Sparkline { data } => {

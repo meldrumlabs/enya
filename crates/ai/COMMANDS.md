@@ -228,6 +228,7 @@ Changes the visualization type for a pane. Useful for suggesting better visualiz
 - `"stat"` (or `"big_number"`, `"single"`) - Big number display with optional sparkline
 - `"gauge"` (or `"dial"`, `"meter"`) - Circular gauge for percentages/utilization
 - `"bar_chart"` (or `"bar"`, `"bars"`) - Horizontal bar chart for comparisons
+- `"pie_chart"` (or `"pie"`, `"donut"`) - Donut/pie chart for proportional data
 - `"sparkline"` (or `"spark"`, `"mini"`) - Compact inline trend line
 - `"heatmap"` (or `"heat"`, `"matrix"`) - Heat map for distributions
 
