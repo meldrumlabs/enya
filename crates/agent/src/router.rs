@@ -11,7 +11,9 @@ use axum::response::{IntoResponse, Redirect, Response};
 use axum::routing::{any, get, post};
 use axum::{Json, Router};
 use base64::Engine;
-use enya_config::{Config, WorkspaceConfig, enya_dir, resolve_workspace_path};
+use enya_config::{
+    Config, DEFAULT_PROJECT, WorkspaceConfig, enya_dir, resolve_project_workspace_path,
+};
 use rust_embed::Embed;
 use serde::Deserialize;
 use tower_http::trace::TraceLayer;
@@ -57,7 +59,7 @@ pub fn run(workspace: Option<&str>, port: u16, bind: &str, open: bool) -> Result
     } else {
         // Fall back to workspace endpoint if a workspace was provided
         workspace.and_then(|ws| {
-            let path = resolve_workspace_path(ws);
+            let path = resolve_project_workspace_path(DEFAULT_PROJECT, ws);
             WorkspaceConfig::load(&path)
                 .ok()
                 .and_then(|c| c.effective_endpoint().map(|s| s.to_string()))
@@ -73,7 +75,7 @@ pub fn run(workspace: Option<&str>, port: u16, bind: &str, open: bool) -> Result
 
     // 4. Optionally encode workspace for WASM UI redirect
     let workspace_param = if let Some(ws) = workspace {
-        let path = resolve_workspace_path(ws);
+        let path = resolve_project_workspace_path(DEFAULT_PROJECT, ws);
         let config = WorkspaceConfig::load(&path).map_err(|e| {
             crate::Error::Config(format!(
                 "failed to load workspace '{}': {e}",
@@ -448,13 +450,17 @@ async fn watch_events(
 
 /// GET /api/v1/workspaces — list available workspace files.
 async fn list_workspaces_handler() -> impl IntoResponse {
-    let workspaces = enya_config::list_workspaces();
-    let items: Vec<_> = workspaces
+    let projects = enya_config::list_projects();
+    let items: Vec<_> = projects
         .into_iter()
-        .map(|(name, description)| {
-            serde_json::json!({
-                "name": name,
-                "description": description,
+        .flat_map(|project| {
+            let workspaces = enya_config::list_project_workspaces(&project);
+            workspaces.into_iter().map(move |(name, description)| {
+                serde_json::json!({
+                    "name": name,
+                    "project": project,
+                    "description": description,
+                })
             })
         })
         .collect();

@@ -265,7 +265,8 @@ fn workspace_list() -> HandlerResult {
 
 fn workspace_show(params: &serde_json::Value) -> HandlerResult {
     let name = require_str(params, "name")?;
-    let ws = enya_headless::workspace::show_core(&name).map_err(map_err)?;
+    let project = param_str(params, "project");
+    let ws = enya_headless::workspace::show_core(&name, project.as_deref()).map_err(map_err)?;
     serde_json::to_value(&ws).map_err(map_err)
 }
 
@@ -273,22 +274,31 @@ fn workspace_init(params: &serde_json::Value) -> HandlerResult {
     let name = param_str(params, "name");
     let endpoint = param_str(params, "endpoint");
     let template = param_str(params, "template");
-    let result =
-        enya_headless::workspace::init_core(name, endpoint.as_deref(), template.as_deref(), None)
-            .map_err(map_err)?;
+    let project = param_str(params, "project");
+    let result = enya_headless::workspace::init_core(
+        name,
+        endpoint.as_deref(),
+        template.as_deref(),
+        None,
+        project.as_deref(),
+    )
+    .map_err(map_err)?;
     serde_json::to_value(&result).map_err(map_err)
 }
 
 fn workspace_rm(params: &serde_json::Value) -> HandlerResult {
     let name = require_str(params, "name")?;
-    let result = enya_headless::workspace::rm_core(&name).map_err(map_err)?;
+    let project = param_str(params, "project");
+    let result = enya_headless::workspace::rm_core(&name, project.as_deref()).map_err(map_err)?;
     serde_json::to_value(&result).map_err(map_err)
 }
 
 fn workspace_get(params: &serde_json::Value) -> HandlerResult {
     let name = require_str(params, "name")?;
     let key = require_str(params, "key")?;
-    let result = enya_headless::workspace::get_core(&name, &key).map_err(map_err)?;
+    let project = param_str(params, "project");
+    let result =
+        enya_headless::workspace::get_core(&name, &key, project.as_deref()).map_err(map_err)?;
     serde_json::to_value(&result).map_err(map_err)
 }
 
@@ -296,7 +306,9 @@ fn workspace_set(params: &serde_json::Value) -> HandlerResult {
     let name = require_str(params, "name")?;
     let key = require_str(params, "key")?;
     let value = require_str(params, "value")?;
-    let result = enya_headless::workspace::set_core(&name, &key, &value).map_err(map_err)?;
+    let project = param_str(params, "project");
+    let result = enya_headless::workspace::set_core(&name, &key, &value, project.as_deref())
+        .map_err(map_err)?;
     serde_json::to_value(&result).map_err(map_err)
 }
 
@@ -309,8 +321,9 @@ fn workspace_add_pane(params: &serde_json::Value) -> HandlerResult {
     let granularity = param_str(params, "granularity");
     let visualization = param_str(params, "visualization");
     let description = param_str(params, "description");
-    let result =
-        enya_headless::workspace::add_pane_core(&enya_headless::workspace::AddPaneParams {
+    let project = param_str(params, "project");
+    let result = enya_headless::workspace::add_pane_core(
+        &enya_headless::workspace::AddPaneParams {
             name: &name,
             query: &query,
             pane_name: pane_name.as_deref(),
@@ -319,22 +332,27 @@ fn workspace_add_pane(params: &serde_json::Value) -> HandlerResult {
             granularity: granularity.as_deref(),
             visualization: visualization.as_deref(),
             description: description.as_deref(),
-        })
-        .map_err(map_err)?;
+        },
+        project.as_deref(),
+    )
+    .map_err(map_err)?;
     serde_json::to_value(&result).map_err(map_err)
 }
 
 fn workspace_remove_pane(params: &serde_json::Value) -> HandlerResult {
     let name = require_str(params, "name")?;
     let pane = require_str(params, "pane")?;
-    let result = enya_headless::workspace::remove_pane_core(&name, &pane).map_err(map_err)?;
+    let project = param_str(params, "project");
+    let result = enya_headless::workspace::remove_pane_core(&name, &pane, project.as_deref())
+        .map_err(map_err)?;
     serde_json::to_value(&result).map_err(map_err)
 }
 
 fn workspace_snapshot(params: &serde_json::Value) -> HandlerResult {
     let name = require_str(params, "name")?;
     let endpoint = param_str(params, "endpoint");
-    let ws = enya_headless::workspace::show_core(&name).map_err(map_err)?;
+    let project = param_str(params, "project");
+    let ws = enya_headless::workspace::show_core(&name, project.as_deref()).map_err(map_err)?;
     let base_url = enya_headless::query::promql::resolve_endpoint(endpoint.as_deref(), Some(&name))
         .map_err(map_err)?;
     enya_headless::workspace::snapshot(&base_url, &ws).map_err(map_err)

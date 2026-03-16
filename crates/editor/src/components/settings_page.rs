@@ -1734,9 +1734,9 @@ impl SettingsPage {
             (
                 1,
                 regular::FOLDER_OUTLINE,
-                "Workspaces",
-                "Workspace definition files",
-                enya_config::workspace_dir(),
+                "Projects",
+                "Projects and workspace files",
+                enya_config::projects_dir(),
             ),
             (
                 2,

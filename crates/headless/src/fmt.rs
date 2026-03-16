@@ -1,5 +1,8 @@
 use console::style;
-use enya_config::{WorkspaceConfig, list_workspaces, resolve_workspace_path};
+use enya_config::{
+    DEFAULT_PROJECT, WorkspaceConfig, list_project_workspaces, list_projects,
+    resolve_project_workspace_path,
+};
 use serde::Serialize;
 
 use crate::Result;
@@ -17,8 +20,8 @@ pub struct FmtResult {
 
 // -- Core function ------------------------------------------------------------
 
-pub fn fmt_core(name: &str) -> FmtResult {
-    let path = resolve_workspace_path(name);
+pub fn fmt_core(name: &str, project: &str) -> FmtResult {
+    let path = resolve_project_workspace_path(project, name);
     let path_str = path.display().to_string();
 
     let original = match std::fs::read_to_string(&path) {
@@ -82,13 +85,18 @@ pub fn fmt_core(name: &str) -> FmtResult {
 
 pub fn fmt(name: Option<&str>, json: bool) -> Result {
     let results: Vec<FmtResult> = match name {
-        Some(n) => vec![fmt_core(n)],
+        Some(n) => vec![fmt_core(n, DEFAULT_PROJECT)],
         None => {
-            let workspaces = list_workspaces();
-            if workspaces.is_empty() {
+            let mut all = Vec::new();
+            for project in list_projects() {
+                for (ws_name, _) in list_project_workspaces(&project) {
+                    all.push(fmt_core(&ws_name, &project));
+                }
+            }
+            if all.is_empty() {
                 return Err("no workspaces found".into());
             }
-            workspaces.iter().map(|(n, _)| fmt_core(n)).collect()
+            all
         }
     };
 

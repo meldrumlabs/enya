@@ -38,8 +38,12 @@ pub use workspace::{
 
 pub use daemon::{Config, Datasource, Datasources, Server};
 
+/// Default project name when no project is specified.
+pub const DEFAULT_PROJECT: &str = "Default";
+
 #[cfg(not(target_arch = "wasm32"))]
 pub use dir::{
-    config_path, conversations_dir, enya_dir, index_dir, list_workspaces, plugins_dir,
-    resolve_workspace_path, workspace_dir,
+    config_path, create_project_dir, delete_project_dir, enya_dir, index_dir,
+    list_project_workspaces, list_projects, plugins_dir, project_conversations_dir,
+    project_workspace_dir, projects_dir, resolve_project_workspace_path,
 };

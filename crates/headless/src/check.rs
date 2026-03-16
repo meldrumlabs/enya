@@ -1,5 +1,8 @@
 use console::style;
-use enya_config::{WorkspaceConfig, list_workspaces, resolve_workspace_path};
+use enya_config::{
+    DEFAULT_PROJECT, WorkspaceConfig, list_project_workspaces, list_projects,
+    resolve_project_workspace_path,
+};
 use serde::Serialize;
 
 use crate::Result;
@@ -50,8 +53,8 @@ impl CheckResult {
 
 // -- Core function ------------------------------------------------------------
 
-pub fn check_core(name: &str) -> CheckResult {
-    let path = resolve_workspace_path(name);
+pub fn check_core(name: &str, project: &str) -> CheckResult {
+    let path = resolve_project_workspace_path(project, name);
 
     let ws = match WorkspaceConfig::load(&path) {
         Ok(ws) => ws,
@@ -154,13 +157,18 @@ fn check_endpoint(url: &str) -> EndpointStatus {
 
 pub fn check(name: Option<&str>, json: bool) -> Result<bool> {
     let results: Vec<CheckResult> = match name {
-        Some(n) => vec![check_core(n)],
+        Some(n) => vec![check_core(n, DEFAULT_PROJECT)],
         None => {
-            let workspaces = list_workspaces();
-            if workspaces.is_empty() {
+            let mut all = Vec::new();
+            for project in list_projects() {
+                for (ws_name, _) in list_project_workspaces(&project) {
+                    all.push(check_core(&ws_name, &project));
+                }
+            }
+            if all.is_empty() {
                 return Err("no workspaces found".into());
             }
-            workspaces.iter().map(|(n, _)| check_core(n)).collect()
+            all
         }
     };
 

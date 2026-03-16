@@ -23,6 +23,7 @@ use crate::util::Instant;
 #[derive(Clone)]
 pub struct SidebarWorkspaceItem {
     pub name: String,
+    pub project: String,
     pub description: Option<String>,
     /// Unix timestamp of last access (0 if unknown).
     pub last_accessed: i64,
@@ -38,6 +39,7 @@ enum SidebarNavItem {
     },
     Workspace {
         name: String,
+        project: String,
         /// Extra left indent when inside a project.
         indented: bool,
     },
@@ -47,11 +49,15 @@ enum SidebarNavItem {
 pub enum ProjectSidebarResult {
     None,
     /// Load a workspace and unfocus the sidebar (click or Enter).
-    LoadWorkspace(String),
+    LoadWorkspace {
+        name: String,
+        project: String,
+    },
     /// Load a workspace but keep sidebar focused (j/k navigation).
-    PreviewWorkspace(String),
-    /// Create an empty workspace (no wizard).
-    CreateEmptyWorkspace,
+    PreviewWorkspace {
+        name: String,
+        project: String,
+    },
     /// Create an empty workspace inside a specific project (no wizard).
     CreateEmptyWorkspaceInProject(String),
     /// Toggle a project section's collapsed state.
@@ -60,7 +66,10 @@ pub enum ProjectSidebarResult {
     CreateProject,
     OpenSettings,
     /// Archive (delete) a workspace.
-    ArchiveWorkspace(String),
+    ArchiveWorkspace {
+        name: String,
+        project: String,
+    },
     /// Sidebar lost focus — return keyboard control to workspace
     Unfocused,
     /// User clicked the close button — hide the sidebar.
@@ -82,6 +91,8 @@ pub struct ProjectSidebar {
     /// Keyboard selection index within `nav_items`.
     selected_index: usize,
     last_scan: Option<Instant>,
+    /// Projects whose workspace lists are collapsed in the sidebar.
+    collapsed_projects: FxHashSet<String>,
 }
 
 impl Default for ProjectSidebar {
@@ -101,6 +112,7 @@ impl ProjectSidebar {
             nav_items: Vec::new(),
             selected_index: 0,
             last_scan: None,
+            collapsed_projects: FxHashSet::default(),
         }
     }
 
@@ -145,6 +157,13 @@ impl ProjectSidebar {
         self.active_workspace = name.map(|s| s.to_string());
     }
 
+    /// Toggle whether a project's workspace list is collapsed in the sidebar.
+    pub fn toggle_project_collapsed(&mut self, project: &str) {
+        if !self.collapsed_projects.remove(project) {
+            self.collapsed_projects.insert(project.to_string());
+        }
+    }
+
     /// Rebuild just the nav items from current workspaces + settings.
     /// Cheap operation — no filesystem scan. Use after toggling project
     /// collapse or creating/deleting projects.
@@ -172,13 +191,16 @@ impl ProjectSidebar {
         self.last_scan = Some(now);
 
         let mut items: Vec<SidebarWorkspaceItem> = Vec::new();
-        let mut seen = FxHashSet::default();
+        // Track (project, name) pairs to deduplicate
+        let mut seen: FxHashSet<(String, String)> = FxHashSet::default();
 
-        // Recent workspaces first (most recently used order)
+        // Recent workspaces first (most recently used order) — they carry project info
         for entry in &settings.recent_workspaces {
-            if seen.insert(entry.name.clone()) {
+            let key = (entry.project.clone(), entry.name.clone());
+            if seen.insert(key) {
                 items.push(SidebarWorkspaceItem {
                     name: entry.name.clone(),
+                    project: entry.project.clone(),
                     description: if entry.description.is_empty() {
                         None
                     } else {
@@ -192,14 +214,19 @@ impl ProjectSidebar {
         // Filesystem workspaces not already in the recent list
         #[cfg(not(target_arch = "wasm32"))]
         {
-            let available = enya_config::list_workspaces();
-            for (name, description) in available {
-                if seen.insert(name.clone()) {
-                    items.push(SidebarWorkspaceItem {
-                        name,
-                        description,
-                        last_accessed: 0,
-                    });
+            let projects = enya_config::list_projects();
+            for project in projects {
+                let ws_list = enya_config::list_project_workspaces(&project);
+                for (name, description) in ws_list {
+                    let key = (project.clone(), name.clone());
+                    if seen.insert(key) {
+                        items.push(SidebarWorkspaceItem {
+                            name,
+                            project: project.clone(),
+                            description,
+                            last_accessed: 0,
+                        });
+                    }
                 }
             }
         }
@@ -211,68 +238,53 @@ impl ProjectSidebar {
     }
 
     /// Build the flat `nav_items` list from projects + workspaces.
-    fn rebuild_nav_items(&mut self, settings: &AppSettings) {
+    fn rebuild_nav_items(&mut self, _settings: &AppSettings) {
         let mut nav = Vec::new();
-        let mut grouped = FxHashSet::default();
 
-        // All known workspace names (for checking existence)
-        let known: FxHashSet<&str> = self.workspaces.iter().map(|w| w.name.as_str()).collect();
+        // Collect project names from filesystem (native) or hardcoded (WASM)
+        #[cfg(not(target_arch = "wasm32"))]
+        let project_names = enya_config::list_projects();
+        #[cfg(target_arch = "wasm32")]
+        let project_names = vec!["Tutorial".to_string()];
 
-        for project in &settings.projects {
+        for project_name in &project_names {
             // On native, hide the Tutorial project unless a tutorial workspace is active.
             // On WASM, always show it since tutorials are the primary content.
             #[cfg(not(target_arch = "wasm32"))]
-            if project.name == "Tutorial" {
-                let tutorial_active = self
-                    .active_workspace
-                    .as_ref()
-                    .is_some_and(|active| project.workspace_names.contains(active));
+            if project_name == "Tutorial" {
+                let tutorial_active = self.active_workspace.as_ref().is_some_and(|active| {
+                    self.workspaces
+                        .iter()
+                        .any(|w| w.project == "Tutorial" && w.name == *active)
+                });
                 if !tutorial_active {
-                    for ws_name in &project.workspace_names {
-                        grouped.insert(ws_name.clone());
-                    }
                     continue;
                 }
             }
 
-            // Only count workspaces that actually exist
-            let existing: Vec<&str> = project
-                .workspace_names
+            // Filter workspaces belonging to this project
+            let project_workspaces: Vec<&SidebarWorkspaceItem> = self
+                .workspaces
                 .iter()
-                .filter(|w| known.contains(w.as_str()))
-                .map(|w| w.as_str())
+                .filter(|w| w.project == *project_name)
                 .collect();
 
+            let collapsed = self.collapsed_projects.contains(project_name);
+
             nav.push(SidebarNavItem::ProjectHeader {
-                name: project.name.clone(),
-                workspace_count: existing.len(),
-                collapsed: project.collapsed,
+                name: project_name.clone(),
+                workspace_count: project_workspaces.len(),
+                collapsed,
             });
 
-            if !project.collapsed {
-                for ws_name in &existing {
-                    grouped.insert(ws_name.to_string());
+            if !collapsed {
+                for ws in &project_workspaces {
                     nav.push(SidebarNavItem::Workspace {
-                        name: ws_name.to_string(),
+                        name: ws.name.clone(),
+                        project: ws.project.clone(),
                         indented: true,
                     });
                 }
-            } else {
-                // Still mark them as grouped even when collapsed
-                for ws_name in &existing {
-                    grouped.insert(ws_name.to_string());
-                }
-            }
-        }
-
-        // Ungrouped workspaces (native only — on WASM only project-grouped tutorials are shown)
-        #[cfg(not(target_arch = "wasm32"))]
-        for ws in &self.workspaces {
-            if !grouped.contains(&ws.name) {
-                nav.push(SidebarNavItem::Workspace {
-                    name: ws.name.clone(),
-                    indented: false,
-                });
             }
         }
 
@@ -458,8 +470,15 @@ impl ProjectSidebar {
                                     result = action;
                                 }
                             }
-                            SidebarNavItem::Workspace { name, indented } => {
-                                let ws = self.workspaces.iter().find(|w| w.name == *name);
+                            SidebarNavItem::Workspace {
+                                name,
+                                project,
+                                indented,
+                            } => {
+                                let ws = self
+                                    .workspaces
+                                    .iter()
+                                    .find(|w| w.name == *name && w.project == *project);
                                 let is_active =
                                     self.active_workspace.as_deref().is_some_and(|a| a == name);
 
@@ -566,8 +585,11 @@ impl ProjectSidebar {
                         SidebarNavItem::ProjectHeader { name, .. } => {
                             result = ProjectSidebarResult::ToggleProjectCollapse(name.clone());
                         }
-                        SidebarNavItem::Workspace { name, .. } => {
-                            result = ProjectSidebarResult::LoadWorkspace(name.clone());
+                        SidebarNavItem::Workspace { name, project, .. } => {
+                            result = ProjectSidebarResult::LoadWorkspace {
+                                name: name.clone(),
+                                project: project.clone(),
+                            };
                         }
                     }
                 }
@@ -576,10 +598,13 @@ impl ProjectSidebar {
 
         // When selection moves to a workspace, preview it (load but keep focus)
         if selection_moved {
-            if let Some(SidebarNavItem::Workspace { name, .. }) =
+            if let Some(SidebarNavItem::Workspace { name, project, .. }) =
                 self.nav_items.get(self.selected_index)
             {
-                result = ProjectSidebarResult::PreviewWorkspace(name.clone());
+                result = ProjectSidebarResult::PreviewWorkspace {
+                    name: name.clone(),
+                    project: project.clone(),
+                };
             }
         }
 
@@ -819,7 +844,10 @@ impl ProjectSidebar {
                 text_tertiary.gamma_multiply(0.5),
             );
             if archive_btn.clicked() {
-                return Some(ProjectSidebarResult::ArchiveWorkspace(item.name.clone()));
+                return Some(ProjectSidebarResult::ArchiveWorkspace {
+                    name: item.name.clone(),
+                    project: item.project.clone(),
+                });
             }
             if archive_btn.hovered() {
                 ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
@@ -845,7 +873,10 @@ impl ProjectSidebar {
         }
 
         if response.clicked() {
-            return Some(ProjectSidebarResult::LoadWorkspace(item.name.clone()));
+            return Some(ProjectSidebarResult::LoadWorkspace {
+                name: item.name.clone(),
+                project: item.project.clone(),
+            });
         }
 
         None
