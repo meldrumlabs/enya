@@ -1,6 +1,6 @@
 use console::style;
 use enya_config::{
-    DEFAULT_PROJECT, PaneConfig, WorkspaceConfig, list_project_workspaces, list_projects,
+    PaneConfig, WorkspaceConfig, list_project_workspaces, list_projects,
     resolve_project_workspace_path,
 };
 
@@ -121,11 +121,12 @@ pub fn init_core(
             .unwrap_or_else(|| "workspace".to_string())
     });
 
-    let project = project.unwrap_or(DEFAULT_PROJECT);
-
     let path = match output {
         Some(o) => std::path::PathBuf::from(o),
-        None => resolve_project_workspace_path(project, &name),
+        None => {
+            let project = project.ok_or("--project is required when not using --output")?;
+            resolve_project_workspace_path(project, &name)
+        }
     };
 
     if path.exists() {
@@ -151,7 +152,7 @@ pub fn init_core(
     ws.save(&path)?;
     Ok(InitResult {
         name,
-        project: project.to_string(),
+        project: project.unwrap_or("").to_string(),
         path: path.display().to_string(),
     })
 }
@@ -175,14 +176,12 @@ pub fn list_core() -> ListResult {
     }
 }
 
-pub fn show_core(name: &str, project: Option<&str>) -> Result<WorkspaceConfig> {
-    let project = project.unwrap_or(DEFAULT_PROJECT);
+pub fn show_core(name: &str, project: &str) -> Result<WorkspaceConfig> {
     let path = resolve_workspace_path(name, project);
     Ok(WorkspaceConfig::load(&path)?)
 }
 
-pub fn rm_core(name: &str, project: Option<&str>) -> Result<RmResult> {
-    let project = project.unwrap_or(DEFAULT_PROJECT);
+pub fn rm_core(name: &str, project: &str) -> Result<RmResult> {
     let path = resolve_workspace_path(name, project);
     if !path.exists() {
         return Err(format!("workspace not found: {}", path.display()).into());
@@ -193,8 +192,7 @@ pub fn rm_core(name: &str, project: Option<&str>) -> Result<RmResult> {
     })
 }
 
-pub fn get_core(name: &str, key: &str, project: Option<&str>) -> Result<GetResult> {
-    let project = project.unwrap_or(DEFAULT_PROJECT);
+pub fn get_core(name: &str, key: &str, project: &str) -> Result<GetResult> {
     let path = resolve_workspace_path(name, project);
     let ws = WorkspaceConfig::load(&path)?;
     let value = ws.get_value(key)?;
@@ -205,8 +203,7 @@ pub fn get_core(name: &str, key: &str, project: Option<&str>) -> Result<GetResul
     })
 }
 
-pub fn set_core(name: &str, key: &str, value: &str, project: Option<&str>) -> Result<SetResult> {
-    let project = project.unwrap_or(DEFAULT_PROJECT);
+pub fn set_core(name: &str, key: &str, value: &str, project: &str) -> Result<SetResult> {
     let path = resolve_workspace_path(name, project);
     let mut ws = WorkspaceConfig::load(&path)?;
     ws.set_value(key, value)?;
@@ -218,8 +215,7 @@ pub fn set_core(name: &str, key: &str, value: &str, project: Option<&str>) -> Re
     })
 }
 
-pub fn add_pane_core(params: &AddPaneParams<'_>, project: Option<&str>) -> Result<AddPaneResult> {
-    let project = project.unwrap_or(DEFAULT_PROJECT);
+pub fn add_pane_core(params: &AddPaneParams<'_>, project: &str) -> Result<AddPaneResult> {
     let path = resolve_workspace_path(params.name, project);
     let mut ws = WorkspaceConfig::load(&path)?;
 
@@ -253,8 +249,7 @@ pub fn add_pane_core(params: &AddPaneParams<'_>, project: Option<&str>) -> Resul
     })
 }
 
-pub fn remove_pane_core(name: &str, pane: &str, project: Option<&str>) -> Result<RemovePaneResult> {
-    let project = project.unwrap_or(DEFAULT_PROJECT);
+pub fn remove_pane_core(name: &str, pane: &str, project: &str) -> Result<RemovePaneResult> {
     let path = resolve_workspace_path(name, project);
     let mut ws = WorkspaceConfig::load(&path)?;
 
@@ -329,7 +324,7 @@ pub fn list(json: bool) -> Result {
     Ok(())
 }
 
-pub fn show(name: &str, project: Option<&str>, json: bool) -> Result {
+pub fn show(name: &str, project: &str, json: bool) -> Result {
     let ws = show_core(name, project)?;
 
     if json {
@@ -377,7 +372,7 @@ pub fn show(name: &str, project: Option<&str>, json: bool) -> Result {
     Ok(())
 }
 
-pub fn rm(name: &str, project: Option<&str>, json: bool) -> Result {
+pub fn rm(name: &str, project: &str, json: bool) -> Result {
     let result = rm_core(name, project)?;
     if json {
         println!("{}", serde_json::to_string(&result)?);
@@ -387,7 +382,7 @@ pub fn rm(name: &str, project: Option<&str>, json: bool) -> Result {
     Ok(())
 }
 
-pub fn get(name: &str, key: &str, project: Option<&str>, json: bool) -> Result {
+pub fn get(name: &str, key: &str, project: &str, json: bool) -> Result {
     let result = get_core(name, key, project)?;
     if json {
         println!("{}", serde_json::to_string(&result)?);
@@ -397,7 +392,7 @@ pub fn get(name: &str, key: &str, project: Option<&str>, json: bool) -> Result {
     Ok(())
 }
 
-pub fn set(name: &str, key: &str, value: &str, project: Option<&str>, json: bool) -> Result {
+pub fn set(name: &str, key: &str, value: &str, project: &str, json: bool) -> Result {
     let result = set_core(name, key, value, project)?;
     if json {
         println!("{}", serde_json::to_string(&result)?);
@@ -407,7 +402,7 @@ pub fn set(name: &str, key: &str, value: &str, project: Option<&str>, json: bool
     Ok(())
 }
 
-pub fn add_pane(params: &AddPaneParams<'_>, project: Option<&str>, json: bool) -> Result {
+pub fn add_pane(params: &AddPaneParams<'_>, project: &str, json: bool) -> Result {
     let result = add_pane_core(params, project)?;
     if json {
         println!("{}", serde_json::to_string(&result)?);
@@ -418,7 +413,7 @@ pub fn add_pane(params: &AddPaneParams<'_>, project: Option<&str>, json: bool) -
     Ok(())
 }
 
-pub fn remove_pane(name: &str, pane: &str, project: Option<&str>, json: bool) -> Result {
+pub fn remove_pane(name: &str, pane: &str, project: &str, json: bool) -> Result {
     let result = remove_pane_core(name, pane, project)?;
     if json {
         println!("{}", serde_json::to_string(&result)?);
@@ -492,10 +487,9 @@ pub fn snapshot_cmd(
     name: &str,
     endpoint: Option<&str>,
     output: Option<&str>,
-    project: Option<&str>,
+    project: &str,
     json: bool,
 ) -> Result {
-    let project = project.unwrap_or(DEFAULT_PROJECT);
     let path = resolve_workspace_path(name, project);
     let ws = WorkspaceConfig::load(&path)?;
 

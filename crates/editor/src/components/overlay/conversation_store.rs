@@ -226,10 +226,7 @@ impl ConversationStore {
 
     #[cfg(not(target_arch = "wasm32"))]
     fn conversations_dir(&self) -> std::path::PathBuf {
-        let project = self
-            .project_name
-            .as_deref()
-            .unwrap_or(enya_config::DEFAULT_PROJECT);
+        let project = self.project_name.as_deref().unwrap_or("_unknown");
         enya_config::project_conversations_dir(project, self.workspace_name.as_deref())
     }
 

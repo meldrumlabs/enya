@@ -1,7 +1,6 @@
 use console::style;
 use enya_config::{
-    DEFAULT_PROJECT, WorkspaceConfig, list_project_workspaces, list_projects,
-    resolve_project_workspace_path,
+    WorkspaceConfig, list_project_workspaces, list_projects, resolve_project_workspace_path,
 };
 use serde::Serialize;
 
@@ -85,7 +84,24 @@ pub fn fmt_core(name: &str, project: &str) -> FmtResult {
 
 pub fn fmt(name: Option<&str>, json: bool) -> Result {
     let results: Vec<FmtResult> = match name {
-        Some(n) => vec![fmt_core(n, DEFAULT_PROJECT)],
+        Some(n) => {
+            let mut found = false;
+            let mut results = Vec::new();
+            for project in list_projects() {
+                if list_project_workspaces(&project)
+                    .iter()
+                    .any(|(name, _)| name == n)
+                {
+                    results.push(fmt_core(n, &project));
+                    found = true;
+                    break;
+                }
+            }
+            if !found {
+                return Err(format!("workspace not found: {n}").into());
+            }
+            results
+        }
         None => {
             let mut all = Vec::new();
             for project in list_projects() {

@@ -265,8 +265,8 @@ fn workspace_list() -> HandlerResult {
 
 fn workspace_show(params: &serde_json::Value) -> HandlerResult {
     let name = require_str(params, "name")?;
-    let project = param_str(params, "project");
-    let ws = enya_headless::workspace::show_core(&name, project.as_deref()).map_err(map_err)?;
+    let project = require_str(params, "project")?;
+    let ws = enya_headless::workspace::show_core(&name, &project).map_err(map_err)?;
     serde_json::to_value(&ws).map_err(map_err)
 }
 
@@ -288,17 +288,16 @@ fn workspace_init(params: &serde_json::Value) -> HandlerResult {
 
 fn workspace_rm(params: &serde_json::Value) -> HandlerResult {
     let name = require_str(params, "name")?;
-    let project = param_str(params, "project");
-    let result = enya_headless::workspace::rm_core(&name, project.as_deref()).map_err(map_err)?;
+    let project = require_str(params, "project")?;
+    let result = enya_headless::workspace::rm_core(&name, &project).map_err(map_err)?;
     serde_json::to_value(&result).map_err(map_err)
 }
 
 fn workspace_get(params: &serde_json::Value) -> HandlerResult {
     let name = require_str(params, "name")?;
     let key = require_str(params, "key")?;
-    let project = param_str(params, "project");
-    let result =
-        enya_headless::workspace::get_core(&name, &key, project.as_deref()).map_err(map_err)?;
+    let project = require_str(params, "project")?;
+    let result = enya_headless::workspace::get_core(&name, &key, &project).map_err(map_err)?;
     serde_json::to_value(&result).map_err(map_err)
 }
 
@@ -306,9 +305,9 @@ fn workspace_set(params: &serde_json::Value) -> HandlerResult {
     let name = require_str(params, "name")?;
     let key = require_str(params, "key")?;
     let value = require_str(params, "value")?;
-    let project = param_str(params, "project");
-    let result = enya_headless::workspace::set_core(&name, &key, &value, project.as_deref())
-        .map_err(map_err)?;
+    let project = require_str(params, "project")?;
+    let result =
+        enya_headless::workspace::set_core(&name, &key, &value, &project).map_err(map_err)?;
     serde_json::to_value(&result).map_err(map_err)
 }
 
@@ -321,7 +320,7 @@ fn workspace_add_pane(params: &serde_json::Value) -> HandlerResult {
     let granularity = param_str(params, "granularity");
     let visualization = param_str(params, "visualization");
     let description = param_str(params, "description");
-    let project = param_str(params, "project");
+    let project = require_str(params, "project")?;
     let result = enya_headless::workspace::add_pane_core(
         &enya_headless::workspace::AddPaneParams {
             name: &name,
@@ -333,7 +332,7 @@ fn workspace_add_pane(params: &serde_json::Value) -> HandlerResult {
             visualization: visualization.as_deref(),
             description: description.as_deref(),
         },
-        project.as_deref(),
+        &project,
     )
     .map_err(map_err)?;
     serde_json::to_value(&result).map_err(map_err)
@@ -342,17 +341,17 @@ fn workspace_add_pane(params: &serde_json::Value) -> HandlerResult {
 fn workspace_remove_pane(params: &serde_json::Value) -> HandlerResult {
     let name = require_str(params, "name")?;
     let pane = require_str(params, "pane")?;
-    let project = param_str(params, "project");
-    let result = enya_headless::workspace::remove_pane_core(&name, &pane, project.as_deref())
-        .map_err(map_err)?;
+    let project = require_str(params, "project")?;
+    let result =
+        enya_headless::workspace::remove_pane_core(&name, &pane, &project).map_err(map_err)?;
     serde_json::to_value(&result).map_err(map_err)
 }
 
 fn workspace_snapshot(params: &serde_json::Value) -> HandlerResult {
     let name = require_str(params, "name")?;
     let endpoint = param_str(params, "endpoint");
-    let project = param_str(params, "project");
-    let ws = enya_headless::workspace::show_core(&name, project.as_deref()).map_err(map_err)?;
+    let project = require_str(params, "project")?;
+    let ws = enya_headless::workspace::show_core(&name, &project).map_err(map_err)?;
     let base_url = enya_headless::query::promql::resolve_endpoint(endpoint.as_deref(), Some(&name))
         .map_err(map_err)?;
     enya_headless::workspace::snapshot(&base_url, &ws).map_err(map_err)
@@ -1004,8 +1003,10 @@ mod tests {
     #[test]
     fn test_workspace_show() {
         let (_dir, path) = temp_workspace();
-        let result =
-            workspace_show(&serde_json::json!({"name": path.display().to_string()})).unwrap();
+        let result = workspace_show(
+            &serde_json::json!({"name": path.display().to_string(), "project": "test"}),
+        )
+        .unwrap();
         assert_eq!(result["workspace"]["name"], "test-ws");
     }
 
@@ -1014,9 +1015,10 @@ mod tests {
         let (_dir, path) = temp_workspace();
         let p = path.display().to_string();
 
-        let set_result =
-            workspace_set(&serde_json::json!({"name": p, "key": "time.preset", "value": "1h"}))
-                .unwrap();
+        let set_result = workspace_set(
+            &serde_json::json!({"name": p, "key": "time.preset", "value": "1h", "project": "test"}),
+        )
+        .unwrap();
         insta::assert_snapshot!(mask_ws(&set_result), @r#"
         {
           "key": "time.preset",
@@ -1026,7 +1028,8 @@ mod tests {
         "#);
 
         let get_result =
-            workspace_get(&serde_json::json!({"name": p, "key": "time.preset"})).unwrap();
+            workspace_get(&serde_json::json!({"name": p, "key": "time.preset", "project": "test"}))
+                .unwrap();
         insta::assert_snapshot!(mask_ws(&get_result), @r#"
         {
           "key": "time.preset",
@@ -1047,6 +1050,7 @@ mod tests {
             "pane_name": "Request Rate",
             "unit": "req/s",
             "tag": "Critical",
+            "project": "test",
         }))
         .unwrap();
         insta::assert_snapshot!(mask_ws(&result), @r#"
@@ -1060,6 +1064,7 @@ mod tests {
         let result = workspace_remove_pane(&serde_json::json!({
             "name": p,
             "pane": "Request Rate",
+            "project": "test",
         }))
         .unwrap();
         insta::assert_snapshot!(mask_ws(&result), @r#"
@@ -1076,7 +1081,7 @@ mod tests {
         let p = path.display().to_string();
 
         assert!(path.exists());
-        let result = workspace_rm(&serde_json::json!({"name": p})).unwrap();
+        let result = workspace_rm(&serde_json::json!({"name": p, "project": "test"})).unwrap();
         insta::assert_snapshot!(mask_ws(&result), @r#"
         {
           "removed": "[path]"
@@ -1087,7 +1092,9 @@ mod tests {
 
     #[test]
     fn test_workspace_rm_not_found() {
-        let err = workspace_rm(&serde_json::json!({"name": "nonexistent_ws_xyz"})).unwrap_err();
+        let err =
+            workspace_rm(&serde_json::json!({"name": "nonexistent_ws_xyz", "project": "test"}))
+                .unwrap_err();
         assert_eq!(err.0, -32603);
     }
 
@@ -1097,7 +1104,7 @@ mod tests {
         let p = path.display().to_string();
 
         insta::assert_snapshot!(
-            fmt_err(workspace_remove_pane(&serde_json::json!({"name": p, "pane": "Ghost Pane"})).unwrap_err()),
+            fmt_err(workspace_remove_pane(&serde_json::json!({"name": p, "pane": "Ghost Pane", "project": "test"})).unwrap_err()),
             @"(-32603) pane not found: Ghost Pane"
         );
     }
@@ -1176,13 +1183,13 @@ mod tests {
         let (_dir, path) = temp_workspace();
         let p = path.display().to_string();
 
-        // Show
+        // Show (project is unused for absolute paths but still required)
         let resp = handle_line(
             &mut session,
             &serde_json::json!({
                 "jsonrpc": "2.0", "id": 1,
                 "method": "workspace.show",
-                "params": {"name": p},
+                "params": {"name": p, "project": "test"},
             })
             .to_string(),
         )
@@ -1199,7 +1206,7 @@ mod tests {
             &serde_json::json!({
                 "jsonrpc": "2.0", "id": 2,
                 "method": "workspace.set",
-                "params": {"name": p, "key": "view.theme", "value": "light"},
+                "params": {"name": p, "key": "view.theme", "value": "light", "project": "test"},
             })
             .to_string(),
         )
@@ -1212,7 +1219,7 @@ mod tests {
             &serde_json::json!({
                 "jsonrpc": "2.0", "id": 3,
                 "method": "workspace.get",
-                "params": {"name": p, "key": "view.theme"},
+                "params": {"name": p, "key": "view.theme", "project": "test"},
             })
             .to_string(),
         )
@@ -1231,7 +1238,7 @@ mod tests {
             &serde_json::json!({
                 "jsonrpc": "2.0", "id": 4,
                 "method": "workspace.rm",
-                "params": {"name": p},
+                "params": {"name": p, "project": "test"},
             })
             .to_string(),
         )

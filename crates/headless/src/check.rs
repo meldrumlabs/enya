@@ -1,7 +1,6 @@
 use console::style;
 use enya_config::{
-    DEFAULT_PROJECT, WorkspaceConfig, list_project_workspaces, list_projects,
-    resolve_project_workspace_path,
+    WorkspaceConfig, list_project_workspaces, list_projects, resolve_project_workspace_path,
 };
 use serde::Serialize;
 
@@ -157,7 +156,25 @@ fn check_endpoint(url: &str) -> EndpointStatus {
 
 pub fn check(name: Option<&str>, json: bool) -> Result<bool> {
     let results: Vec<CheckResult> = match name {
-        Some(n) => vec![check_core(n, DEFAULT_PROJECT)],
+        Some(n) => {
+            // Search across all projects to find the workspace
+            let mut found = false;
+            let mut results = Vec::new();
+            for project in list_projects() {
+                if list_project_workspaces(&project)
+                    .iter()
+                    .any(|(name, _)| name == n)
+                {
+                    results.push(check_core(n, &project));
+                    found = true;
+                    break;
+                }
+            }
+            if !found {
+                return Err(format!("workspace not found: {n}").into());
+            }
+            results
+        }
         None => {
             let mut all = Vec::new();
             for project in list_projects() {

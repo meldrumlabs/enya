@@ -69,9 +69,17 @@ impl EnyaApp {
     pub(super) fn save_workspace(&mut self, name: Option<&str>, project: Option<&str>) {
         let workspace_name = name.unwrap_or("default");
         let loaded_project = self.workspace.loaded_project().map(|s| s.to_string());
-        let project_name = project
-            .or(loaded_project.as_deref())
-            .unwrap_or(enya_config::DEFAULT_PROJECT);
+        let project_name = match project.or(loaded_project.as_deref()) {
+            Some(p) => p,
+            None => {
+                log::error!("Cannot save workspace without a project");
+                self.notifications.notify(Notification::new(
+                    "Cannot save workspace: no project specified".to_string(),
+                    NotificationLevel::Error,
+                ));
+                return;
+            }
+        };
 
         let workspace_config = self.workspace.to_workspace_config(workspace_name, None);
 
@@ -138,7 +146,17 @@ impl EnyaApp {
 
         #[cfg(not(target_arch = "wasm32"))]
         {
-            let project_name = project.unwrap_or(enya_config::DEFAULT_PROJECT);
+            let project_name = match project {
+                Some(p) => p,
+                None => {
+                    log::error!("Cannot load workspace '{name}' without a project");
+                    self.notifications.notify(Notification::new(
+                        format!("Cannot load workspace '{name}': no project specified"),
+                        NotificationLevel::Error,
+                    ));
+                    return;
+                }
+            };
             let path = enya_config::resolve_project_workspace_path(project_name, name);
 
             match WorkspaceConfig::load(&path) {

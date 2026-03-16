@@ -12,7 +12,8 @@ use axum::routing::{any, get, post};
 use axum::{Json, Router};
 use base64::Engine;
 use enya_config::{
-    Config, DEFAULT_PROJECT, WorkspaceConfig, enya_dir, resolve_project_workspace_path,
+    Config, WorkspaceConfig, enya_dir, list_project_workspaces, list_projects,
+    resolve_project_workspace_path,
 };
 use rust_embed::Embed;
 use serde::Deserialize;
@@ -22,6 +23,19 @@ use tracing::{info, warn};
 use crate::db::{Db, NewWatch};
 
 type Result = std::result::Result<(), crate::Error>;
+
+/// Find a workspace path by searching across all projects.
+fn find_workspace_path(name: &str) -> Option<std::path::PathBuf> {
+    for project in list_projects() {
+        if list_project_workspaces(&project)
+            .iter()
+            .any(|(n, _)| n == name)
+        {
+            return Some(resolve_project_workspace_path(&project, name));
+        }
+    }
+    None
+}
 
 /// Maximum request body size for proxied requests (10 MB).
 const MAX_BODY_SIZE: usize = 10 * 1024 * 1024;
@@ -59,7 +73,7 @@ pub fn run(workspace: Option<&str>, port: u16, bind: &str, open: bool) -> Result
     } else {
         // Fall back to workspace endpoint if a workspace was provided
         workspace.and_then(|ws| {
-            let path = resolve_project_workspace_path(DEFAULT_PROJECT, ws);
+            let path = find_workspace_path(ws)?;
             WorkspaceConfig::load(&path)
                 .ok()
                 .and_then(|c| c.effective_endpoint().map(|s| s.to_string()))
@@ -75,7 +89,8 @@ pub fn run(workspace: Option<&str>, port: u16, bind: &str, open: bool) -> Result
 
     // 4. Optionally encode workspace for WASM UI redirect
     let workspace_param = if let Some(ws) = workspace {
-        let path = resolve_project_workspace_path(DEFAULT_PROJECT, ws);
+        let path = find_workspace_path(ws)
+            .ok_or_else(|| crate::Error::Config(format!("workspace not found: {ws}")))?;
         let config = WorkspaceConfig::load(&path).map_err(|e| {
             crate::Error::Config(format!(
                 "failed to load workspace '{}': {e}",

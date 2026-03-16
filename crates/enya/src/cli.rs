@@ -46,8 +46,8 @@ enum Command {
         #[arg(short, long)]
         output: Option<String>,
 
-        /// Project name (defaults to "Default")
-        #[arg(short, long)]
+        /// Project name (required unless --output is used)
+        #[arg(short, long, required_unless_present = "output")]
         project: Option<String>,
     },
 
@@ -59,9 +59,9 @@ enum Command {
         /// Workspace name
         name: String,
 
-        /// Project name (defaults to "Default")
+        /// Project name
         #[arg(short, long)]
-        project: Option<String>,
+        project: String,
     },
 
     /// Validate a workspace configuration (all workspaces if no name given)
@@ -81,9 +81,9 @@ enum Command {
         /// Workspace name
         name: String,
 
-        /// Project name (defaults to "Default")
+        /// Project name
         #[arg(short, long)]
-        project: Option<String>,
+        project: String,
     },
 
     /// Manage plugins (list, install, remove)
@@ -152,9 +152,9 @@ enum Command {
         name: String,
         /// Property key (e.g. "time.preset", "metrics.endpoint")
         key: String,
-        /// Project name (defaults to "Default")
+        /// Project name
         #[arg(short, long)]
-        project: Option<String>,
+        project: String,
     },
 
     /// Set a workspace property
@@ -165,9 +165,9 @@ enum Command {
         key: String,
         /// New value
         value: String,
-        /// Project name (defaults to "Default")
+        /// Project name
         #[arg(short, long)]
-        project: Option<String>,
+        project: String,
     },
 
     /// Add a query pane to a workspace
@@ -194,9 +194,9 @@ enum Command {
         /// Description text
         #[arg(long)]
         description: Option<String>,
-        /// Project name (defaults to "Default")
+        /// Project name
         #[arg(short, long)]
-        project: Option<String>,
+        project: String,
     },
 
     /// Remove a pane from a workspace
@@ -205,9 +205,9 @@ enum Command {
         name: String,
         /// Pane name to remove
         pane: String,
-        /// Project name (defaults to "Default")
+        /// Project name
         #[arg(short, long)]
-        project: Option<String>,
+        project: String,
     },
 
     /// Open a workspace in the GUI editor
@@ -276,9 +276,9 @@ enum Command {
         #[arg(short, long)]
         output: Option<String>,
 
-        /// Project name (defaults to "Default")
-        #[arg(long)]
-        project: Option<String>,
+        /// Project name
+        #[arg(short, long)]
+        project: String,
     },
 
     /// Discover Prometheus metrics, labels, and metadata
@@ -445,7 +445,7 @@ pub fn run() -> ExitCode {
             ),
             Command::List => enya_headless::workspace::list(json),
             Command::Show { name, project } => {
-                enya_headless::workspace::show(&name, project.as_deref(), json)
+                enya_headless::workspace::show(&name, &project, json)
             }
             Command::Check { name } => {
                 return match enya_headless::check::check(name.as_deref(), json) {
@@ -455,9 +455,7 @@ pub fn run() -> ExitCode {
                 };
             }
             Command::Fmt { name } => enya_headless::fmt::fmt(name.as_deref(), json),
-            Command::Rm { name, project } => {
-                enya_headless::workspace::rm(&name, project.as_deref(), json)
-            }
+            Command::Rm { name, project } => enya_headless::workspace::rm(&name, &project, json),
             Command::Plugins { command: sub } => match sub {
                 None => enya_headless::plugins::plugins(json),
                 Some(PluginsCommand::Install { source }) => {
@@ -509,14 +507,14 @@ pub fn run() -> ExitCode {
                 }
             }
             Command::Get { name, key, project } => {
-                enya_headless::workspace::get(&name, &key, project.as_deref(), json)
+                enya_headless::workspace::get(&name, &key, &project, json)
             }
             Command::Set {
                 name,
                 key,
                 value,
                 project,
-            } => enya_headless::workspace::set(&name, &key, &value, project.as_deref(), json),
+            } => enya_headless::workspace::set(&name, &key, &value, &project, json),
             Command::AddPane {
                 name,
                 query,
@@ -538,14 +536,14 @@ pub fn run() -> ExitCode {
                     visualization: visualization.as_deref(),
                     description: description.as_deref(),
                 },
-                project.as_deref(),
+                &project,
                 json,
             ),
             Command::RemovePane {
                 name,
                 pane,
                 project,
-            } => enya_headless::workspace::remove_pane(&name, &pane, project.as_deref(), json),
+            } => enya_headless::workspace::remove_pane(&name, &pane, &project, json),
             Command::Snapshot {
                 name,
                 endpoint,
@@ -555,7 +553,7 @@ pub fn run() -> ExitCode {
                 &name,
                 endpoint.as_deref(),
                 output.as_deref(),
-                project.as_deref(),
+                &project,
                 json,
             ),
             Command::Serve {
