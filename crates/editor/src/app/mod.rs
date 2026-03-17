@@ -1156,8 +1156,7 @@ impl EnyaApp {
             }
             crate::components::ProjectSidebarResult::ToggleProjectCollapse(name) => {
                 self.project_sidebar.toggle_project_collapsed(&name);
-                self.project_sidebar
-                    .refresh_workspaces(&self.state.settings);
+                self.project_sidebar.rebuild(&self.state.settings);
             }
             crate::components::ProjectSidebarResult::CreateProject => {
                 self.project_sidebar.unfocus();
