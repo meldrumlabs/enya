@@ -1191,6 +1191,30 @@ impl EnyaApp {
                 self.project_sidebar
                     .refresh_workspaces(&self.state.settings);
             }
+            crate::components::ProjectSidebarResult::DeleteProject(project) => {
+                // Remove all workspaces belonging to this project from recent list
+                self.state
+                    .settings
+                    .recent_workspaces
+                    .retain(|w| w.project != project);
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    enya_config::delete_project_dir(&project);
+                }
+                // If the currently loaded workspace was in this project, clear it
+                #[cfg(not(target_arch = "wasm32"))]
+                if self
+                    .workspace
+                    .loaded_project()
+                    .is_some_and(|p| p == project)
+                {
+                    self.workspace.set_loaded_name(None);
+                    self.workspace.set_loaded_project(None);
+                }
+                self.project_sidebar.force_rescan();
+                self.project_sidebar
+                    .refresh_workspaces(&self.state.settings);
+            }
             crate::components::ProjectSidebarResult::Closed => {
                 self.project_sidebar.unfocus();
                 self.project_sidebar.toggle();

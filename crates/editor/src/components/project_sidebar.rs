@@ -70,6 +70,8 @@ pub enum ProjectSidebarResult {
         name: String,
         project: String,
     },
+    /// Delete an entire project and all its workspaces.
+    DeleteProject(String),
     /// Sidebar lost focus — return keyboard control to workspace
     Unfocused,
     /// User clicked the close button — hide the sidebar.
@@ -93,6 +95,8 @@ pub struct ProjectSidebar {
     last_scan: Option<Instant>,
     /// Projects whose workspace lists are collapsed in the sidebar.
     collapsed_projects: FxHashSet<String>,
+    /// Project awaiting delete confirmation (shown as a y/n dialog).
+    pending_delete_project: Option<String>,
 }
 
 impl Default for ProjectSidebar {
@@ -113,6 +117,7 @@ impl ProjectSidebar {
             selected_index: 0,
             last_scan: None,
             collapsed_projects: FxHashSet::default(),
+            pending_delete_project: None,
         }
     }
 
@@ -369,8 +374,23 @@ impl ProjectSidebar {
             self.selected_index = nav_count - 1;
         }
 
+        // ── Confirmation dialog keyboard handling (always active) ────
+        if self.pending_delete_project.is_some() {
+            ctx.input_mut(|input| {
+                if input.consume_key(egui::Modifiers::NONE, egui::Key::Y) {
+                    if let Some(name) = self.pending_delete_project.take() {
+                        result = ProjectSidebarResult::DeleteProject(name);
+                    }
+                } else if input.consume_key(egui::Modifiers::NONE, egui::Key::N)
+                    || input.consume_key(egui::Modifiers::NONE, egui::Key::Escape)
+                {
+                    self.pending_delete_project = None;
+                }
+            });
+        }
+
         // ── Keyboard handling (only when sidebar has focus) ──────────
-        if self.has_focus && !ctx.wants_keyboard_input() {
+        if self.has_focus && !ctx.wants_keyboard_input() && self.pending_delete_project.is_none() {
             let kb_result = self.handle_keyboard(ctx);
             if !matches!(kb_result, ProjectSidebarResult::None) {
                 result = kb_result;
@@ -507,6 +527,85 @@ impl ProjectSidebar {
         // ── Footer ──────────────────────────────────────────────────
         self.render_footer(ui, &mut result, text_tertiary);
 
+        // ── Delete project confirmation dialog ───────────────────────
+        if let Some(project_name) = &self.pending_delete_project {
+            let project_name = project_name.clone();
+            let ws_count = self
+                .workspaces
+                .iter()
+                .filter(|w| w.project == project_name)
+                .count();
+
+            // Backdrop
+            egui::Area::new(egui::Id::new("project_delete_backdrop"))
+                .anchor(egui::Align2::LEFT_TOP, [0.0, 0.0])
+                .order(egui::Order::Foreground)
+                .interactable(false)
+                .show(ctx, |ui| {
+                    let screen = ctx.available_rect();
+                    ui.painter()
+                        .rect_filled(screen, 0.0, Color32::from_black_alpha(180));
+                });
+
+            // Dialog
+            egui::Area::new(egui::Id::new("project_delete_dialog"))
+                .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+                .order(egui::Order::Foreground)
+                .show(ctx, |ui| {
+                    let dialog_width = 340.0;
+                    let dialog_height = 130.0;
+
+                    egui::Frame::new()
+                        .fill(self.theme.bg_elevated())
+                        .corner_radius(8.0)
+                        .stroke(egui::Stroke::new(
+                            1.0,
+                            accent.gamma_multiply(0.5),
+                        ))
+                        .inner_margin(20.0)
+                        .show(ui, |ui| {
+                            ui.set_width(dialog_width - 40.0);
+                            ui.set_height(dialog_height - 40.0);
+
+                            ui.vertical_centered(|ui| {
+                                ui.label(
+                                    RichText::new(format!("Delete \"{project_name}\"?"))
+                                        .color(text_primary)
+                                        .font(typography::proportional(typography::LG)),
+                                );
+                                ui.add_space(6.0);
+                                let desc = if ws_count == 1 {
+                                    "This will remove the project and its 1 workspace.".to_string()
+                                } else {
+                                    format!(
+                                        "This will remove the project and its {ws_count} workspaces."
+                                    )
+                                };
+                                ui.label(
+                                    RichText::new(desc)
+                                        .color(text_tertiary)
+                                        .font(typography::proportional(typography::SM)),
+                                );
+                                ui.add_space(14.0);
+                                ui.horizontal(|ui| {
+                                    ui.add_space(50.0);
+                                    ui.label(
+                                        RichText::new("[y] confirm")
+                                            .color(accent)
+                                            .font(typography::monospace(typography::SM)),
+                                    );
+                                    ui.add_space(24.0);
+                                    ui.label(
+                                        RichText::new("[n] cancel")
+                                            .color(text_tertiary)
+                                            .font(typography::monospace(typography::SM)),
+                                    );
+                                });
+                            });
+                        });
+                });
+        }
+
         result
     }
 
@@ -595,6 +694,24 @@ impl ProjectSidebar {
                     }
                 }
             }
+
+            // d — delete (project header: confirm dialog, workspace: immediate)
+            #[cfg(not(target_arch = "wasm32"))]
+            if input.consume_key(egui::Modifiers::NONE, egui::Key::D) {
+                if let Some(item) = self.nav_items.get(self.selected_index) {
+                    match item {
+                        SidebarNavItem::ProjectHeader { name, .. } => {
+                            self.pending_delete_project = Some(name.clone());
+                        }
+                        SidebarNavItem::Workspace { name, project, .. } => {
+                            result = ProjectSidebarResult::ArchiveWorkspace {
+                                name: name.clone(),
+                                project: project.clone(),
+                            };
+                        }
+                    }
+                }
+            }
         });
 
         // When selection moves to a workspace, preview it (load but keep focus)
@@ -615,7 +732,7 @@ impl ProjectSidebar {
     /// Render a project header row.
     #[allow(clippy::too_many_arguments)]
     fn render_project_header(
-        &self,
+        &mut self,
         ui: &mut egui::Ui,
         name: &str,
         workspace_count: usize,
@@ -686,9 +803,10 @@ impl ProjectSidebar {
         // ── Right side: workspace count badge + "+" button on hover ──
         let right_edge = rect.max.x - 10.0;
 
-        // "+" button (visible on hover or selected, native only — hidden on WASM demo)
+        // Action buttons (visible on hover or selected, native only)
         #[cfg(not(target_arch = "wasm32"))]
         if hovered || is_selected {
+            // "+" button (rightmost)
             let plus_x = right_edge;
             let plus_rect = egui::Rect::from_center_size(
                 egui::pos2(plus_x - 6.0, rect.center().y),
@@ -714,14 +832,39 @@ impl ProjectSidebar {
             if plus_response.hovered() {
                 ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
             }
+
+            // Delete button (left of "+")
+            let delete_rect = egui::Rect::from_center_size(
+                egui::pos2(plus_x - 24.0, rect.center().y),
+                Vec2::new(18.0, 18.0),
+            );
+            let delete_response = ui.interact(
+                delete_rect,
+                ui.id().with(("project_delete", name)),
+                egui::Sense::click(),
+            );
+            ui.painter().text(
+                delete_rect.center(),
+                egui::Align2::CENTER_CENTER,
+                semantic_icons::action::DELETE,
+                egui::FontId::proportional(12.0),
+                text_tertiary.gamma_multiply(0.5),
+            );
+            if delete_response.clicked() {
+                self.pending_delete_project = Some(name.to_string());
+            }
+            if delete_response.hovered() {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                delete_response.on_hover_text("Delete project");
+            }
         }
 
         // Workspace count badge
         if workspace_count > 0 {
-            // On native, shift badge left when "+" button is visible (hover/selected)
+            // On native, shift badge left when action buttons are visible (hover/selected)
             #[cfg(not(target_arch = "wasm32"))]
             let badge_x = if hovered || is_selected {
-                right_edge - 24.0
+                right_edge - 42.0
             } else {
                 right_edge
             };
