@@ -225,14 +225,20 @@ impl ConversationStore {
     // ── Native persistence ──────────────────────────────────────────
 
     #[cfg(not(target_arch = "wasm32"))]
-    fn conversations_dir(&self) -> std::path::PathBuf {
-        let project = self.project_name.as_deref().unwrap_or("_unknown");
-        enya_config::project_conversations_dir(project, self.workspace_name.as_deref())
+    fn conversations_dir(&self) -> Option<std::path::PathBuf> {
+        let project = self.project_name.as_deref()?;
+        Some(enya_config::project_conversations_dir(
+            project,
+            self.workspace_name.as_deref(),
+        ))
     }
 
     #[cfg(not(target_arch = "wasm32"))]
     fn load_from_disk(&mut self) {
-        let dir = self.conversations_dir();
+        let dir = match self.conversations_dir() {
+            Some(d) => d,
+            None => return,
+        };
         let entries = match std::fs::read_dir(&dir) {
             Ok(e) => e,
             Err(_) => return,
@@ -255,7 +261,10 @@ impl ConversationStore {
 
     #[cfg(not(target_arch = "wasm32"))]
     fn save_thread_file(&self, thread: &ConversationThread) {
-        let dir = self.conversations_dir();
+        let dir = match self.conversations_dir() {
+            Some(d) => d,
+            None => return,
+        };
         let path = dir.join(format!("{}.json", thread.id));
         match serde_json::to_string_pretty(thread) {
             Ok(data) => {
@@ -271,7 +280,10 @@ impl ConversationStore {
 
     #[cfg(not(target_arch = "wasm32"))]
     fn delete_file(&self, id: &str) {
-        let dir = self.conversations_dir();
+        let dir = match self.conversations_dir() {
+            Some(d) => d,
+            None => return,
+        };
         let path = dir.join(format!("{id}.json"));
         let _ = std::fs::remove_file(path);
     }
