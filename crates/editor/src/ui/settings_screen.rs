@@ -366,9 +366,12 @@ impl AppSettings {
                 .retain(|w| tutorial_names.contains(&w.name));
         }
 
-        // Ensure all tutorial workspaces are in recent_workspaces
+        // Ensure all tutorial workspaces are in recent_workspaces with correct project
         for &(name, desc) in Self::TUTORIAL_WORKSPACES {
-            if !self.recent_workspaces.iter().any(|w| w.name == name) {
+            if let Some(existing) = self.recent_workspaces.iter_mut().find(|w| w.name == name) {
+                // Fix project field on entries from before the project migration
+                existing.project = "Tutorial".to_string();
+            } else {
                 self.recent_workspaces.push(WorkspaceEntry {
                     name: name.to_string(),
                     description: desc.to_string(),

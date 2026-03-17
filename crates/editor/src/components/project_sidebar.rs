@@ -262,12 +262,13 @@ impl ProjectSidebar {
                 }
             }
 
-            // Filter workspaces belonging to this project
-            let project_workspaces: Vec<&SidebarWorkspaceItem> = self
+            // Filter workspaces belonging to this project, sorted by name for stable order
+            let mut project_workspaces: Vec<&SidebarWorkspaceItem> = self
                 .workspaces
                 .iter()
                 .filter(|w| w.project == *project_name)
                 .collect();
+            project_workspaces.sort_by(|a, b| a.name.cmp(&b.name));
 
             let collapsed = self.collapsed_projects.contains(project_name);
 
