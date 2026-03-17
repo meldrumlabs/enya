@@ -1,9 +1,9 @@
 //! Workspace I/O operations.
 //!
 //! This module handles saving, loading, listing, and sharing workspaces.
-//! On native platforms, workspaces are stored as TOML files in the
-//! `.enya/workspaces` directory. On WASM, workspaces are encoded as
-//! base64 URL parameters.
+//! On native platforms, workspaces are stored as TOML files in project
+//! directories under `.enya/projects/{project}/workspaces/`. On WASM,
+//! workspaces are encoded as base64 URL parameters.
 
 use crate::components::{Notification, NotificationLevel};
 
@@ -13,27 +13,10 @@ const EDITOR_BASE_URL: &str = "https://enya.build/editor";
 use super::EnyaApp;
 
 impl EnyaApp {
-    /// Get the workspace directory path
+    /// Generate the next unique "untitled-N" workspace name within a project.
     #[cfg(not(target_arch = "wasm32"))]
-    pub(super) fn workspace_dir() -> std::path::PathBuf {
-        enya_config::workspace_dir()
-    }
-
-    /// List available workspace files from the workspace directory
-    #[cfg(not(target_arch = "wasm32"))]
-    pub fn list_available_workspaces() -> Vec<(String, Option<String>)> {
-        enya_config::list_workspaces()
-    }
-
-    /// List available workspace files (WASM stub - returns empty)
-    #[cfg(target_arch = "wasm32")]
-    pub fn list_available_workspaces() -> Vec<(String, Option<String>)> {
-        Vec::new()
-    }
-
-    /// Generate the next unique "untitled-N" workspace name.
-    pub(super) fn next_untitled_workspace_name(&self) -> String {
-        let existing: rustc_hash::FxHashSet<String> = Self::list_available_workspaces()
+    pub(super) fn next_untitled_workspace_name(&self, project: &str) -> String {
+        let existing: rustc_hash::FxHashSet<String> = enya_config::list_project_workspaces(project)
             .into_iter()
             .map(|(name, _)| name)
             .collect();
@@ -54,17 +37,9 @@ impl EnyaApp {
     pub(super) fn ensure_default_workspace() {
         use crate::workspace::{GOLDEN_SIGNALS_TOML, INFRASTRUCTURE_TOML, MULTI_SERVICE_TOML};
 
-        let dir = Self::workspace_dir();
+        let dir = enya_config::project_workspace_dir("Tutorial");
 
-        // Clean up old tutorial file names (renamed to match WASM names)
-        for old in &["golden-signals", "infrastructure", "multi-service"] {
-            let path = dir.join(format!("{old}.toml"));
-            if path.exists() {
-                let _ = std::fs::remove_file(&path);
-            }
-        }
-
-        // Tutorial workspaces — names match WASM, always overwritten for template updates
+        // Tutorial workspaces — always overwritten for template updates
         let tutorials: &[(&str, &str)] = &[
             ("quick-start", GOLDEN_SIGNALS_TOML),
             ("infra", INFRASTRUCTURE_TOML),
@@ -91,15 +66,26 @@ impl EnyaApp {
     }
 
     /// Save the current workspace to a file
-    pub(super) fn save_workspace(&mut self, name: Option<&str>) {
+    pub(super) fn save_workspace(&mut self, name: Option<&str>, project: Option<&str>) {
         let workspace_name = name.unwrap_or("default");
+        let loaded_project = self.workspace.loaded_project().map(|s| s.to_string());
+        let project_name = match project.or(loaded_project.as_deref()) {
+            Some(p) => p,
+            None => {
+                log::error!("Cannot save workspace without a project");
+                self.notifications.notify(Notification::new(
+                    "Cannot save workspace: no project specified".to_string(),
+                    NotificationLevel::Error,
+                ));
+                return;
+            }
+        };
 
         let workspace_config = self.workspace.to_workspace_config(workspace_name, None);
 
         #[cfg(not(target_arch = "wasm32"))]
         {
-            let dir = Self::workspace_dir();
-            let path = dir.join(format!("{workspace_name}.toml"));
+            let path = enya_config::resolve_project_workspace_path(project_name, workspace_name);
 
             match workspace_config.save(&path) {
                 Ok(()) => {
@@ -121,6 +107,7 @@ impl EnyaApp {
 
         #[cfg(target_arch = "wasm32")]
         {
+            let _ = project_name;
             // On web, encode to base64 and copy URL to clipboard
             match workspace_config.to_base64() {
                 Ok(encoded) => {
@@ -154,13 +141,23 @@ impl EnyaApp {
     }
 
     /// Load a workspace from a file
-    pub(super) fn load_workspace(&mut self, name: &str) {
+    pub(super) fn load_workspace(&mut self, name: &str, project: Option<&str>) {
         use crate::workspace::WorkspaceConfig;
 
         #[cfg(not(target_arch = "wasm32"))]
         {
-            let dir = Self::workspace_dir();
-            let path = dir.join(format!("{name}.toml"));
+            let project_name = match project {
+                Some(p) => p,
+                None => {
+                    log::error!("Cannot load workspace '{name}' without a project");
+                    self.notifications.notify(Notification::new(
+                        format!("Cannot load workspace '{name}': no project specified"),
+                        NotificationLevel::Error,
+                    ));
+                    return;
+                }
+            };
+            let path = enya_config::resolve_project_workspace_path(project_name, name);
 
             match WorkspaceConfig::load(&path) {
                 Ok(workspace_config) => {
@@ -181,16 +178,19 @@ impl EnyaApp {
                         }
                     }
 
-                    // Track the loaded workspace name
+                    // Track the loaded workspace name and project
                     self.workspace.set_loaded_name(Some(name.to_string()));
+                    self.workspace
+                        .set_loaded_project(Some(project_name.to_string()));
 
                     // Add to recent workspaces
                     self.state.settings.add_recent_workspace(
                         name.to_string(),
                         workspace_config.workspace.description.clone(),
+                        project_name.to_string(),
                     );
 
-                    log::info!("Workspace loaded: {name}");
+                    log::info!("Workspace loaded: {name} (project: {project_name})");
                 }
                 Err(e) => {
                     log::error!("Failed to load workspace '{name}': {e}");
@@ -198,16 +198,14 @@ impl EnyaApp {
                     self.state
                         .settings
                         .recent_workspaces
-                        .retain(|w| w.name != name);
-                    for project in &mut self.state.settings.projects {
-                        project.workspace_names.retain(|w| w != name);
-                    }
+                        .retain(|w| !(w.name == name && w.project == project_name));
                 }
             }
         }
 
         #[cfg(target_arch = "wasm32")]
         {
+            let _ = project;
             // On web, first check for built-in workspaces, then try base64
             let workspace_result = if name == "quick-start" {
                 WorkspaceConfig::from_toml(crate::workspace::GOLDEN_SIGNALS_TOML)
@@ -247,6 +245,7 @@ impl EnyaApp {
                     self.state.settings.add_recent_workspace(
                         workspace_config.workspace.name.clone(),
                         workspace_config.workspace.description.clone(),
+                        "Tutorial".to_string(),
                     );
                 }
                 Err(e) => {
@@ -680,43 +679,25 @@ impl EnyaApp {
     pub(super) fn list_workspaces(&mut self) {
         #[cfg(not(target_arch = "wasm32"))]
         {
-            let dir = Self::workspace_dir();
-            match std::fs::read_dir(&dir) {
-                Ok(entries) => {
-                    let workspaces: Vec<String> = entries
-                        .filter_map(|e| e.ok())
-                        .filter_map(|e| {
-                            let path = e.path();
-                            if path.extension().is_some_and(|ext| ext == "toml") {
-                                path.file_stem()
-                                    .and_then(|s| s.to_str())
-                                    .map(|s| s.to_string())
-                            } else {
-                                None
-                            }
-                        })
-                        .collect();
-
-                    if workspaces.is_empty() {
-                        self.notifications.notify(Notification::new(
-                            format!("No workspaces found in {}", dir.display()),
-                            NotificationLevel::Info,
-                        ));
-                    } else {
-                        let list = workspaces.join(", ");
-                        log::debug!("Available workspaces: {list}");
-                        self.notifications.notify(Notification::new(
-                            format!("Workspaces: {list}"),
-                            NotificationLevel::Info,
-                        ));
-                    }
+            let projects = enya_config::list_projects();
+            if projects.is_empty() {
+                self.notifications.notify(Notification::new(
+                    "No projects found".to_string(),
+                    NotificationLevel::Info,
+                ));
+            } else {
+                let mut parts = Vec::new();
+                for project in &projects {
+                    let workspaces = enya_config::list_project_workspaces(project);
+                    let ws_names: Vec<_> = workspaces.iter().map(|(n, _)| n.as_str()).collect();
+                    parts.push(format!("{project}: {}", ws_names.join(", ")));
                 }
-                Err(e) => {
-                    self.notifications.notify(Notification::new(
-                        format!("Failed to list workspaces: {e}"),
-                        NotificationLevel::Error,
-                    ));
-                }
+                let list = parts.join(" | ");
+                log::debug!("Available workspaces: {list}");
+                self.notifications.notify(Notification::new(
+                    format!("Workspaces: {list}"),
+                    NotificationLevel::Info,
+                ));
             }
         }
 

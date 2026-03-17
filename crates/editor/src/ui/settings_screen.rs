@@ -148,9 +148,9 @@ pub struct AppSettings {
     /// How often to automatically fetch new commits from the remote repository
     #[serde(default)]
     pub git_sync_interval: GitSyncInterval,
-    /// Projects that group workspaces together in the sidebar.
-    #[serde(default)]
-    pub projects: Vec<ProjectEntry>,
+    /// Legacy field — projects are now filesystem-based. Kept for serde compat.
+    #[serde(default, skip_serializing)]
+    _projects: Vec<serde::de::IgnoredAny>,
     /// Port for the embedded OTLP HTTP receiver (default: 4318).
     /// Changes take effect on next app launch.
     #[serde(default = "default_otlp_port")]
@@ -275,19 +275,9 @@ pub struct WorkspaceEntry {
     pub description: String,
     /// Unix timestamp of when it was last accessed
     pub timestamp: i64,
-}
-
-/// A project that groups related workspaces together.
-#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
-pub struct ProjectEntry {
-    /// Display name for the project.
-    pub name: String,
-    /// Workspace names assigned to this project.
+    /// Project this workspace belongs to
     #[serde(default)]
-    pub workspace_names: Vec<String>,
-    /// Whether the project section is collapsed in the sidebar.
-    #[serde(default)]
-    pub collapsed: bool,
+    pub project: String,
 }
 
 impl AppSettings {
@@ -318,12 +308,13 @@ impl AppSettings {
         self.recent_plots.truncate(Self::MAX_RECENT_PLOTS);
     }
 
-    /// Add a recent workspace entry, updating timestamp if it already exists
-    pub fn add_recent_workspace(&mut self, name: String, description: String) {
+    /// Add a recent workspace entry, updating timestamp if it already exists.
+    pub fn add_recent_workspace(&mut self, name: String, description: String, project: String) {
         let timestamp = crate::util::now_unix_secs();
 
-        // Remove existing entry with same name
-        self.recent_workspaces.retain(|w| w.name != name);
+        // Remove existing entry with same name in same project
+        self.recent_workspaces
+            .retain(|w| !(w.name == name && w.project == project));
 
         // Add new entry at the front
         self.recent_workspaces.insert(
@@ -332,6 +323,7 @@ impl AppSettings {
                 name,
                 description,
                 timestamp,
+                project,
             },
         );
 
@@ -339,117 +331,54 @@ impl AppSettings {
         self.recent_workspaces.truncate(Self::MAX_RECENT_WORKSPACES);
     }
 
-    /// Remove recent workspace entries whose `.toml` files no longer exist on disk,
-    /// and clean up stale workspace names from projects.
+    /// Remove recent workspace entries whose `.toml` files no longer exist on disk.
     #[cfg(not(target_arch = "wasm32"))]
     pub fn prune_stale_workspaces(&mut self) {
-        let dir = enya_config::workspace_dir();
-        let exists = |name: &str| dir.join(format!("{name}.toml")).exists();
-
         let before = self.recent_workspaces.len();
-        self.recent_workspaces.retain(|w| exists(&w.name));
+        self.recent_workspaces
+            .retain(|w| enya_config::resolve_project_workspace_path(&w.project, &w.name).exists());
         let pruned = before - self.recent_workspaces.len();
-
-        // Also remove stale names from project groupings
-        for project in &mut self.projects {
-            project.workspace_names.retain(|n| exists(n));
-        }
 
         if pruned > 0 {
             log::info!("Pruned {pruned} stale workspace(s) from recent list");
         }
     }
 
-    /// Create a new project. No-op if a project with the same name already exists.
-    pub fn create_project(&mut self, name: String) {
-        if self.projects.iter().any(|p| p.name == name) {
-            return;
-        }
-        self.projects.push(ProjectEntry {
-            name,
-            workspace_names: Vec::new(),
-            collapsed: false,
-        });
-    }
-
-    /// Assign a workspace to a project, removing it from any other project first.
-    pub fn add_workspace_to_project(&mut self, project: &str, workspace: &str) {
-        // Remove from all projects first
-        for p in &mut self.projects {
-            p.workspace_names.retain(|w| w != workspace);
-        }
-        // Add to the target project
-        if let Some(p) = self.projects.iter_mut().find(|p| p.name == project) {
-            p.workspace_names.push(workspace.to_string());
-        }
-    }
-
-    /// Toggle the collapsed state of a project.
-    pub fn toggle_project_collapsed(&mut self, project: &str) {
-        if let Some(p) = self.projects.iter_mut().find(|p| p.name == project) {
-            p.collapsed = !p.collapsed;
-        }
-    }
-
-    /// Delete a project. Workspaces become ungrouped (not deleted).
-    pub fn delete_project(&mut self, project: &str) {
-        self.projects.retain(|p| p.name != project);
-    }
-
     /// Canonical list of built-in tutorial workspaces.
     /// Names must match the files written by `ensure_default_workspace()`.
-    const TUTORIAL_WORKSPACES: &[(&str, &str)] = &[
+    pub const TUTORIAL_WORKSPACES: &[(&str, &str)] = &[
         ("quick-start", "The 4 golden signals at a glance"),
         ("infra", "CPU, memory, and system health"),
         ("logs-and-traces", "Explore logs and distributed traces"),
     ];
 
-    /// Ensure the tutorial project and its workspaces exist for new users.
-    ///
-    /// Creates a "Tutorial" project containing the built-in example workspaces
-    /// and adds them to `recent_workspaces` so they appear in the sidebar.
-    ///
-    /// On WASM, this also cleans up non-tutorial workspaces and rebuilds the
-    /// project to ensure only the canonical set is shown in the demo.
+    /// Ensure tutorial workspaces are in recent_workspaces so they appear in the sidebar.
     pub fn ensure_tutorial_project(&mut self) {
-        let tutorial_names: Vec<String> = Self::TUTORIAL_WORKSPACES
-            .iter()
-            .map(|&(n, _)| n.to_string())
-            .collect();
-
         // On WASM, always rebuild from scratch to guarantee a clean demo
         // experience regardless of any persisted data in localStorage.
         #[cfg(target_arch = "wasm32")]
         {
-            // Remove any non-tutorial workspaces from recent list
+            let tutorial_names: Vec<String> = Self::TUTORIAL_WORKSPACES
+                .iter()
+                .map(|&(n, _)| n.to_string())
+                .collect();
             self.recent_workspaces
                 .retain(|w| tutorial_names.contains(&w.name));
-
-            // Remove ALL projects (Tutorial will be recreated below with canonical list,
-            // and any user-created projects like "test" are cleaned up)
-            self.projects.clear();
         }
 
-        // Ensure all tutorial workspaces are in recent_workspaces
+        // Ensure all tutorial workspaces are in recent_workspaces with correct project
         for &(name, desc) in Self::TUTORIAL_WORKSPACES {
-            if !self.recent_workspaces.iter().any(|w| w.name == name) {
+            if let Some(existing) = self.recent_workspaces.iter_mut().find(|w| w.name == name) {
+                // Fix project field on entries from before the project migration
+                existing.project = "Tutorial".to_string();
+            } else {
                 self.recent_workspaces.push(WorkspaceEntry {
                     name: name.to_string(),
                     description: desc.to_string(),
-                    timestamp: 0, // Old timestamp so they sort last
+                    timestamp: 0,
+                    project: "Tutorial".to_string(),
                 });
             }
-        }
-
-        // Create or update the Tutorial project with the canonical workspace list
-        if let Some(tutorial) = self.projects.iter_mut().find(|p| p.name == "Tutorial") {
-            tutorial.workspace_names = tutorial_names;
-        } else {
-            self.projects.push(ProjectEntry {
-                name: "Tutorial".to_string(),
-                workspace_names: tutorial_names,
-                collapsed: false,
-            });
         }
     }
 }

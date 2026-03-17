@@ -23,6 +23,7 @@ use crate::util::Instant;
 #[derive(Clone)]
 pub struct SidebarWorkspaceItem {
     pub name: String,
+    pub project: String,
     pub description: Option<String>,
     /// Unix timestamp of last access (0 if unknown).
     pub last_accessed: i64,
@@ -38,6 +39,7 @@ enum SidebarNavItem {
     },
     Workspace {
         name: String,
+        project: String,
         /// Extra left indent when inside a project.
         indented: bool,
     },
@@ -47,11 +49,15 @@ enum SidebarNavItem {
 pub enum ProjectSidebarResult {
     None,
     /// Load a workspace and unfocus the sidebar (click or Enter).
-    LoadWorkspace(String),
+    LoadWorkspace {
+        name: String,
+        project: String,
+    },
     /// Load a workspace but keep sidebar focused (j/k navigation).
-    PreviewWorkspace(String),
-    /// Create an empty workspace (no wizard).
-    CreateEmptyWorkspace,
+    PreviewWorkspace {
+        name: String,
+        project: String,
+    },
     /// Create an empty workspace inside a specific project (no wizard).
     CreateEmptyWorkspaceInProject(String),
     /// Toggle a project section's collapsed state.
@@ -60,7 +66,12 @@ pub enum ProjectSidebarResult {
     CreateProject,
     OpenSettings,
     /// Archive (delete) a workspace.
-    ArchiveWorkspace(String),
+    ArchiveWorkspace {
+        name: String,
+        project: String,
+    },
+    /// Delete an entire project and all its workspaces.
+    DeleteProject(String),
     /// Sidebar lost focus — return keyboard control to workspace
     Unfocused,
     /// User clicked the close button — hide the sidebar.
@@ -82,6 +93,10 @@ pub struct ProjectSidebar {
     /// Keyboard selection index within `nav_items`.
     selected_index: usize,
     last_scan: Option<Instant>,
+    /// Projects whose workspace lists are collapsed in the sidebar.
+    collapsed_projects: FxHashSet<String>,
+    /// Project awaiting delete confirmation (shown as a y/n dialog).
+    pending_delete_project: Option<String>,
 }
 
 impl Default for ProjectSidebar {
@@ -101,6 +116,8 @@ impl ProjectSidebar {
             nav_items: Vec::new(),
             selected_index: 0,
             last_scan: None,
+            collapsed_projects: FxHashSet::default(),
+            pending_delete_project: None,
         }
     }
 
@@ -145,6 +162,13 @@ impl ProjectSidebar {
         self.active_workspace = name.map(|s| s.to_string());
     }
 
+    /// Toggle whether a project's workspace list is collapsed in the sidebar.
+    pub fn toggle_project_collapsed(&mut self, project: &str) {
+        if !self.collapsed_projects.remove(project) {
+            self.collapsed_projects.insert(project.to_string());
+        }
+    }
+
     /// Rebuild just the nav items from current workspaces + settings.
     /// Cheap operation — no filesystem scan. Use after toggling project
     /// collapse or creating/deleting projects.
@@ -172,13 +196,16 @@ impl ProjectSidebar {
         self.last_scan = Some(now);
 
         let mut items: Vec<SidebarWorkspaceItem> = Vec::new();
-        let mut seen = FxHashSet::default();
+        // Track (project, name) pairs to deduplicate
+        let mut seen: FxHashSet<(String, String)> = FxHashSet::default();
 
-        // Recent workspaces first (most recently used order)
+        // Recent workspaces first (most recently used order) — they carry project info
         for entry in &settings.recent_workspaces {
-            if seen.insert(entry.name.clone()) {
+            let key = (entry.project.clone(), entry.name.clone());
+            if seen.insert(key) {
                 items.push(SidebarWorkspaceItem {
                     name: entry.name.clone(),
+                    project: entry.project.clone(),
                     description: if entry.description.is_empty() {
                         None
                     } else {
@@ -192,14 +219,19 @@ impl ProjectSidebar {
         // Filesystem workspaces not already in the recent list
         #[cfg(not(target_arch = "wasm32"))]
         {
-            let available = enya_config::list_workspaces();
-            for (name, description) in available {
-                if seen.insert(name.clone()) {
-                    items.push(SidebarWorkspaceItem {
-                        name,
-                        description,
-                        last_accessed: 0,
-                    });
+            let projects = enya_config::list_projects();
+            for project in projects {
+                let ws_list = enya_config::list_project_workspaces(&project);
+                for (name, description) in ws_list {
+                    let key = (project.clone(), name.clone());
+                    if seen.insert(key) {
+                        items.push(SidebarWorkspaceItem {
+                            name,
+                            project: project.clone(),
+                            description,
+                            last_accessed: 0,
+                        });
+                    }
                 }
             }
         }
@@ -211,68 +243,54 @@ impl ProjectSidebar {
     }
 
     /// Build the flat `nav_items` list from projects + workspaces.
-    fn rebuild_nav_items(&mut self, settings: &AppSettings) {
+    fn rebuild_nav_items(&mut self, _settings: &AppSettings) {
         let mut nav = Vec::new();
-        let mut grouped = FxHashSet::default();
 
-        // All known workspace names (for checking existence)
-        let known: FxHashSet<&str> = self.workspaces.iter().map(|w| w.name.as_str()).collect();
+        // Collect project names from filesystem (native) or hardcoded (WASM)
+        #[cfg(not(target_arch = "wasm32"))]
+        let project_names = enya_config::list_projects();
+        #[cfg(target_arch = "wasm32")]
+        let project_names = vec!["Tutorial".to_string()];
 
-        for project in &settings.projects {
+        for project_name in &project_names {
             // On native, hide the Tutorial project unless a tutorial workspace is active.
             // On WASM, always show it since tutorials are the primary content.
             #[cfg(not(target_arch = "wasm32"))]
-            if project.name == "Tutorial" {
-                let tutorial_active = self
-                    .active_workspace
-                    .as_ref()
-                    .is_some_and(|active| project.workspace_names.contains(active));
+            if project_name == "Tutorial" {
+                let tutorial_active = self.active_workspace.as_ref().is_some_and(|active| {
+                    self.workspaces
+                        .iter()
+                        .any(|w| w.project == "Tutorial" && w.name == *active)
+                });
                 if !tutorial_active {
-                    for ws_name in &project.workspace_names {
-                        grouped.insert(ws_name.clone());
-                    }
                     continue;
                 }
             }
 
-            // Only count workspaces that actually exist
-            let existing: Vec<&str> = project
-                .workspace_names
+            // Filter workspaces belonging to this project, sorted by name for stable order
+            let mut project_workspaces: Vec<&SidebarWorkspaceItem> = self
+                .workspaces
                 .iter()
-                .filter(|w| known.contains(w.as_str()))
-                .map(|w| w.as_str())
+                .filter(|w| w.project == *project_name)
                 .collect();
+            project_workspaces.sort_by(|a, b| a.name.cmp(&b.name));
+
+            let collapsed = self.collapsed_projects.contains(project_name);
 
             nav.push(SidebarNavItem::ProjectHeader {
-                name: project.name.clone(),
-                workspace_count: existing.len(),
-                collapsed: project.collapsed,
+                name: project_name.clone(),
+                workspace_count: project_workspaces.len(),
+                collapsed,
             });
 
-            if !project.collapsed {
-                for ws_name in &existing {
-                    grouped.insert(ws_name.to_string());
+            if !collapsed {
+                for ws in &project_workspaces {
                     nav.push(SidebarNavItem::Workspace {
-                        name: ws_name.to_string(),
+                        name: ws.name.clone(),
+                        project: ws.project.clone(),
                         indented: true,
                     });
                 }
-            } else {
-                // Still mark them as grouped even when collapsed
-                for ws_name in &existing {
-                    grouped.insert(ws_name.to_string());
-                }
-            }
-        }
-
-        // Ungrouped workspaces (native only — on WASM only project-grouped tutorials are shown)
-        #[cfg(not(target_arch = "wasm32"))]
-        for ws in &self.workspaces {
-            if !grouped.contains(&ws.name) {
-                nav.push(SidebarNavItem::Workspace {
-                    name: ws.name.clone(),
-                    indented: false,
-                });
             }
         }
 
@@ -356,8 +374,23 @@ impl ProjectSidebar {
             self.selected_index = nav_count - 1;
         }
 
+        // ── Confirmation dialog keyboard handling (always active) ────
+        if self.pending_delete_project.is_some() {
+            ctx.input_mut(|input| {
+                if input.consume_key(egui::Modifiers::NONE, egui::Key::Y) {
+                    if let Some(name) = self.pending_delete_project.take() {
+                        result = ProjectSidebarResult::DeleteProject(name);
+                    }
+                } else if input.consume_key(egui::Modifiers::NONE, egui::Key::N)
+                    || input.consume_key(egui::Modifiers::NONE, egui::Key::Escape)
+                {
+                    self.pending_delete_project = None;
+                }
+            });
+        }
+
         // ── Keyboard handling (only when sidebar has focus) ──────────
-        if self.has_focus && !ctx.wants_keyboard_input() {
+        if self.has_focus && !ctx.wants_keyboard_input() && self.pending_delete_project.is_none() {
             let kb_result = self.handle_keyboard(ctx);
             if !matches!(kb_result, ProjectSidebarResult::None) {
                 result = kb_result;
@@ -458,8 +491,15 @@ impl ProjectSidebar {
                                     result = action;
                                 }
                             }
-                            SidebarNavItem::Workspace { name, indented } => {
-                                let ws = self.workspaces.iter().find(|w| w.name == *name);
+                            SidebarNavItem::Workspace {
+                                name,
+                                project,
+                                indented,
+                            } => {
+                                let ws = self
+                                    .workspaces
+                                    .iter()
+                                    .find(|w| w.name == *name && w.project == *project);
                                 let is_active =
                                     self.active_workspace.as_deref().is_some_and(|a| a == name);
 
@@ -486,6 +526,85 @@ impl ProjectSidebar {
 
         // ── Footer ──────────────────────────────────────────────────
         self.render_footer(ui, &mut result, text_tertiary);
+
+        // ── Delete project confirmation dialog ───────────────────────
+        if let Some(project_name) = &self.pending_delete_project {
+            let project_name = project_name.clone();
+            let ws_count = self
+                .workspaces
+                .iter()
+                .filter(|w| w.project == project_name)
+                .count();
+
+            // Backdrop
+            egui::Area::new(egui::Id::new("project_delete_backdrop"))
+                .anchor(egui::Align2::LEFT_TOP, [0.0, 0.0])
+                .order(egui::Order::Foreground)
+                .interactable(false)
+                .show(ctx, |ui| {
+                    let screen = ctx.available_rect();
+                    ui.painter()
+                        .rect_filled(screen, 0.0, Color32::from_black_alpha(180));
+                });
+
+            // Dialog
+            egui::Area::new(egui::Id::new("project_delete_dialog"))
+                .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+                .order(egui::Order::Foreground)
+                .show(ctx, |ui| {
+                    let dialog_width = 340.0;
+                    let dialog_height = 130.0;
+
+                    egui::Frame::new()
+                        .fill(self.theme.bg_elevated())
+                        .corner_radius(8.0)
+                        .stroke(egui::Stroke::new(
+                            1.0,
+                            accent.gamma_multiply(0.5),
+                        ))
+                        .inner_margin(20.0)
+                        .show(ui, |ui| {
+                            ui.set_width(dialog_width - 40.0);
+                            ui.set_height(dialog_height - 40.0);
+
+                            ui.vertical_centered(|ui| {
+                                ui.label(
+                                    RichText::new(format!("Delete \"{project_name}\"?"))
+                                        .color(text_primary)
+                                        .font(typography::proportional(typography::LG)),
+                                );
+                                ui.add_space(6.0);
+                                let desc = if ws_count == 1 {
+                                    "This will remove the project and its 1 workspace.".to_string()
+                                } else {
+                                    format!(
+                                        "This will remove the project and its {ws_count} workspaces."
+                                    )
+                                };
+                                ui.label(
+                                    RichText::new(desc)
+                                        .color(text_tertiary)
+                                        .font(typography::proportional(typography::SM)),
+                                );
+                                ui.add_space(14.0);
+                                ui.horizontal(|ui| {
+                                    ui.add_space(50.0);
+                                    ui.label(
+                                        RichText::new("[y] confirm")
+                                            .color(accent)
+                                            .font(typography::monospace(typography::SM)),
+                                    );
+                                    ui.add_space(24.0);
+                                    ui.label(
+                                        RichText::new("[n] cancel")
+                                            .color(text_tertiary)
+                                            .font(typography::monospace(typography::SM)),
+                                    );
+                                });
+                            });
+                        });
+                });
+        }
 
         result
     }
@@ -566,8 +685,29 @@ impl ProjectSidebar {
                         SidebarNavItem::ProjectHeader { name, .. } => {
                             result = ProjectSidebarResult::ToggleProjectCollapse(name.clone());
                         }
-                        SidebarNavItem::Workspace { name, .. } => {
-                            result = ProjectSidebarResult::LoadWorkspace(name.clone());
+                        SidebarNavItem::Workspace { name, project, .. } => {
+                            result = ProjectSidebarResult::LoadWorkspace {
+                                name: name.clone(),
+                                project: project.clone(),
+                            };
+                        }
+                    }
+                }
+            }
+
+            // d — delete (project header: confirm dialog, workspace: immediate)
+            #[cfg(not(target_arch = "wasm32"))]
+            if input.consume_key(egui::Modifiers::NONE, egui::Key::D) {
+                if let Some(item) = self.nav_items.get(self.selected_index) {
+                    match item {
+                        SidebarNavItem::ProjectHeader { name, .. } => {
+                            self.pending_delete_project = Some(name.clone());
+                        }
+                        SidebarNavItem::Workspace { name, project, .. } => {
+                            result = ProjectSidebarResult::ArchiveWorkspace {
+                                name: name.clone(),
+                                project: project.clone(),
+                            };
                         }
                     }
                 }
@@ -576,10 +716,13 @@ impl ProjectSidebar {
 
         // When selection moves to a workspace, preview it (load but keep focus)
         if selection_moved {
-            if let Some(SidebarNavItem::Workspace { name, .. }) =
+            if let Some(SidebarNavItem::Workspace { name, project, .. }) =
                 self.nav_items.get(self.selected_index)
             {
-                result = ProjectSidebarResult::PreviewWorkspace(name.clone());
+                result = ProjectSidebarResult::PreviewWorkspace {
+                    name: name.clone(),
+                    project: project.clone(),
+                };
             }
         }
 
@@ -589,7 +732,7 @@ impl ProjectSidebar {
     /// Render a project header row.
     #[allow(clippy::too_many_arguments)]
     fn render_project_header(
-        &self,
+        &mut self,
         ui: &mut egui::Ui,
         name: &str,
         workspace_count: usize,
@@ -660,9 +803,10 @@ impl ProjectSidebar {
         // ── Right side: workspace count badge + "+" button on hover ──
         let right_edge = rect.max.x - 10.0;
 
-        // "+" button (visible on hover or selected, native only — hidden on WASM demo)
+        // Action buttons (visible on hover or selected, native only)
         #[cfg(not(target_arch = "wasm32"))]
         if hovered || is_selected {
+            // "+" button (rightmost)
             let plus_x = right_edge;
             let plus_rect = egui::Rect::from_center_size(
                 egui::pos2(plus_x - 6.0, rect.center().y),
@@ -688,14 +832,39 @@ impl ProjectSidebar {
             if plus_response.hovered() {
                 ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
             }
+
+            // Delete button (left of "+")
+            let delete_rect = egui::Rect::from_center_size(
+                egui::pos2(plus_x - 24.0, rect.center().y),
+                Vec2::new(18.0, 18.0),
+            );
+            let delete_response = ui.interact(
+                delete_rect,
+                ui.id().with(("project_delete", name)),
+                egui::Sense::click(),
+            );
+            ui.painter().text(
+                delete_rect.center(),
+                egui::Align2::CENTER_CENTER,
+                semantic_icons::action::DELETE,
+                egui::FontId::proportional(12.0),
+                text_tertiary.gamma_multiply(0.5),
+            );
+            if delete_response.clicked() {
+                self.pending_delete_project = Some(name.to_string());
+            }
+            if delete_response.hovered() {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                delete_response.on_hover_text("Delete project");
+            }
         }
 
         // Workspace count badge
         if workspace_count > 0 {
-            // On native, shift badge left when "+" button is visible (hover/selected)
+            // On native, shift badge left when action buttons are visible (hover/selected)
             #[cfg(not(target_arch = "wasm32"))]
             let badge_x = if hovered || is_selected {
-                right_edge - 24.0
+                right_edge - 42.0
             } else {
                 right_edge
             };
@@ -819,7 +988,10 @@ impl ProjectSidebar {
                 text_tertiary.gamma_multiply(0.5),
             );
             if archive_btn.clicked() {
-                return Some(ProjectSidebarResult::ArchiveWorkspace(item.name.clone()));
+                return Some(ProjectSidebarResult::ArchiveWorkspace {
+                    name: item.name.clone(),
+                    project: item.project.clone(),
+                });
             }
             if archive_btn.hovered() {
                 ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
@@ -845,7 +1017,10 @@ impl ProjectSidebar {
         }
 
         if response.clicked() {
-            return Some(ProjectSidebarResult::LoadWorkspace(item.name.clone()));
+            return Some(ProjectSidebarResult::LoadWorkspace {
+                name: item.name.clone(),
+                project: item.project.clone(),
+            });
         }
 
         None

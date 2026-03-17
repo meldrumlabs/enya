@@ -1,38 +1,85 @@
-//! Workspace directory discovery and listing (native only).
+//! Project and workspace directory discovery and listing (native only).
 
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::{Path, PathBuf};
 
 use crate::WorkspaceConfig;
 
-/// Get the workspace directory path (`~/.enya/workspaces/`).
+/// Get the Enya data directory (`~/.enya/`).
 ///
 /// Creates the directory if it doesn't exist.
-pub fn workspace_dir() -> PathBuf {
+pub fn enya_dir() -> PathBuf {
     let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-    let dir = PathBuf::from(&home).join(".enya").join("workspaces");
+    let dir = PathBuf::from(&home).join(".enya");
     let _ = std::fs::create_dir_all(&dir);
     dir
 }
 
-/// Resolve a workspace name to a file path.
+/// Get the projects directory (`~/.enya/projects/`).
 ///
-/// If the input is already a path to an existing file, returns it directly.
-/// Otherwise, resolves the name in the workspace directory as `{name}.toml`.
-pub fn resolve_workspace_path(name_or_path: &str) -> PathBuf {
-    let path = PathBuf::from(name_or_path);
-    if path.exists() {
-        return path;
-    }
-    workspace_dir().join(format!("{name_or_path}.toml"))
+/// Creates the directory if it doesn't exist.
+pub fn projects_dir() -> PathBuf {
+    let dir = enya_dir().join("projects");
+    let _ = std::fs::create_dir_all(&dir);
+    dir
 }
 
-/// List available workspaces from the workspace directory.
+/// Get the workspace directory for a project (`~/.enya/projects/{project}/workspaces/`).
+///
+/// Creates the directory if it doesn't exist.
+pub fn project_workspace_dir(project: &str) -> PathBuf {
+    let dir = projects_dir().join(project).join("workspaces");
+    let _ = std::fs::create_dir_all(&dir);
+    dir
+}
+
+/// Get the conversations directory for a workspace within a project.
+///
+/// Returns `~/.enya/projects/{project}/conversations/{workspace}/`.
+/// Falls back to a `"default"` workspace key when none is provided.
+/// Creates the directory if it doesn't exist.
+pub fn project_conversations_dir(project: &str, workspace: Option<&str>) -> PathBuf {
+    let key = workspace.unwrap_or("default");
+    let dir = projects_dir().join(project).join("conversations").join(key);
+    let _ = std::fs::create_dir_all(&dir);
+    dir
+}
+
+/// Resolve a workspace name to a file path within a project.
+///
+/// Returns `~/.enya/projects/{project}/workspaces/{name}.toml`.
+pub fn resolve_project_workspace_path(project: &str, name: &str) -> PathBuf {
+    project_workspace_dir(project).join(format!("{name}.toml"))
+}
+
+/// List all projects (subdirectories of `~/.enya/projects/`).
+///
+/// Returns a sorted list of project names.
+pub fn list_projects() -> Vec<String> {
+    let dir = projects_dir();
+    let mut projects = Vec::new();
+
+    if let Ok(entries) = std::fs::read_dir(&dir) {
+        for entry in entries.filter_map(|e| e.ok()) {
+            let path = entry.path();
+            if path.is_dir() {
+                if let Some(name) = path.file_name().and_then(|s| s.to_str()) {
+                    projects.push(name.to_string());
+                }
+            }
+        }
+    }
+
+    projects.sort();
+    projects
+}
+
+/// List available workspaces for a project.
 ///
 /// Returns a sorted list of `(name, description)` tuples for each `.toml`
-/// file found in the workspace directory.
-pub fn list_workspaces() -> Vec<(String, Option<String>)> {
-    let dir = workspace_dir();
+/// file found in the project's workspace directory.
+pub fn list_project_workspaces(project: &str) -> Vec<(String, Option<String>)> {
+    let dir = project_workspace_dir(project);
     let mut workspaces = Vec::new();
 
     if let Ok(entries) = std::fs::read_dir(&dir) {
@@ -60,20 +107,23 @@ pub fn list_workspaces() -> Vec<(String, Option<String>)> {
     workspaces
 }
 
+/// Create a project directory structure.
+///
+/// Creates `~/.enya/projects/{project}/workspaces/` (and conversations dir).
+pub fn create_project_dir(project: &str) {
+    let _ = std::fs::create_dir_all(project_workspace_dir(project));
+}
+
+/// Delete a project directory and all its contents.
+pub fn delete_project_dir(project: &str) {
+    let dir = projects_dir().join(project);
+    let _ = std::fs::remove_dir_all(dir);
+}
+
 /// Get the Enya daemon config file path (`~/.enya/config.toml`).
 pub fn config_path() -> PathBuf {
     let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
     PathBuf::from(&home).join(".enya").join("config.toml")
-}
-
-/// Get the Enya data directory (`~/.enya/`).
-///
-/// Creates the directory if it doesn't exist.
-pub fn enya_dir() -> PathBuf {
-    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-    let dir = PathBuf::from(&home).join(".enya");
-    let _ = std::fs::create_dir_all(&dir);
-    dir
 }
 
 /// Get the user plugins directory (`~/.enya/plugins/`).
@@ -105,15 +155,4 @@ pub fn index_dir(repo_path: &Path) -> PathBuf {
 
     let key = format!("{repo_name}-{hash:016x}");
     enya_dir().join("indexes").join(key)
-}
-
-/// Get the conversations directory for a workspace (`~/.enya/conversations/{key}/`).
-///
-/// Uses the workspace name as subdirectory key, falling back to `"default"`.
-/// Creates the directory if it doesn't exist.
-pub fn conversations_dir(workspace_name: Option<&str>) -> PathBuf {
-    let key = workspace_name.unwrap_or("default");
-    let dir = enya_dir().join("conversations").join(key);
-    let _ = std::fs::create_dir_all(&dir);
-    dir
 }

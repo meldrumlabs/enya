@@ -4,6 +4,20 @@ All notable changes to the Enya editor will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- **Project-based workspace storage**: Workspaces are now stored under project directories (`~/.enya/projects/{project}/workspaces/`) instead of a flat `~/.enya/workspaces/` directory. Every workspace belongs to a project. Conversations are similarly scoped to `~/.enya/projects/{project}/conversations/{workspace}/`. Projects are discovered from the filesystem — no separate config needed.
+
+### Added
+
+- **Project deletion**: Hover a project header in the sidebar to reveal a delete button. Confirms with a y/n dialog before removing the project directory and all its workspaces and conversations.
+
+### Fixed
+
+- **Sidebar workspace ordering**: Workspaces within a project are now sorted alphabetically so loading a workspace no longer shuffles the sidebar list.
+- **WASM tutorial visibility**: Tutorial workspaces now correctly appear under the "Tutorial" project header on WASM.
+- **Project collapse toggle lag**: Toggling a project's collapsed state in the sidebar is now instant instead of delayed by the 2-second filesystem scan cooldown.
+
 ### Added
 
 - **Pie chart visualization**: New donut-style pie chart for proportional data with interactive hover, segment explosion, center total/detail display, and a scrollable legend. Available via the `cv` keybinding cycle or `set_visualization` command with `"pie_chart"` / `"pie"` / `"donut"`.

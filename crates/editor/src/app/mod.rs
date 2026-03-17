@@ -1024,7 +1024,7 @@ impl EnyaApp {
         // On native, load startup workspace on first frame if specified via CLI
         #[cfg(not(target_arch = "wasm32"))]
         if let Some(ws_name) = self.startup_workspace.take() {
-            self.load_workspace(&ws_name);
+            self.load_workspace(&ws_name, None);
         }
 
         // On native, fetch startup snapshot on first frame if specified via deep link or CLI
@@ -1039,31 +1039,33 @@ impl EnyaApp {
             self.checked_url_workspace = true;
             // Check for full workspace first, then single pane
             if let Some(workspace_param) = Self::get_url_workspace_param() {
-                self.load_workspace(&workspace_param);
+                self.load_workspace(&workspace_param, None);
             } else if let Some(pane_param) = Self::get_url_pane_param() {
                 // Single pane uses the same decoder (returns a single-pane workspace)
-                self.load_workspace(&pane_param);
+                self.load_workspace(&pane_param, None);
             } else if let Some(snapshot_id) = Self::get_url_snapshot_param() {
                 // Blob snapshot: async fetch from server, then decode and load
                 self.fetch_snapshot(ctx, &snapshot_id);
             }
         }
 
-        // Auto-restore last workspace on startup if user has created their own projects
-        // (skip landing page). The built-in "Tutorial" project doesn't count.
+        // Auto-restore last workspace on startup if user has recent workspaces.
+        // Skip if only Tutorial workspaces exist.
         if !self.checked_auto_restore {
             self.checked_auto_restore = true;
-            let has_user_projects = self
-                .state
-                .settings
-                .projects
-                .iter()
-                .any(|p| p.name != "Tutorial");
-            if self.workspace.is_landing_page()
-                && has_user_projects
-                && !self.state.settings.recent_workspaces.is_empty()
+            #[cfg(not(target_arch = "wasm32"))]
             {
-                self.load_workspace(&self.state.settings.recent_workspaces[0].name.clone());
+                let has_user_projects =
+                    enya_config::list_projects().iter().any(|p| p != "Tutorial");
+                if self.workspace.is_landing_page()
+                    && has_user_projects
+                    && !self.state.settings.recent_workspaces.is_empty()
+                {
+                    let recent = &self.state.settings.recent_workspaces[0];
+                    let name = recent.name.clone();
+                    let project = recent.project.clone();
+                    self.load_workspace(&name, Some(&project));
+                }
             }
         }
 
@@ -1134,34 +1136,26 @@ impl EnyaApp {
 
         // Handle sidebar results (after CentralPanel so we can mutate app state)
         match sidebar_result {
-            crate::components::ProjectSidebarResult::LoadWorkspace(name) => {
+            crate::components::ProjectSidebarResult::LoadWorkspace { name, project } => {
                 self.project_sidebar.unfocus();
-                self.load_workspace(&name);
+                self.load_workspace(&name, Some(&project));
             }
-            crate::components::ProjectSidebarResult::PreviewWorkspace(name) => {
-                self.load_workspace(&name);
+            crate::components::ProjectSidebarResult::PreviewWorkspace { name, project } => {
+                self.load_workspace(&name, Some(&project));
             }
-            crate::components::ProjectSidebarResult::CreateEmptyWorkspace => {
-                let name = self.next_untitled_workspace_name();
-                self.save_workspace(Some(&name));
-                self.load_workspace(&name);
-                self.project_sidebar.force_rescan();
-                self.project_sidebar
-                    .refresh_workspaces(&self.state.settings);
-            }
-            crate::components::ProjectSidebarResult::CreateEmptyWorkspaceInProject(project) => {
-                let name = self.next_untitled_workspace_name();
-                self.save_workspace(Some(&name));
-                self.state
-                    .settings
-                    .add_workspace_to_project(&project, &name);
-                self.load_workspace(&name);
-                self.project_sidebar.force_rescan();
-                self.project_sidebar
-                    .refresh_workspaces(&self.state.settings);
+            crate::components::ProjectSidebarResult::CreateEmptyWorkspaceInProject(_project) => {
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    let name = self.next_untitled_workspace_name(&_project);
+                    self.save_workspace(Some(&name), Some(&_project));
+                    self.load_workspace(&name, Some(&_project));
+                    self.project_sidebar.force_rescan();
+                    self.project_sidebar
+                        .refresh_workspaces(&self.state.settings);
+                }
             }
             crate::components::ProjectSidebarResult::ToggleProjectCollapse(name) => {
-                self.state.settings.toggle_project_collapsed(&name);
+                self.project_sidebar.toggle_project_collapsed(&name);
                 self.project_sidebar.rebuild(&self.state.settings);
             }
             crate::components::ProjectSidebarResult::CreateProject => {
@@ -1183,18 +1177,39 @@ impl EnyaApp {
                 self.project_sidebar.unfocus();
                 self.state.ui_state = UIState::Settings;
             }
-            crate::components::ProjectSidebarResult::ArchiveWorkspace(name) => {
+            crate::components::ProjectSidebarResult::ArchiveWorkspace { name, project } => {
                 self.state
                     .settings
                     .recent_workspaces
-                    .retain(|w| w.name != name);
-                for project in &mut self.state.settings.projects {
-                    project.workspace_names.retain(|w| w != &name);
-                }
+                    .retain(|w| !(w.name == name && w.project == project));
                 #[cfg(not(target_arch = "wasm32"))]
                 {
-                    let path = enya_config::resolve_workspace_path(&name);
+                    let path = enya_config::resolve_project_workspace_path(&project, &name);
                     let _ = std::fs::remove_file(path);
+                }
+                self.project_sidebar.force_rescan();
+                self.project_sidebar
+                    .refresh_workspaces(&self.state.settings);
+            }
+            crate::components::ProjectSidebarResult::DeleteProject(project) => {
+                // Remove all workspaces belonging to this project from recent list
+                self.state
+                    .settings
+                    .recent_workspaces
+                    .retain(|w| w.project != project);
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    enya_config::delete_project_dir(&project);
+                }
+                // If the currently loaded workspace was in this project, clear it
+                #[cfg(not(target_arch = "wasm32"))]
+                if self
+                    .workspace
+                    .loaded_project()
+                    .is_some_and(|p| p == project)
+                {
+                    self.workspace.set_loaded_name(None);
+                    self.workspace.set_loaded_project(None);
                 }
                 self.project_sidebar.force_rescan();
                 self.project_sidebar
@@ -1316,7 +1331,7 @@ impl EnyaApp {
                 #[cfg(target_arch = "wasm32")]
                 {
                     if project.is_none() {
-                        self.save_workspace(name.as_deref());
+                        self.save_workspace(name.as_deref(), None);
                     } else if let Some(ref ws_name) = name {
                         self.workspace.set_loaded_name(Some(ws_name.clone()));
                         self.notifications.notify(Notification::new(
@@ -1329,19 +1344,14 @@ impl EnyaApp {
                     }
                 }
                 #[cfg(not(target_arch = "wasm32"))]
-                self.save_workspace(name.as_deref());
-                if let Some(project_name) = project {
-                    // Create the project if it doesn't exist yet
-                    self.state.settings.create_project(project_name.clone());
-                    let ws = name
-                        .as_deref()
-                        .or(self.workspace.loaded_name())
-                        .map(|s| s.to_string());
-                    if let Some(ws) = ws {
-                        self.state
-                            .settings
-                            .add_workspace_to_project(&project_name, &ws);
+                {
+                    // Create the project directory if specified
+                    if let Some(ref project_name) = project {
+                        enya_config::create_project_dir(project_name);
                     }
+                    self.save_workspace(name.as_deref(), project.as_deref());
+                }
+                if project.is_some() {
                     // Refresh sidebar to show new project
                     self.project_sidebar.force_rescan();
                     self.project_sidebar
@@ -1371,8 +1381,8 @@ impl EnyaApp {
                     }
                 }
             }
-            WorkspaceAction::LoadWorkspace(name) => {
-                self.load_workspace(&name);
+            WorkspaceAction::LoadWorkspace { name, project } => {
+                self.load_workspace(&name, project.as_deref());
             }
             WorkspaceAction::ListWorkspaces => {
                 self.list_workspaces();
@@ -1511,10 +1521,23 @@ impl EnyaApp {
 
                 self.state.previous_ui_state = self.state.ui_state;
                 self.state.ui_state = UIState::Settings;
-                let available_workspaces: Vec<String> = Self::list_available_workspaces()
-                    .into_iter()
-                    .map(|(name, _)| name)
-                    .collect();
+                let available_workspaces: Vec<String> = {
+                    #[cfg(not(target_arch = "wasm32"))]
+                    {
+                        enya_config::list_projects()
+                            .into_iter()
+                            .flat_map(|p| {
+                                enya_config::list_project_workspaces(&p)
+                                    .into_iter()
+                                    .map(|(name, _)| name)
+                            })
+                            .collect()
+                    }
+                    #[cfg(target_arch = "wasm32")]
+                    {
+                        Vec::new()
+                    }
+                };
 
                 self.settings_page.open(
                     self.state.settings.ai_provider,

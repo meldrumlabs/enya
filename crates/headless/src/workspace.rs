@@ -1,23 +1,43 @@
 use console::style;
 use enya_config::{
-    PaneConfig, WorkspaceConfig, list_workspaces, resolve_workspace_path, workspace_dir,
+    PaneConfig, WorkspaceConfig, list_project_workspaces, list_projects,
+    resolve_project_workspace_path,
 };
+
 use serde::Serialize;
 
 use crate::Result;
 use crate::query::{promql, time};
+
+/// Resolve a workspace path: if `name` is an absolute path (or ends with
+/// `.toml`), treat it as a direct file path; otherwise look it up inside the
+/// project directory.
+fn resolve_workspace_path(name: &str, project: &str) -> std::path::PathBuf {
+    let p = std::path::Path::new(name);
+    if p.is_absolute() || name.ends_with(".toml") {
+        p.to_path_buf()
+    } else {
+        resolve_project_workspace_path(project, name)
+    }
+}
 
 // -- Result types -------------------------------------------------------------
 
 #[derive(Serialize)]
 pub struct InitResult {
     pub name: String,
+    pub project: String,
     pub path: String,
 }
 
 #[derive(Serialize)]
 pub struct ListResult {
-    pub dir: String,
+    pub projects: Vec<ProjectListEntry>,
+}
+
+#[derive(Serialize)]
+pub struct ProjectListEntry {
+    pub name: String,
     pub workspaces: Vec<WorkspaceEntry>,
 }
 
@@ -92,6 +112,7 @@ pub fn init_core(
     endpoint: Option<&str>,
     template: Option<&str>,
     output: Option<&str>,
+    project: Option<&str>,
 ) -> Result<InitResult> {
     let name = name.unwrap_or_else(|| {
         std::env::current_dir()
@@ -102,7 +123,10 @@ pub fn init_core(
 
     let path = match output {
         Some(o) => std::path::PathBuf::from(o),
-        None => workspace_dir().join(format!("{name}.toml")),
+        None => {
+            let project = project.ok_or("--project is required when not using --output")?;
+            resolve_project_workspace_path(project, &name)
+        }
     };
 
     if path.exists() {
@@ -128,29 +152,37 @@ pub fn init_core(
     ws.save(&path)?;
     Ok(InitResult {
         name,
+        project: project.unwrap_or("").to_string(),
         path: path.display().to_string(),
     })
 }
 
 pub fn list_core() -> ListResult {
-    let dir = workspace_dir();
-    let workspaces = list_workspaces();
+    let projects = list_projects();
     ListResult {
-        dir: dir.display().to_string(),
-        workspaces: workspaces
+        projects: projects
             .into_iter()
-            .map(|(name, description)| WorkspaceEntry { name, description })
+            .map(|project_name| {
+                let workspaces = list_project_workspaces(&project_name);
+                ProjectListEntry {
+                    name: project_name,
+                    workspaces: workspaces
+                        .into_iter()
+                        .map(|(name, description)| WorkspaceEntry { name, description })
+                        .collect(),
+                }
+            })
             .collect(),
     }
 }
 
-pub fn show_core(name: &str) -> Result<WorkspaceConfig> {
-    let path = resolve_workspace_path(name);
+pub fn show_core(name: &str, project: &str) -> Result<WorkspaceConfig> {
+    let path = resolve_workspace_path(name, project);
     Ok(WorkspaceConfig::load(&path)?)
 }
 
-pub fn rm_core(name: &str) -> Result<RmResult> {
-    let path = resolve_workspace_path(name);
+pub fn rm_core(name: &str, project: &str) -> Result<RmResult> {
+    let path = resolve_workspace_path(name, project);
     if !path.exists() {
         return Err(format!("workspace not found: {}", path.display()).into());
     }
@@ -160,8 +192,8 @@ pub fn rm_core(name: &str) -> Result<RmResult> {
     })
 }
 
-pub fn get_core(name: &str, key: &str) -> Result<GetResult> {
-    let path = resolve_workspace_path(name);
+pub fn get_core(name: &str, key: &str, project: &str) -> Result<GetResult> {
+    let path = resolve_workspace_path(name, project);
     let ws = WorkspaceConfig::load(&path)?;
     let value = ws.get_value(key)?;
     Ok(GetResult {
@@ -171,8 +203,8 @@ pub fn get_core(name: &str, key: &str) -> Result<GetResult> {
     })
 }
 
-pub fn set_core(name: &str, key: &str, value: &str) -> Result<SetResult> {
-    let path = resolve_workspace_path(name);
+pub fn set_core(name: &str, key: &str, value: &str, project: &str) -> Result<SetResult> {
+    let path = resolve_workspace_path(name, project);
     let mut ws = WorkspaceConfig::load(&path)?;
     ws.set_value(key, value)?;
     ws.save(&path)?;
@@ -183,8 +215,8 @@ pub fn set_core(name: &str, key: &str, value: &str) -> Result<SetResult> {
     })
 }
 
-pub fn add_pane_core(params: &AddPaneParams<'_>) -> Result<AddPaneResult> {
-    let path = resolve_workspace_path(params.name);
+pub fn add_pane_core(params: &AddPaneParams<'_>, project: &str) -> Result<AddPaneResult> {
+    let path = resolve_workspace_path(params.name, project);
     let mut ws = WorkspaceConfig::load(&path)?;
 
     let mut pane = PaneConfig::new(params.query);
@@ -217,8 +249,8 @@ pub fn add_pane_core(params: &AddPaneParams<'_>) -> Result<AddPaneResult> {
     })
 }
 
-pub fn remove_pane_core(name: &str, pane: &str) -> Result<RemovePaneResult> {
-    let path = resolve_workspace_path(name);
+pub fn remove_pane_core(name: &str, pane: &str, project: &str) -> Result<RemovePaneResult> {
+    let path = resolve_workspace_path(name, project);
     let mut ws = WorkspaceConfig::load(&path)?;
 
     let idx = ws
@@ -243,13 +275,19 @@ pub fn init(
     endpoint: Option<&str>,
     template: Option<&str>,
     output: Option<&str>,
+    project: Option<&str>,
     json: bool,
 ) -> Result {
-    let result = init_core(name, endpoint, template, output)?;
+    let result = init_core(name, endpoint, template, output, project)?;
     if json {
         println!("{}", serde_json::to_string(&result)?);
     } else {
-        println!("{} {}", style("Created").green(), result.path);
+        println!(
+            "{} {} (project: {})",
+            style("Created").green(),
+            result.path,
+            result.project
+        );
     }
     Ok(())
 }
@@ -262,26 +300,32 @@ pub fn list(json: bool) -> Result {
         return Ok(());
     }
 
-    if result.workspaces.is_empty() {
-        println!("No workspaces found in {}", result.dir);
+    if result.projects.is_empty() {
+        println!("No projects found");
         return Ok(());
     }
 
-    println!(
-        "{}\n",
-        style(format!("Workspaces in {}:", result.dir)).bold()
-    );
-    for entry in &result.workspaces {
-        match &entry.description {
-            Some(desc) => println!("  {:20} {}", style(&entry.name).bold(), style(desc).dim()),
-            None => println!("  {}", style(&entry.name).bold()),
+    for project in &result.projects {
+        println!("{}", style(format!("{}:", project.name)).bold());
+        if project.workspaces.is_empty() {
+            println!("  (no workspaces)");
+        } else {
+            for entry in &project.workspaces {
+                match &entry.description {
+                    Some(desc) => {
+                        println!("  {:20} {}", style(&entry.name).bold(), style(desc).dim())
+                    }
+                    None => println!("  {}", style(&entry.name).bold()),
+                }
+            }
         }
+        println!();
     }
     Ok(())
 }
 
-pub fn show(name: &str, json: bool) -> Result {
-    let ws = show_core(name)?;
+pub fn show(name: &str, project: &str, json: bool) -> Result {
+    let ws = show_core(name, project)?;
 
     if json {
         println!("{}", serde_json::to_string(&ws)?);
@@ -328,8 +372,8 @@ pub fn show(name: &str, json: bool) -> Result {
     Ok(())
 }
 
-pub fn rm(name: &str, json: bool) -> Result {
-    let result = rm_core(name)?;
+pub fn rm(name: &str, project: &str, json: bool) -> Result {
+    let result = rm_core(name, project)?;
     if json {
         println!("{}", serde_json::to_string(&result)?);
     } else {
@@ -338,8 +382,8 @@ pub fn rm(name: &str, json: bool) -> Result {
     Ok(())
 }
 
-pub fn get(name: &str, key: &str, json: bool) -> Result {
-    let result = get_core(name, key)?;
+pub fn get(name: &str, key: &str, project: &str, json: bool) -> Result {
+    let result = get_core(name, key, project)?;
     if json {
         println!("{}", serde_json::to_string(&result)?);
     } else {
@@ -348,8 +392,8 @@ pub fn get(name: &str, key: &str, json: bool) -> Result {
     Ok(())
 }
 
-pub fn set(name: &str, key: &str, value: &str, json: bool) -> Result {
-    let result = set_core(name, key, value)?;
+pub fn set(name: &str, key: &str, value: &str, project: &str, json: bool) -> Result {
+    let result = set_core(name, key, value, project)?;
     if json {
         println!("{}", serde_json::to_string(&result)?);
     } else {
@@ -358,8 +402,8 @@ pub fn set(name: &str, key: &str, value: &str, json: bool) -> Result {
     Ok(())
 }
 
-pub fn add_pane(params: &AddPaneParams<'_>, json: bool) -> Result {
-    let result = add_pane_core(params)?;
+pub fn add_pane(params: &AddPaneParams<'_>, project: &str, json: bool) -> Result {
+    let result = add_pane_core(params, project)?;
     if json {
         println!("{}", serde_json::to_string(&result)?);
     } else {
@@ -369,8 +413,8 @@ pub fn add_pane(params: &AddPaneParams<'_>, json: bool) -> Result {
     Ok(())
 }
 
-pub fn remove_pane(name: &str, pane: &str, json: bool) -> Result {
-    let result = remove_pane_core(name, pane)?;
+pub fn remove_pane(name: &str, pane: &str, project: &str, json: bool) -> Result {
+    let result = remove_pane_core(name, pane, project)?;
     if json {
         println!("{}", serde_json::to_string(&result)?);
     } else {
@@ -443,9 +487,10 @@ pub fn snapshot_cmd(
     name: &str,
     endpoint: Option<&str>,
     output: Option<&str>,
+    project: &str,
     json: bool,
 ) -> Result {
-    let path = resolve_workspace_path(name);
+    let path = resolve_workspace_path(name, project);
     let ws = WorkspaceConfig::load(&path)?;
 
     let base_url = promql::resolve_endpoint(endpoint, Some(name))?;

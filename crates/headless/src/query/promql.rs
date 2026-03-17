@@ -1,4 +1,6 @@
-use enya_config::{WorkspaceConfig, resolve_workspace_path};
+use enya_config::{
+    WorkspaceConfig, list_project_workspaces, list_projects, resolve_project_workspace_path,
+};
 use serde::{Deserialize, Serialize};
 
 use super::format;
@@ -86,12 +88,21 @@ pub fn resolve_endpoint(endpoint: Option<&str>, workspace_name: Option<&str>) ->
         return Ok(normalize_url(ep));
     }
     if let Some(ws_name) = workspace_name {
-        let path = resolve_workspace_path(ws_name);
-        let ws = WorkspaceConfig::load(&path)?;
-        if let Some(ep) = ws.effective_endpoint() {
-            return Ok(normalize_url(ep));
+        // Search across all projects to find the workspace
+        for project in list_projects() {
+            if list_project_workspaces(&project)
+                .iter()
+                .any(|(n, _)| n == ws_name)
+            {
+                let path = resolve_project_workspace_path(&project, ws_name);
+                let ws = WorkspaceConfig::load(&path)?;
+                if let Some(ep) = ws.effective_endpoint() {
+                    return Ok(normalize_url(ep));
+                }
+                return Err("workspace has no metrics endpoint configured".into());
+            }
         }
-        return Err("workspace has no metrics endpoint configured".into());
+        return Err(format!("workspace not found: {ws_name}").into());
     }
     if let Ok(ep) = std::env::var("ENYA_PROMETHEUS_URL") {
         return Ok(normalize_url(&ep));

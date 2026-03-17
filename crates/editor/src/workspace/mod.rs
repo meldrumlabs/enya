@@ -128,8 +128,11 @@ pub enum WorkspaceAction {
         project: Option<String>,
         flight_sql_endpoint: Option<String>,
     },
-    /// Load workspace by name
-    LoadWorkspace(String),
+    /// Load workspace by name (with optional project)
+    LoadWorkspace {
+        name: String,
+        project: Option<String>,
+    },
     /// Start creating a new project in the sidebar
     CreateProject,
     /// List available workspaces
@@ -207,6 +210,8 @@ pub struct Workspace {
     show_landing: bool,
     /// Name of the currently loaded workspace (filename stem, e.g. "my-workspace")
     pub(crate) loaded_name: Option<String>,
+    /// Project the currently loaded workspace belongs to
+    pub(crate) loaded_project: Option<String>,
     /// State for leader key sequences (t, Space, y, c)
     leader_keys: LeaderKeyState,
     /// Info overlay (shows build/version info)
@@ -403,6 +408,7 @@ impl Workspace {
             landing_page: LandingPage::new(),
             show_landing: true, // Start with landing page
             loaded_name: None,
+            loaded_project: None,
             leader_keys: LeaderKeyState::new(),
             info_overlay: InfoOverlay::new(enya_build_info::build_info!()),
             about_overlay: AboutOverlay::new(),
@@ -507,7 +513,19 @@ impl Workspace {
     pub(crate) fn set_loaded_name(&mut self, name: Option<String>) {
         self.loaded_name = name.clone();
         #[cfg(not(target_arch = "wasm32"))]
-        self.agent_panel.set_conversation_workspace_name(name);
+        self.agent_panel
+            .set_conversation_scope(name, self.loaded_project.clone());
+    }
+
+    /// Get the project of the currently loaded workspace.
+    pub fn loaded_project(&self) -> Option<&str> {
+        self.loaded_project.as_deref()
+    }
+
+    /// Set the project for the currently loaded workspace.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) fn set_loaded_project(&mut self, project: Option<String>) {
+        self.loaded_project = project;
     }
 
     /// Whether the workspace has any panes.
@@ -650,7 +668,10 @@ impl Workspace {
 
         // Handle pending workspace load from agent command
         if let Some(name) = self.pending_load_workspace.take() {
-            return WorkspaceAction::LoadWorkspace(name);
+            return WorkspaceAction::LoadWorkspace {
+                name,
+                project: None,
+            };
         }
 
         // Check auto-refresh timer and trigger refresh if due
