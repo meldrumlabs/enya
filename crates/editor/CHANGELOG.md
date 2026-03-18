@@ -4,6 +4,8 @@ All notable changes to the Enya editor will be documented in this file.
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-03-18
+
 ### Changed
 
 - **Project-based workspace storage**: Workspaces are now stored under project directories (`~/.enya/projects/{project}/workspaces/`) instead of a flat `~/.enya/workspaces/` directory. Every workspace belongs to a project. Conversations are similarly scoped to `~/.enya/projects/{project}/conversations/{workspace}/`. Projects are discovered from the filesystem — no separate config needed.
