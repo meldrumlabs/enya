@@ -1,0 +1,84 @@
+<!DOCTYPE html><html lang="en" dir="ltr" data-theme="dark" data-has-hero class="astro-bguv2lll"> <head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/><title>404 | Enya</title><link rel="canonical" href="https://enya.build/404/"/><link rel="sitemap" href="/sitemap-index.xml"/><link rel="shortcut icon" href="/favicon.ico" type="image/x-icon"/><meta name="generator" content="Astro v5.16.2"/><meta name="generator" content="Starlight v0.35.3"/><meta property="og:title" content="404"/><meta property="og:type" content="article"/><meta property="og:url" content="https://enya.build/404/"/><meta property="og:locale" content="en"/><meta property="og:description" content="Enya"/><meta property="og:site_name" content="Enya"/><meta name="twitter:card" content="summary_large_image"/><meta name="description" content="Enya"/><meta property="og:image" content="https://enya.build/img/enya.png"/><meta property="og:image:alt" content="Enya"/><script>
+    (function() {
+        // Determine theme: localStorage > system preference > dark default
+        function getPreferredTheme() {
+            var saved = localStorage.getItem('site-theme');
+            if (saved === 'light' || saved === 'dark') return saved;
+            if (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) {
+                return 'light';
+            }
+            return 'dark';
+        }
+
+        function applyTheme(theme) {
+            document.documentElement.dataset.siteTheme = theme;
+            // Starlight uses data-theme="light" for its light theme (which we override via CSS).
+            // Keep it as "light" always so Starlight doesn't inject its own dark styles.
+            document.documentElement.dataset.theme = 'light';
+        }
+
+        // Apply immediately to prevent flash (no transition class yet)
+        applyTheme(getPreferredTheme());
+
+        // Enable smooth transitions after first paint to avoid flash-of-transition on load
+        if (document.readyState === 'complete') {
+            document.documentElement.classList.add('theme-transition');
+        } else {
+            window.addEventListener('load', function() {
+                // Small delay to ensure initial paint is done
+                requestAnimationFrame(function() {
+                    document.documentElement.classList.add('theme-transition');
+                });
+            });
+        }
+
+        // Global toggle function
+        window.toggleTheme = function() {
+            var current = document.documentElement.dataset.siteTheme || 'dark';
+            var next = current === 'dark' ? 'light' : 'dark';
+            localStorage.setItem('site-theme', next);
+
+            // Animate toggle icons
+            document.querySelectorAll('.theme-toggle').forEach(function(btn) {
+                btn.classList.add('animating');
+                btn.setAttribute('aria-label', next === 'dark' ? 'Switch to light mode' : 'Switch to dark mode');
+            });
+
+            // Apply theme (colors transition smoothly via CSS)
+            applyTheme(next);
+
+            // Remove animation class after transition completes
+            setTimeout(function() {
+                document.querySelectorAll('.theme-toggle').forEach(function(btn) {
+                    btn.classList.remove('animating');
+                });
+            }, 300);
+        };
+
+        // Listen for system preference changes (only if no saved preference)
+        if (window.matchMedia) {
+            window.matchMedia('(prefers-color-scheme: light)').addEventListener('change', function(e) {
+                if (!localStorage.getItem('site-theme')) {
+                    applyTheme(e.matches ? 'light' : 'dark');
+                }
+            });
+        }
+    })();
+</script><link rel="stylesheet" href="/_astro/print.DNXP8c50.css" media="print"><link rel="stylesheet" href="/_astro/index.CponbvSx.css">
+<style>html[data-site-theme=light]{--obsidian-base: #FBFBFC;--obsidian-surface: #F2F3F5;--obsidian-elevated: #EAEBEE;--obsidian-hover: #E2E4E8;--obsidian-active: #D8DAE0;--obsidian-selected: #ECFDF5;--obsidian-border-subtle: #E2E4E8;--obsidian-border-default: #D2D4DA;--obsidian-border-focus: #A7F3D0;--obsidian-text-primary: #111318;--obsidian-text-secondary: #4B505C;--obsidian-text-tertiary: #707682;--obsidian-text-disabled: #9CA0AA;--obsidian-accent: #10B981;--obsidian-accent-hover: #059669;--obsidian-accent-muted: #ECFDF5;--obsidian-accent-glow: rgba(16, 185, 129, .08);--sl-color-white: #FBFBFC;--sl-color-gray-1: #F2F3F5;--sl-color-gray-2: #EAEBEE;--sl-color-gray-3: #D2D4DA;--sl-color-gray-4: #707682;--sl-color-gray-5: #4B505C;--sl-color-gray-6: #111318;--sl-color-black: #111318;--sl-color-text: #111318;--sl-color-text-accent: #111318;--sl-color-bg: #FBFBFC;--sl-color-bg-nav: #FBFBFC;--sl-color-bg-sidebar: #FBFBFC;--sl-color-bg-inline-code: #F2F3F5;--sl-color-hairline: #D2D4DA;--sl-color-hairline-light: #E2E4E8;--sl-color-hairline-shade: #707682;--sl-image-bg-color: #FBFBFC;--sl-social-icon-color: #4B505C;--sl-social-icon-hover-color: #111318}html.theme-transition,html.theme-transition *,html.theme-transition *:before,html.theme-transition *:after{transition:background-color .2s ease,color .2s ease,border-color .2s ease,box-shadow .2s ease,fill .2s ease!important}.theme-toggle svg{transition:transform .3s ease,opacity .2s ease}.theme-toggle.animating .theme-icon-sun{transform:rotate(180deg) scale(0);opacity:0}.theme-toggle.animating .theme-icon-moon{transform:rotate(-180deg) scale(0);opacity:0}
+</style><script type="module" src="/_astro/page.CeFg0eVk.js"></script></head> <body class="astro-bguv2lll"> <a href="#_top" class="astro-7q3lir66">Skip to content</a>  <div class="page sl-flex astro-4toy2ex6"> <header class="header astro-4toy2ex6"><div class="header astro-3ef6ksr2"> <div class="title-wrapper sl-flex astro-3ef6ksr2"> <a href="/" class="site-title sl-flex astro-m46x6ez3">  <span class="astro-m46x6ez3" translate="no"> Enya </span> </a>  </div> <div class="sl-hidden md:sl-flex right-group print:hidden astro-3ef6ksr2"> <div class="search-wrapper print:hidden astro-3ef6ksr2"> <site-search class="astro-3ef6ksr2 astro-v37mnknz" data-translations="{&#34;placeholder&#34;:&#34;Search&#34;}"> <button data-open-modal disabled aria-label="Search" aria-keyshortcuts="Control+K" class="astro-v37mnknz"> <svg aria-hidden="true" class="astro-v37mnknz astro-c6vsoqas" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1em;"><path d="M21.71 20.29 18 16.61A9 9 0 1 0 16.61 18l3.68 3.68a.999.999 0 0 0 1.42 0 1 1 0 0 0 0-1.39ZM11 18a7 7 0 1 1 0-14 7 7 0 0 1 0 14Z"/></svg> <span class="sl-hidden md:sl-block astro-v37mnknz" aria-hidden="true">Search</span> <kbd class="sl-hidden md:sl-flex astro-v37mnknz" style="display: none;"> <kbd class="astro-v37mnknz">Ctrl</kbd><kbd class="astro-v37mnknz">K</kbd> </kbd> </button> <dialog style="padding:0" aria-label="Search" class="astro-v37mnknz"> <div class="dialog-frame sl-flex astro-v37mnknz">  <button data-close-modal class="sl-flex md:sl-hidden astro-v37mnknz"> Cancel </button> <div class="search-container astro-v37mnknz"> <div id="starlight__search" class="astro-v37mnknz"></div> </div> </div> </dialog> </site-search>  <script>
+	(() => {
+		const openBtn = document.querySelector('button[data-open-modal]');
+		const shortcut = openBtn?.querySelector('kbd');
+		if (!openBtn || !(shortcut instanceof HTMLElement)) return;
+		const platformKey = shortcut.querySelector('kbd');
+		if (platformKey && /(Mac|iPhone|iPod|iPad)/i.test(navigator.platform)) {
+			platformKey.textContent = '⌘';
+			openBtn.setAttribute('aria-keyshortcuts', 'Meta+K');
+		}
+		shortcut.style.display = '';
+	})();
+</script> <script type="module" src="/_astro/Search.astro_astro_type_script_index_0_lang.ZeYNpLV4.js"></script>   </div> <div class="sl-flex header-links astro-3ef6ksr2"> <a href="https://github.com/meldrumlabs/enya" target="_blank" rel="noopener noreferrer" class="header-link astro-3ef6ksr2">github</a> <button class="theme-toggle astro-3ef6ksr2" onclick="toggleTheme()" aria-label="Switch to light mode"> <svg class="theme-icon theme-icon-sun astro-3ef6ksr2" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5" class="astro-3ef6ksr2"></circle><line x1="12" y1="1" x2="12" y2="3" class="astro-3ef6ksr2"></line><line x1="12" y1="21" x2="12" y2="23" class="astro-3ef6ksr2"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64" class="astro-3ef6ksr2"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78" class="astro-3ef6ksr2"></line><line x1="1" y1="12" x2="3" y2="12" class="astro-3ef6ksr2"></line><line x1="21" y1="12" x2="23" y2="12" class="astro-3ef6ksr2"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36" class="astro-3ef6ksr2"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22" class="astro-3ef6ksr2"></line></svg> <svg class="theme-icon theme-icon-moon astro-3ef6ksr2" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" class="astro-3ef6ksr2"></path></svg> </button> <a href="/download" class="header-download astro-3ef6ksr2"> <svg class="header-download-icon astro-3ef6ksr2" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"> <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" class="astro-3ef6ksr2"></path> <polyline points="7 10 12 15 17 10" class="astro-3ef6ksr2"></polyline> <line x1="12" y1="15" x2="12" y2="3" class="astro-3ef6ksr2"></line> </svg>
+get
+</a> </div> </div> </div> </header>  <div class="main-frame astro-4toy2ex6">  <script type="module">const a=document.getElementById("starlight__sidebar"),n=a?.querySelector("sl-sidebar-state-persist"),o="sl-sidebar-state",i=()=>{let t=[];const e=n?.dataset.hash||"";try{const s=sessionStorage.getItem(o),r=JSON.parse(s||"{}");Array.isArray(r.open)&&r.hash===e&&(t=r.open)}catch{}return{hash:e,open:t,scroll:a?.scrollTop||0}},c=t=>{try{sessionStorage.setItem(o,JSON.stringify(t))}catch{}},d=()=>c(i()),l=(t,e)=>{const s=i();s.open[e]=t,c(s)};n?.addEventListener("click",t=>{if(!(t.target instanceof Element))return;const e=t.target.closest("summary")?.closest("details");if(!e)return;const s=e.querySelector("sl-sidebar-restore"),r=parseInt(s?.dataset.index||"");isNaN(r)||l(!e.open,r)});addEventListener("visibilitychange",()=>{document.visibilityState==="hidden"&&d()});addEventListener("pageHide",d);</script> <div class="lg:sl-flex astro-67yu43on">  <div class="main-pane astro-67yu43on">  <main class="astro-bguv2lll" lang="en" dir="ltr">   <div class="content-panel astro-7nkwcw3z"> <div class="sl-container astro-7nkwcw3z">  <div class="sl-markdown-content">  </div> <footer class="sl-flex astro-3yyafb3n"> <div class="meta sl-flex astro-3yyafb3n">   </div> <div class="pagination-links print:hidden astro-u2l5gyhi" dir="ltr">   </div>   </footer>  </div> </div>  </main> </div> </div>  </div> <div class="footer astro-sz7xmlte"> <div class="footer-content astro-sz7xmlte"> <div class="footer-icons astro-sz7xmlte"> <a href="https://github.com/meldrumlabs/enya" rel="me" class="sl-flex astro-dv46nlzh"><span class="sr-only astro-dv46nlzh">GitHub</span><span class="social-icon astro-dv46nlzh"><?xml version="1.0" encoding="UTF-8"?><svg id="Github" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><polygon points="23 9 23 15 22 15 22 17 21 17 21 19 20 19 20 20 19 20 19 21 18 21 18 22 16 22 16 23 15 23 15 18 14 18 14 17 15 17 15 16 17 16 17 15 18 15 18 14 19 14 19 9 18 9 18 6 16 6 16 7 15 7 15 8 14 8 14 7 10 7 10 8 9 8 9 7 8 7 8 6 6 6 6 9 5 9 5 14 6 14 6 15 7 15 7 16 9 16 9 18 7 18 7 17 6 17 6 16 4 16 4 17 5 17 5 19 6 19 6 20 9 20 9 23 8 23 8 22 6 22 6 21 5 21 5 20 4 20 4 19 3 19 3 17 2 17 2 15 1 15 1 9 2 9 2 7 3 7 3 5 4 5 4 4 5 4 5 3 7 3 7 2 9 2 9 1 15 1 15 2 17 2 17 3 19 3 19 4 20 4 20 5 21 5 21 7 22 7 22 9 23 9"/></svg></span></a> </div> <div class="copyright-wrapper sl-flex astro-sz7xmlte">
+© 2026 <a href="https://meldrumlabs.com" target="_blank" rel="noopener noreferrer" class="astro-sz7xmlte">Meldrum Labs</a> AB · MIT License · <a href="/privacy" class="astro-sz7xmlte">Privacy</a> </div> </div> </div>  </div>  </body></html>

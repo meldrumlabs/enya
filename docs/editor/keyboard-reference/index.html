@@ -1,0 +1,501 @@
+<!DOCTYPE html><html lang="en" dir="ltr" data-theme="dark" data-has-toc data-has-sidebar class="astro-bguv2lll"> <head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/><title>Keyboard Reference | Enya</title><link rel="canonical" href="https://enya.build/docs/editor/keyboard-reference/"/><link rel="sitemap" href="/sitemap-index.xml"/><link rel="shortcut icon" href="/favicon.ico" type="image/x-icon"/><meta name="generator" content="Astro v5.16.2"/><meta name="generator" content="Starlight v0.35.3"/><meta property="og:title" content="Keyboard Reference"/><meta property="og:type" content="article"/><meta property="og:url" content="https://enya.build/docs/editor/keyboard-reference/"/><meta property="og:locale" content="en"/><meta property="og:description" content="Complete keyboard shortcut reference for Enya"/><meta property="og:site_name" content="Enya"/><meta name="twitter:card" content="summary_large_image"/><meta name="description" content="Complete keyboard shortcut reference for Enya"/><meta property="og:image" content="https://enya.build/img/enya.png"/><meta property="og:image:alt" content="Enya"/><script>
+    (function() {
+        // Determine theme: localStorage > system preference > dark default
+        function getPreferredTheme() {
+            var saved = localStorage.getItem('site-theme');
+            if (saved === 'light' || saved === 'dark') return saved;
+            if (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) {
+                return 'light';
+            }
+            return 'dark';
+        }
+
+        function applyTheme(theme) {
+            document.documentElement.dataset.siteTheme = theme;
+            // Starlight uses data-theme="light" for its light theme (which we override via CSS).
+            // Keep it as "light" always so Starlight doesn't inject its own dark styles.
+            document.documentElement.dataset.theme = 'light';
+        }
+
+        // Apply immediately to prevent flash (no transition class yet)
+        applyTheme(getPreferredTheme());
+
+        // Enable smooth transitions after first paint to avoid flash-of-transition on load
+        if (document.readyState === 'complete') {
+            document.documentElement.classList.add('theme-transition');
+        } else {
+            window.addEventListener('load', function() {
+                // Small delay to ensure initial paint is done
+                requestAnimationFrame(function() {
+                    document.documentElement.classList.add('theme-transition');
+                });
+            });
+        }
+
+        // Global toggle function
+        window.toggleTheme = function() {
+            var current = document.documentElement.dataset.siteTheme || 'dark';
+            var next = current === 'dark' ? 'light' : 'dark';
+            localStorage.setItem('site-theme', next);
+
+            // Animate toggle icons
+            document.querySelectorAll('.theme-toggle').forEach(function(btn) {
+                btn.classList.add('animating');
+                btn.setAttribute('aria-label', next === 'dark' ? 'Switch to light mode' : 'Switch to dark mode');
+            });
+
+            // Apply theme (colors transition smoothly via CSS)
+            applyTheme(next);
+
+            // Remove animation class after transition completes
+            setTimeout(function() {
+                document.querySelectorAll('.theme-toggle').forEach(function(btn) {
+                    btn.classList.remove('animating');
+                });
+            }, 300);
+        };
+
+        // Listen for system preference changes (only if no saved preference)
+        if (window.matchMedia) {
+            window.matchMedia('(prefers-color-scheme: light)').addEventListener('change', function(e) {
+                if (!localStorage.getItem('site-theme')) {
+                    applyTheme(e.matches ? 'light' : 'dark');
+                }
+            });
+        }
+    })();
+</script><link rel="stylesheet" href="/_astro/print.DNXP8c50.css" media="print"><link rel="stylesheet" href="/_astro/index.CponbvSx.css">
+<style>html[data-site-theme=light]{--obsidian-base: #FBFBFC;--obsidian-surface: #F2F3F5;--obsidian-elevated: #EAEBEE;--obsidian-hover: #E2E4E8;--obsidian-active: #D8DAE0;--obsidian-selected: #ECFDF5;--obsidian-border-subtle: #E2E4E8;--obsidian-border-default: #D2D4DA;--obsidian-border-focus: #A7F3D0;--obsidian-text-primary: #111318;--obsidian-text-secondary: #4B505C;--obsidian-text-tertiary: #707682;--obsidian-text-disabled: #9CA0AA;--obsidian-accent: #10B981;--obsidian-accent-hover: #059669;--obsidian-accent-muted: #ECFDF5;--obsidian-accent-glow: rgba(16, 185, 129, .08);--sl-color-white: #FBFBFC;--sl-color-gray-1: #F2F3F5;--sl-color-gray-2: #EAEBEE;--sl-color-gray-3: #D2D4DA;--sl-color-gray-4: #707682;--sl-color-gray-5: #4B505C;--sl-color-gray-6: #111318;--sl-color-black: #111318;--sl-color-text: #111318;--sl-color-text-accent: #111318;--sl-color-bg: #FBFBFC;--sl-color-bg-nav: #FBFBFC;--sl-color-bg-sidebar: #FBFBFC;--sl-color-bg-inline-code: #F2F3F5;--sl-color-hairline: #D2D4DA;--sl-color-hairline-light: #E2E4E8;--sl-color-hairline-shade: #707682;--sl-image-bg-color: #FBFBFC;--sl-social-icon-color: #4B505C;--sl-social-icon-hover-color: #111318}html.theme-transition,html.theme-transition *,html.theme-transition *:before,html.theme-transition *:after{transition:background-color .2s ease,color .2s ease,border-color .2s ease,box-shadow .2s ease,fill .2s ease!important}.theme-toggle svg{transition:transform .3s ease,opacity .2s ease}.theme-toggle.animating .theme-icon-sun{transform:rotate(180deg) scale(0);opacity:0}.theme-toggle.animating .theme-icon-moon{transform:rotate(-180deg) scale(0);opacity:0}
+</style><script type="module" src="/_astro/page.CeFg0eVk.js"></script></head> <body class="astro-bguv2lll"> <a href="#_top" class="astro-7q3lir66">Skip to content</a>  <div class="page sl-flex astro-4toy2ex6" data-has-sidebar="true"> <header class="header astro-4toy2ex6"><div class="header astro-3ef6ksr2"> <div class="title-wrapper sl-flex astro-3ef6ksr2"> <a href="/" class="site-title sl-flex astro-m46x6ez3">  <span class="astro-m46x6ez3" translate="no"> Enya </span> </a>  </div> <div class="sl-hidden md:sl-flex right-group print:hidden astro-3ef6ksr2"> <div class="search-wrapper print:hidden astro-3ef6ksr2"> <site-search class="astro-3ef6ksr2 astro-v37mnknz" data-translations="{&#34;placeholder&#34;:&#34;Search&#34;}"> <button data-open-modal disabled aria-label="Search" aria-keyshortcuts="Control+K" class="astro-v37mnknz"> <svg aria-hidden="true" class="astro-v37mnknz astro-c6vsoqas" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1em;"><path d="M21.71 20.29 18 16.61A9 9 0 1 0 16.61 18l3.68 3.68a.999.999 0 0 0 1.42 0 1 1 0 0 0 0-1.39ZM11 18a7 7 0 1 1 0-14 7 7 0 0 1 0 14Z"/></svg> <span class="sl-hidden md:sl-block astro-v37mnknz" aria-hidden="true">Search</span> <kbd class="sl-hidden md:sl-flex astro-v37mnknz" style="display: none;"> <kbd class="astro-v37mnknz">Ctrl</kbd><kbd class="astro-v37mnknz">K</kbd> </kbd> </button> <dialog style="padding:0" aria-label="Search" class="astro-v37mnknz"> <div class="dialog-frame sl-flex astro-v37mnknz">  <button data-close-modal class="sl-flex md:sl-hidden astro-v37mnknz"> Cancel </button> <div class="search-container astro-v37mnknz"> <div id="starlight__search" class="astro-v37mnknz"></div> </div> </div> </dialog> </site-search>  <script>
+	(() => {
+		const openBtn = document.querySelector('button[data-open-modal]');
+		const shortcut = openBtn?.querySelector('kbd');
+		if (!openBtn || !(shortcut instanceof HTMLElement)) return;
+		const platformKey = shortcut.querySelector('kbd');
+		if (platformKey && /(Mac|iPhone|iPod|iPad)/i.test(navigator.platform)) {
+			platformKey.textContent = '⌘';
+			openBtn.setAttribute('aria-keyshortcuts', 'Meta+K');
+		}
+		shortcut.style.display = '';
+	})();
+</script> <script type="module" src="/_astro/Search.astro_astro_type_script_index_0_lang.ZeYNpLV4.js"></script>   </div> <div class="sl-flex header-links astro-3ef6ksr2"> <a href="https://github.com/meldrumlabs/enya" target="_blank" rel="noopener noreferrer" class="header-link astro-3ef6ksr2">github</a> <button class="theme-toggle astro-3ef6ksr2" onclick="toggleTheme()" aria-label="Switch to light mode"> <svg class="theme-icon theme-icon-sun astro-3ef6ksr2" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5" class="astro-3ef6ksr2"></circle><line x1="12" y1="1" x2="12" y2="3" class="astro-3ef6ksr2"></line><line x1="12" y1="21" x2="12" y2="23" class="astro-3ef6ksr2"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64" class="astro-3ef6ksr2"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78" class="astro-3ef6ksr2"></line><line x1="1" y1="12" x2="3" y2="12" class="astro-3ef6ksr2"></line><line x1="21" y1="12" x2="23" y2="12" class="astro-3ef6ksr2"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36" class="astro-3ef6ksr2"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22" class="astro-3ef6ksr2"></line></svg> <svg class="theme-icon theme-icon-moon astro-3ef6ksr2" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" class="astro-3ef6ksr2"></path></svg> </button> <a href="/download" class="header-download astro-3ef6ksr2"> <svg class="header-download-icon astro-3ef6ksr2" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"> <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" class="astro-3ef6ksr2"></path> <polyline points="7 10 12 15 17 10" class="astro-3ef6ksr2"></polyline> <line x1="12" y1="15" x2="12" y2="3" class="astro-3ef6ksr2"></line> </svg>
+get
+</a> </div> </div> </div> </header> <nav class="sidebar print:hidden astro-4toy2ex6" aria-label="Main"> <starlight-menu-button class="print:hidden astro-jif73yzw"> <button aria-expanded="false" aria-label="Menu" aria-controls="starlight__sidebar" class="sl-flex md:sl-hidden astro-jif73yzw"> <svg aria-hidden="true" class="open-menu astro-jif73yzw astro-c6vsoqas" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1em;"><path d="M3 8h18a1 1 0 1 0 0-2H3a1 1 0 0 0 0 2Zm18 8H3a1 1 0 0 0 0 2h18a1 1 0 0 0 0-2Zm0-5H3a1 1 0 0 0 0 2h18a1 1 0 0 0 0-2Z"/></svg> <svg aria-hidden="true" class="close-menu astro-jif73yzw astro-c6vsoqas" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1em;"><path d="m13.41 12 6.3-6.29a1.004 1.004 0 1 0-1.42-1.42L12 10.59l-6.29-6.3a1.004 1.004 0 0 0-1.42 1.42l6.3 6.29-6.3 6.29a1 1 0 0 0 0 1.42.998.998 0 0 0 1.42 0l6.29-6.3 6.29 6.3a.999.999 0 0 0 1.42 0 1 1 0 0 0 0-1.42L13.41 12Z"/></svg> </button> </starlight-menu-button> <script type="module">class s extends HTMLElement{constructor(){super(),this.btn=this.querySelector("button"),this.btn.addEventListener("click",()=>this.toggleExpanded());const t=this.closest("nav");t&&t.addEventListener("keyup",e=>this.closeOnEscape(e))}setExpanded(t){this.setAttribute("aria-expanded",String(t)),document.body.toggleAttribute("data-mobile-menu-expanded",t)}toggleExpanded(){this.setExpanded(this.getAttribute("aria-expanded")!=="true")}closeOnEscape(t){t.code==="Escape"&&(this.setExpanded(!1),this.btn.focus())}}customElements.define("starlight-menu-button",s);</script>   <div id="starlight__sidebar" class="sidebar-pane astro-4toy2ex6"> <div class="sidebar-content sl-flex astro-4toy2ex6"> <sl-sidebar-state-persist data-hash="0lvd183" class="astro-kku4brbg"> <script aria-hidden="true">
+		(() => {
+			try {
+				if (!matchMedia('(min-width: 50em)').matches) return;
+				/** @type {HTMLElement | null} */
+				const target = document.querySelector('sl-sidebar-state-persist');
+				const state = JSON.parse(sessionStorage.getItem('sl-sidebar-state') || '0');
+				if (!target || !state || target.dataset.hash !== state.hash) return;
+				window._starlightScrollRestore = state.scroll;
+				customElements.define(
+					'sl-sidebar-restore',
+					class SidebarRestore extends HTMLElement {
+						connectedCallback() {
+							try {
+								const idx = parseInt(this.dataset.index || '');
+								const details = this.closest('details');
+								if (details && typeof state.open[idx] === 'boolean') details.open = state.open[idx];
+							} catch {}
+						}
+					}
+				);
+			} catch {}
+		})();
+	</script>  <ul class="top-level astro-3ii7xxms"> <li class="astro-3ii7xxms"> <a href="/docs/getting-started/introduction/" aria-current="false" class="large astro-3ii7xxms"> <span class="astro-3ii7xxms">Getting Started</span>  </a> </li><li class="astro-3ii7xxms"> <a href="/docs/editor/keyboard-reference/" aria-current="page" class="large astro-3ii7xxms"> <span class="astro-3ii7xxms">Keyboard Reference</span>  </a> </li> </ul>   <script aria-hidden="true">
+		(() => {
+			const scroller = document.getElementById('starlight__sidebar');
+			if (!window._starlightScrollRestore || !scroller) return;
+			scroller.scrollTop = window._starlightScrollRestore;
+			delete window._starlightScrollRestore;
+		})();
+	</script> </sl-sidebar-state-persist>  <div class="md:sl-hidden"> <div class="mobile-preferences sl-flex astro-wu23bvmt"> <div class="social-icons astro-wu23bvmt"> <a href="https://github.com/meldrumlabs/enya" rel="me" class="sl-flex astro-dv46nlzh"><span class="sr-only astro-dv46nlzh">GitHub</span><span class="social-icon astro-dv46nlzh"><?xml version="1.0" encoding="UTF-8"?><svg id="Github" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><polygon points="23 9 23 15 22 15 22 17 21 17 21 19 20 19 20 20 19 20 19 21 18 21 18 22 16 22 16 23 15 23 15 18 14 18 14 17 15 17 15 16 17 16 17 15 18 15 18 14 19 14 19 9 18 9 18 6 16 6 16 7 15 7 15 8 14 8 14 7 10 7 10 8 9 8 9 7 8 7 8 6 6 6 6 9 5 9 5 14 6 14 6 15 7 15 7 16 9 16 9 18 7 18 7 17 6 17 6 16 4 16 4 17 5 17 5 19 6 19 6 20 9 20 9 23 8 23 8 22 6 22 6 21 5 21 5 20 4 20 4 19 3 19 3 17 2 17 2 15 1 15 1 9 2 9 2 7 3 7 3 5 4 5 4 4 5 4 5 3 7 3 7 2 9 2 9 1 15 1 15 2 17 2 17 3 19 3 19 4 20 4 20 5 21 5 21 7 22 7 22 9 23 9"/></svg></span></a> </div> <starlight-theme-select>  <label style="--sl-select-width: 6.25em" class="astro-4yphtoen"> <span class="sr-only astro-4yphtoen">Select theme</span> <svg aria-hidden="true" class="icon label-icon astro-4yphtoen astro-c6vsoqas" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1em;"><path d="M21 14h-1V7a3 3 0 0 0-3-3H7a3 3 0 0 0-3 3v7H3a1 1 0 0 0-1 1v2a3 3 0 0 0 3 3h14a3 3 0 0 0 3-3v-2a1 1 0 0 0-1-1ZM6 7a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v7H6V7Zm14 10a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-1h16v1Z"/></svg> <select autocomplete="off" class="astro-4yphtoen"> <option value="dark" class="astro-4yphtoen">Dark</option><option value="light" class="astro-4yphtoen">Light</option><option value="auto" selected class="astro-4yphtoen">Auto</option> </select> <svg aria-hidden="true" class="icon caret astro-4yphtoen astro-c6vsoqas" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1em;"><path d="M17 9.17a1 1 0 0 0-1.41 0L12 12.71 8.46 9.17a1 1 0 1 0-1.41 1.42l4.24 4.24a1.002 1.002 0 0 0 1.42 0L17 10.59a1.002 1.002 0 0 0 0-1.42Z"/></svg> </label>  </starlight-theme-select>  <script>
+	StarlightThemeProvider.updatePickers();
+</script> <script type="module">const r="starlight-theme",o=e=>e==="auto"||e==="dark"||e==="light"?e:"auto",c=()=>o(typeof localStorage<"u"&&localStorage.getItem(r));function n(e){typeof localStorage<"u"&&localStorage.setItem(r,e==="light"||e==="dark"?e:"")}const l=()=>matchMedia("(prefers-color-scheme: light)").matches?"light":"dark";function t(e){StarlightThemeProvider.updatePickers(e),document.documentElement.dataset.theme=e==="auto"?l():e,n(e)}matchMedia("(prefers-color-scheme: light)").addEventListener("change",()=>{c()==="auto"&&t("auto")});class s extends HTMLElement{constructor(){super(),t(c()),this.querySelector("select")?.addEventListener("change",a=>{a.currentTarget instanceof HTMLSelectElement&&t(o(a.currentTarget.value))})}}customElements.define("starlight-theme-select",s);</script> <script type="module">class s extends HTMLElement{constructor(){super();const e=this.querySelector("select");e&&(e.addEventListener("change",t=>{t.currentTarget instanceof HTMLSelectElement&&(window.location.pathname=t.currentTarget.value)}),window.addEventListener("pageshow",t=>{if(!t.persisted)return;const n=e.querySelector("option[selected]")?.index;n!==e.selectedIndex&&(e.selectedIndex=n??0)}))}}customElements.define("starlight-lang-select",s);</script> </div>  </div> </div> </div> </nav> <div class="main-frame astro-4toy2ex6">  <script type="module">const a=document.getElementById("starlight__sidebar"),n=a?.querySelector("sl-sidebar-state-persist"),o="sl-sidebar-state",i=()=>{let t=[];const e=n?.dataset.hash||"";try{const s=sessionStorage.getItem(o),r=JSON.parse(s||"{}");Array.isArray(r.open)&&r.hash===e&&(t=r.open)}catch{}return{hash:e,open:t,scroll:a?.scrollTop||0}},c=t=>{try{sessionStorage.setItem(o,JSON.stringify(t))}catch{}},d=()=>c(i()),l=(t,e)=>{const s=i();s.open[e]=t,c(s)};n?.addEventListener("click",t=>{if(!(t.target instanceof Element))return;const e=t.target.closest("summary")?.closest("details");if(!e)return;const s=e.querySelector("sl-sidebar-restore"),r=parseInt(s?.dataset.index||"");isNaN(r)||l(!e.open,r)});addEventListener("visibilitychange",()=>{document.visibilityState==="hidden"&&d()});addEventListener("pageHide",d);</script> <div class="lg:sl-flex astro-67yu43on"> <aside class="right-sidebar-container print:hidden astro-67yu43on"> <div class="right-sidebar astro-67yu43on"> <div class="lg:sl-hidden astro-pb3aqygn"><mobile-starlight-toc data-min-h="2" data-max-h="3" class="astro-doynk5tl"><nav aria-labelledby="starlight__on-this-page--mobile" class="astro-doynk5tl"><details id="starlight__mobile-toc" class="astro-doynk5tl"><summary id="starlight__on-this-page--mobile" class="sl-flex astro-doynk5tl"><span class="toggle sl-flex astro-doynk5tl">On this page<svg aria-hidden="true" class="caret astro-doynk5tl astro-c6vsoqas" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1rem;"><path d="m14.83 11.29-4.24-4.24a1 1 0 1 0-1.42 1.41L12.71 12l-3.54 3.54a1 1 0 0 0 0 1.41 1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.24-4.24a1.002 1.002 0 0 0 0-1.42Z"/></svg></span><span class="display-current astro-doynk5tl"></span></summary><div class="dropdown astro-doynk5tl"><ul class="isMobile astro-g2bywc46" style="--depth: 0;"> <li class="astro-g2bywc46" style="--depth: 0;"> <a href="#_top" class="astro-g2bywc46" style="--depth: 0;"> <span class="astro-g2bywc46" style="--depth: 0;">Overview</span> </a>  </li><li class="astro-g2bywc46" style="--depth: 0;"> <a href="#navigation" class="astro-g2bywc46" style="--depth: 0;"> <span class="astro-g2bywc46" style="--depth: 0;">Navigation</span> </a>  </li><li class="astro-g2bywc46" style="--depth: 0;"> <a href="#pane-management" class="astro-g2bywc46" style="--depth: 0;"> <span class="astro-g2bywc46" style="--depth: 0;">Pane Management</span> </a>  </li><li class="astro-g2bywc46" style="--depth: 0;"> <a href="#finder-and-search" class="astro-g2bywc46" style="--depth: 0;"> <span class="astro-g2bywc46" style="--depth: 0;">Finder and Search</span> </a>  </li><li class="astro-g2bywc46" style="--depth: 0;"> <a href="#go-to-commands" class="astro-g2bywc46" style="--depth: 0;"> <span class="astro-g2bywc46" style="--depth: 0;">Go-To Commands</span> </a>  </li><li class="astro-g2bywc46" style="--depth: 0;"> <a href="#time-range-presets" class="astro-g2bywc46" style="--depth: 0;"> <span class="astro-g2bywc46" style="--depth: 0;">Time Range Presets</span> </a>  </li><li class="astro-g2bywc46" style="--depth: 0;"> <a href="#leader-keys-space" class="astro-g2bywc46" style="--depth: 0;"> <span class="astro-g2bywc46" style="--depth: 0;">Leader Keys (Space)</span> </a>  </li><li class="astro-g2bywc46" style="--depth: 0;"> <a href="#visual-multi-select" class="astro-g2bywc46" style="--depth: 0;"> <span class="astro-g2bywc46" style="--depth: 0;">Visual Multi-Select</span> </a>  </li><li class="astro-g2bywc46" style="--depth: 0;"> <a href="#window-movement" class="astro-g2bywc46" style="--depth: 0;"> <span class="astro-g2bywc46" style="--depth: 0;">Window Movement</span> </a>  </li><li class="astro-g2bywc46" style="--depth: 0;"> <a href="#other" class="astro-g2bywc46" style="--depth: 0;"> <span class="astro-g2bywc46" style="--depth: 0;">Other</span> </a>  </li><li class="astro-g2bywc46" style="--depth: 0;"> <a href="#command-palette" class="astro-g2bywc46" style="--depth: 0;"> <span class="astro-g2bywc46" style="--depth: 0;">Command Palette</span> </a>  </li><li class="astro-g2bywc46" style="--depth: 0;"> <a href="#agent-input" class="astro-g2bywc46" style="--depth: 0;"> <span class="astro-g2bywc46" style="--depth: 0;">Agent Input</span> </a>  </li> </ul> </div></details></nav></mobile-starlight-toc><script type="module" src="/_astro/MobileTableOfContents.astro_astro_type_script_index_0_lang.C181hMzK.js"></script></div><div class="right-sidebar-panel sl-hidden lg:sl-block astro-pb3aqygn"><div class="sl-container astro-pb3aqygn"><starlight-toc data-min-h="2" data-max-h="3"><nav aria-labelledby="starlight__on-this-page"><h2 id="starlight__on-this-page">On this page</h2><ul class="astro-g2bywc46" style="--depth: 0;"> <li class="astro-g2bywc46" style="--depth: 0;"> <a href="#_top" class="astro-g2bywc46" style="--depth: 0;"> <span class="astro-g2bywc46" style="--depth: 0;">Overview</span> </a>  </li><li class="astro-g2bywc46" style="--depth: 0;"> <a href="#navigation" class="astro-g2bywc46" style="--depth: 0;"> <span class="astro-g2bywc46" style="--depth: 0;">Navigation</span> </a>  </li><li class="astro-g2bywc46" style="--depth: 0;"> <a href="#pane-management" class="astro-g2bywc46" style="--depth: 0;"> <span class="astro-g2bywc46" style="--depth: 0;">Pane Management</span> </a>  </li><li class="astro-g2bywc46" style="--depth: 0;"> <a href="#finder-and-search" class="astro-g2bywc46" style="--depth: 0;"> <span class="astro-g2bywc46" style="--depth: 0;">Finder and Search</span> </a>  </li><li class="astro-g2bywc46" style="--depth: 0;"> <a href="#go-to-commands" class="astro-g2bywc46" style="--depth: 0;"> <span class="astro-g2bywc46" style="--depth: 0;">Go-To Commands</span> </a>  </li><li class="astro-g2bywc46" style="--depth: 0;"> <a href="#time-range-presets" class="astro-g2bywc46" style="--depth: 0;"> <span class="astro-g2bywc46" style="--depth: 0;">Time Range Presets</span> </a>  </li><li class="astro-g2bywc46" style="--depth: 0;"> <a href="#leader-keys-space" class="astro-g2bywc46" style="--depth: 0;"> <span class="astro-g2bywc46" style="--depth: 0;">Leader Keys (Space)</span> </a>  </li><li class="astro-g2bywc46" style="--depth: 0;"> <a href="#visual-multi-select" class="astro-g2bywc46" style="--depth: 0;"> <span class="astro-g2bywc46" style="--depth: 0;">Visual Multi-Select</span> </a>  </li><li class="astro-g2bywc46" style="--depth: 0;"> <a href="#window-movement" class="astro-g2bywc46" style="--depth: 0;"> <span class="astro-g2bywc46" style="--depth: 0;">Window Movement</span> </a>  </li><li class="astro-g2bywc46" style="--depth: 0;"> <a href="#other" class="astro-g2bywc46" style="--depth: 0;"> <span class="astro-g2bywc46" style="--depth: 0;">Other</span> </a>  </li><li class="astro-g2bywc46" style="--depth: 0;"> <a href="#command-palette" class="astro-g2bywc46" style="--depth: 0;"> <span class="astro-g2bywc46" style="--depth: 0;">Command Palette</span> </a>  </li><li class="astro-g2bywc46" style="--depth: 0;"> <a href="#agent-input" class="astro-g2bywc46" style="--depth: 0;"> <span class="astro-g2bywc46" style="--depth: 0;">Agent Input</span> </a>  </li> </ul> </nav></starlight-toc><script type="module" src="/_astro/TableOfContents.astro_astro_type_script_index_0_lang.CKWWgpjV.js"></script></div></div> </div> </aside> <div class="main-pane astro-67yu43on">  <main data-pagefind-body class="astro-bguv2lll" lang="en" dir="ltr">    <div class="content-panel astro-7nkwcw3z"> <div class="sl-container astro-7nkwcw3z"> <h1 id="_top" class="astro-j6tvhyss">Keyboard Reference</h1>  </div> </div>  <div class="content-panel astro-7nkwcw3z"> <div class="sl-container astro-7nkwcw3z"> <div class="sl-markdown-content"> <p>Enya uses vim-style keybindings. This page provides a complete reference of all available shortcuts.</p>
+<div class="sl-heading-wrapper level-h2"><h2 id="navigation">Navigation</h2><a class="sl-anchor-link" href="#navigation"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24"><path fill="currentcolor" d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 0 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 1 0-1.42-1.42Zm8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 0 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 1 0 1.42 1.42l3.88-3.89a4.49 4.49 0 0 0 0-6.33ZM8.83 15.17a1 1 0 0 0 1.1.22 1 1 0 0 0 .32-.22l4.92-4.92a1 1 0 0 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42Z"></path></svg></span><span class="sr-only">Section titled “Navigation”</span></a></div>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Key</th><th>Action</th></tr></thead><tbody><tr><td><code dir="auto">h</code>/<code dir="auto">j</code>/<code dir="auto">k</code>/<code dir="auto">l</code></td><td>Move between panes</td></tr><tr><td><code dir="auto">Ctrl+w h/j/k/l</code></td><td>Move focus to split</td></tr><tr><td><code dir="auto">Tab</code></td><td>Next pane</td></tr><tr><td><code dir="auto">Shift+Tab</code></td><td>Previous pane</td></tr></tbody></table>
+<div class="sl-heading-wrapper level-h2"><h2 id="pane-management">Pane Management</h2><a class="sl-anchor-link" href="#pane-management"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24"><path fill="currentcolor" d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 0 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 1 0-1.42-1.42Zm8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 0 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 1 0 1.42 1.42l3.88-3.89a4.49 4.49 0 0 0 0-6.33ZM8.83 15.17a1 1 0 0 0 1.1.22 1 1 0 0 0 .32-.22l4.92-4.92a1 1 0 0 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42Z"></path></svg></span><span class="sr-only">Section titled “Pane Management”</span></a></div>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Key</th><th>Action</th></tr></thead><tbody><tr><td><code dir="auto">x</code></td><td>Close focused pane</td></tr><tr><td><code dir="auto">m</code></td><td>Maximize focused pane</td></tr><tr><td><code dir="auto">F</code></td><td>Toggle fullscreen for focused pane</td></tr><tr><td><code dir="auto">Z</code></td><td>Toggle zen mode (hide chrome)</td></tr><tr><td><code dir="auto">e</code></td><td>Edit focused pane</td></tr><tr><td><code dir="auto">cv</code></td><td>Cycle visualization type</td></tr><tr><td><code dir="auto">yy</code></td><td>Share/yank focused pane</td></tr></tbody></table>
+<div class="sl-heading-wrapper level-h2"><h2 id="finder-and-search">Finder and Search</h2><a class="sl-anchor-link" href="#finder-and-search"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24"><path fill="currentcolor" d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 0 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 1 0-1.42-1.42Zm8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 0 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 1 0 1.42 1.42l3.88-3.89a4.49 4.49 0 0 0 0-6.33ZM8.83 15.17a1 1 0 0 0 1.1.22 1 1 0 0 0 .32-.22l4.92-4.92a1 1 0 0 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42Z"></path></svg></span><span class="sr-only">Section titled “Finder and Search”</span></a></div>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Key</th><th>Action</th></tr></thead><tbody><tr><td><code dir="auto">Space+f</code></td><td>Open unified finder (metrics, alerts, commits)</td></tr><tr><td><code dir="auto">:</code></td><td>Open command palette</td></tr><tr><td><code dir="auto">?</code></td><td>Show keyboard shortcuts</td></tr></tbody></table>
+<div class="sl-heading-wrapper level-h2"><h2 id="go-to-commands">Go-To Commands</h2><a class="sl-anchor-link" href="#go-to-commands"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24"><path fill="currentcolor" d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 0 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 1 0-1.42-1.42Zm8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 0 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 1 0 1.42 1.42l3.88-3.89a4.49 4.49 0 0 0 0-6.33ZM8.83 15.17a1 1 0 0 0 1.1.22 1 1 0 0 0 .32-.22l4.92-4.92a1 1 0 0 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42Z"></path></svg></span><span class="sr-only">Section titled “Go-To Commands”</span></a></div>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Key</th><th>Action</th></tr></thead><tbody><tr><td><code dir="auto">gd</code></td><td>Go to definition</td></tr><tr><td><code dir="auto">ga</code></td><td>Go to alert</td></tr><tr><td><code dir="auto">gf</code></td><td>Float focused pane</td></tr></tbody></table>
+<div class="sl-heading-wrapper level-h2"><h2 id="time-range-presets">Time Range Presets</h2><a class="sl-anchor-link" href="#time-range-presets"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24"><path fill="currentcolor" d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 0 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 1 0-1.42-1.42Zm8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 0 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 1 0 1.42 1.42l3.88-3.89a4.49 4.49 0 0 0 0-6.33ZM8.83 15.17a1 1 0 0 0 1.1.22 1 1 0 0 0 .32-.22l4.92-4.92a1 1 0 0 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42Z"></path></svg></span><span class="sr-only">Section titled “Time Range Presets”</span></a></div>
+<p>Press <code dir="auto">t</code> followed by a key:</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Key</th><th>Action</th></tr></thead><tbody><tr><td><code dir="auto">t 5</code></td><td>Last 5 minutes</td></tr><tr><td><code dir="auto">t 1</code></td><td>Last 15 minutes</td></tr><tr><td><code dir="auto">t 3</code></td><td>Last 30 minutes</td></tr><tr><td><code dir="auto">t h</code></td><td>Last 1 hour</td></tr><tr><td><code dir="auto">t 6</code></td><td>Last 6 hours</td></tr><tr><td><code dir="auto">t d</code></td><td>Last 24 hours</td></tr><tr><td><code dir="auto">t w</code></td><td>Last 7 days</td></tr><tr><td><code dir="auto">t c</code></td><td>Custom time range</td></tr></tbody></table>
+<div class="sl-heading-wrapper level-h2"><h2 id="leader-keys-space">Leader Keys (Space)</h2><a class="sl-anchor-link" href="#leader-keys-space"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24"><path fill="currentcolor" d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 0 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 1 0-1.42-1.42Zm8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 0 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 1 0 1.42 1.42l3.88-3.89a4.49 4.49 0 0 0 0-6.33ZM8.83 15.17a1 1 0 0 0 1.1.22 1 1 0 0 0 .32-.22l4.92-4.92a1 1 0 0 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42Z"></path></svg></span><span class="sr-only">Section titled “Leader Keys (Space)”</span></a></div>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Key</th><th>Action</th></tr></thead><tbody><tr><td><code dir="auto">Space+f</code></td><td>Open unified finder</td></tr><tr><td><code dir="auto">Space+a</code></td><td>Open/focus agent panel</td></tr><tr><td><code dir="auto">Space+d</code></td><td>Toggle diagnostics overlay</td></tr><tr><td><code dir="auto">Space+h</code></td><td>Show home page</td></tr><tr><td><code dir="auto">Space+b</code></td><td>Toggle project sidebar</td></tr><tr><td><code dir="auto">Space+p</code></td><td>Open plugins overlay</td></tr><tr><td><code dir="auto">Space+t</code></td><td>Open time range picker</td></tr></tbody></table>
+<div class="sl-heading-wrapper level-h2"><h2 id="visual-multi-select">Visual Multi-Select</h2><a class="sl-anchor-link" href="#visual-multi-select"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24"><path fill="currentcolor" d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 0 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 1 0-1.42-1.42Zm8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 0 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 1 0 1.42 1.42l3.88-3.89a4.49 4.49 0 0 0 0-6.33ZM8.83 15.17a1 1 0 0 0 1.1.22 1 1 0 0 0 .32-.22l4.92-4.92a1 1 0 0 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42Z"></path></svg></span><span class="sr-only">Section titled “Visual Multi-Select”</span></a></div>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Key</th><th>Action</th></tr></thead><tbody><tr><td><code dir="auto">Ctrl+v</code></td><td>Enter visual-multi mode</td></tr><tr><td><code dir="auto">v</code> or <code dir="auto">Escape</code></td><td>Exit visual-multi mode</td></tr><tr><td><code dir="auto">j</code>/<code dir="auto">k</code></td><td>Extend selection</td></tr><tr><td><code dir="auto">x</code></td><td>Close all selected</td></tr><tr><td><code dir="auto">e</code></td><td>Multi-edit selected panes</td></tr><tr><td><code dir="auto">r</code></td><td>Refresh all selected</td></tr><tr><td><code dir="auto">yy</code></td><td>Share selected panes</td></tr></tbody></table>
+<div class="sl-heading-wrapper level-h2"><h2 id="window-movement">Window Movement</h2><a class="sl-anchor-link" href="#window-movement"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24"><path fill="currentcolor" d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 0 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 1 0-1.42-1.42Zm8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 0 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 1 0 1.42 1.42l3.88-3.89a4.49 4.49 0 0 0 0-6.33ZM8.83 15.17a1 1 0 0 0 1.1.22 1 1 0 0 0 .32-.22l4.92-4.92a1 1 0 0 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42Z"></path></svg></span><span class="sr-only">Section titled “Window Movement”</span></a></div>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Key</th><th>Action</th></tr></thead><tbody><tr><td><code dir="auto">Ctrl+w h/j/k/l</code></td><td>Move pane in direction</td></tr><tr><td><code dir="auto">Ctrl+w t h/j/k/l</code></td><td>Merge pane into tabs with neighbor</td></tr></tbody></table>
+<div class="sl-heading-wrapper level-h2"><h2 id="other">Other</h2><a class="sl-anchor-link" href="#other"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24"><path fill="currentcolor" d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 0 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 1 0-1.42-1.42Zm8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 0 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 1 0 1.42 1.42l3.88-3.89a4.49 4.49 0 0 0 0-6.33ZM8.83 15.17a1 1 0 0 0 1.1.22 1 1 0 0 0 .32-.22l4.92-4.92a1 1 0 0 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42Z"></path></svg></span><span class="sr-only">Section titled “Other”</span></a></div>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Key</th><th>Action</th></tr></thead><tbody><tr><td><code dir="auto">ct</code></td><td>Cycle through themes</td></tr><tr><td><code dir="auto">u</code></td><td>Undo last action</td></tr><tr><td><code dir="auto">Escape</code></td><td>Clear focus / exit modal</td></tr></tbody></table>
+<div class="sl-heading-wrapper level-h2"><h2 id="command-palette">Command Palette</h2><a class="sl-anchor-link" href="#command-palette"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24"><path fill="currentcolor" d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 0 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 1 0-1.42-1.42Zm8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 0 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 1 0 1.42 1.42l3.88-3.89a4.49 4.49 0 0 0 0-6.33ZM8.83 15.17a1 1 0 0 0 1.1.22 1 1 0 0 0 .32-.22l4.92-4.92a1 1 0 0 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42Z"></path></svg></span><span class="sr-only">Section titled “Command Palette”</span></a></div>
+<p>Press <code dir="auto">:</code> to open the command palette.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Command</th><th>Alias</th><th>Action</th></tr></thead><tbody><tr><td><code dir="auto">:version</code></td><td></td><td>Show version and build info</td></tr><tr><td><code dir="auto">:split &#x3C;h/v></code></td><td><code dir="auto">sp</code></td><td>Split view (horizontal/vertical)</td></tr><tr><td><code dir="auto">:vsplit</code></td><td><code dir="auto">vs</code></td><td>Vertical split</td></tr><tr><td><code dir="auto">:quit</code></td><td><code dir="auto">q</code></td><td>Quit workspace</td></tr><tr><td><code dir="auto">:write</code></td><td><code dir="auto">w</code></td><td>Save workspace</td></tr><tr><td><code dir="auto">:settings</code></td><td><code dir="auto">set</code></td><td>Open settings (AI, styling, connections)</td></tr><tr><td><code dir="auto">:screenshot [path]</code></td><td><code dir="auto">ss</code></td><td>Take a screenshot</td></tr><tr><td><code dir="auto">:share</code></td><td></td><td>Share workspace as URL</td></tr><tr><td><code dir="auto">:terminal</code></td><td><code dir="auto">term</code></td><td>Open a terminal pane (native only)</td></tr><tr><td><code dir="auto">:sql</code></td><td></td><td>Open a SQL pane (native only)</td></tr><tr><td><code dir="auto">:trace [id]</code></td><td><code dir="auto">tr</code></td><td>Open a tracing pane</td></tr><tr><td><code dir="auto">:logs</code></td><td><code dir="auto">log</code></td><td>Open a logs pane</td></tr><tr><td><code dir="auto">:float</code></td><td><code dir="auto">fl</code></td><td>Float focused pane</td></tr><tr><td><code dir="auto">:dock</code></td><td><code dir="auto">dk</code></td><td>Dock all floating panes</td></tr><tr><td><code dir="auto">:tutorial</code></td><td><code dir="auto">tut</code></td><td>Open interactive tutorial</td></tr><tr><td><code dir="auto">:sync git</code></td><td></td><td>Sync git operations (native only)</td></tr></tbody></table>
+<div class="sl-heading-wrapper level-h2"><h2 id="agent-input">Agent Input</h2><a class="sl-anchor-link" href="#agent-input"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24"><path fill="currentcolor" d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 0 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 1 0-1.42-1.42Zm8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 0 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 1 0 1.42 1.42l3.88-3.89a4.49 4.49 0 0 0 0-6.33ZM8.83 15.17a1 1 0 0 0 1.1.22 1 1 0 0 0 .32-.22l4.92-4.92a1 1 0 0 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42Z"></path></svg></span><span class="sr-only">Section titled “Agent Input”</span></a></div>
+<p>When typing in the agent panel:</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Key</th><th>Action</th></tr></thead><tbody><tr><td><code dir="auto">@</code></td><td>Mention a metric</td></tr></tbody></table> </div> <footer class="sl-flex astro-3yyafb3n"> <div class="meta sl-flex astro-3yyafb3n">   </div> <div class="pagination-links print:hidden astro-u2l5gyhi" dir="ltr"> <a href="/docs/getting-started/introduction/" rel="prev" class="astro-u2l5gyhi"> <svg aria-hidden="true" class="astro-u2l5gyhi astro-c6vsoqas" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1.5rem;"><path d="M17 11H9.41l3.3-3.29a1.004 1.004 0 1 0-1.42-1.42l-5 5a1 1 0 0 0-.21.33 1 1 0 0 0 0 .76 1 1 0 0 0 .21.33l5 5a1.002 1.002 0 0 0 1.639-.325 1 1 0 0 0-.219-1.095L9.41 13H17a1 1 0 0 0 0-2Z"/></svg> <span class="astro-u2l5gyhi"> Previous <br class="astro-u2l5gyhi"> <span class="link-title astro-u2l5gyhi">Getting Started</span> </span> </a>  </div>   </footer>  </div> </div>   </main> </div> </div>  </div> <div class="footer astro-sz7xmlte"> <div class="footer-content astro-sz7xmlte"> <div class="footer-icons astro-sz7xmlte"> <a href="https://github.com/meldrumlabs/enya" rel="me" class="sl-flex astro-dv46nlzh"><span class="sr-only astro-dv46nlzh">GitHub</span><span class="social-icon astro-dv46nlzh"><?xml version="1.0" encoding="UTF-8"?><svg id="Github" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><polygon points="23 9 23 15 22 15 22 17 21 17 21 19 20 19 20 20 19 20 19 21 18 21 18 22 16 22 16 23 15 23 15 18 14 18 14 17 15 17 15 16 17 16 17 15 18 15 18 14 19 14 19 9 18 9 18 6 16 6 16 7 15 7 15 8 14 8 14 7 10 7 10 8 9 8 9 7 8 7 8 6 6 6 6 9 5 9 5 14 6 14 6 15 7 15 7 16 9 16 9 18 7 18 7 17 6 17 6 16 4 16 4 17 5 17 5 19 6 19 6 20 9 20 9 23 8 23 8 22 6 22 6 21 5 21 5 20 4 20 4 19 3 19 3 17 2 17 2 15 1 15 1 9 2 9 2 7 3 7 3 5 4 5 4 4 5 4 5 3 7 3 7 2 9 2 9 1 15 1 15 2 17 2 17 3 19 3 19 4 20 4 20 5 21 5 21 7 22 7 22 9 23 9"/></svg></span></a> </div> <div class="copyright-wrapper sl-flex astro-sz7xmlte">
+© 2026 <a href="https://meldrumlabs.com" target="_blank" rel="noopener noreferrer" class="astro-sz7xmlte">Meldrum Labs</a> AB · MIT License · <a href="/privacy" class="astro-sz7xmlte">Privacy</a> </div> </div> </div>  </div>  </body></html>

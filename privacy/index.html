@@ -1,0 +1,70 @@
+<!DOCTYPE html><html lang="en" class="astro-fb3qbcs3"> <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Privacy - Enya</title><link rel="icon" type="image/x-icon" href="/favicon.ico"><meta name="description" content="Enya privacy policy — what we collect, what we don't, and how your data is handled."><meta property="og:image" content="/img/enya.png"><meta property="og:image:alt" content="Enya"><style>html[data-site-theme=light]{--obsidian-base: #FBFBFC;--obsidian-surface: #F2F3F5;--obsidian-elevated: #EAEBEE;--obsidian-hover: #E2E4E8;--obsidian-active: #D8DAE0;--obsidian-selected: #ECFDF5;--obsidian-border-subtle: #E2E4E8;--obsidian-border-default: #D2D4DA;--obsidian-border-focus: #A7F3D0;--obsidian-text-primary: #111318;--obsidian-text-secondary: #4B505C;--obsidian-text-tertiary: #707682;--obsidian-text-disabled: #9CA0AA;--obsidian-accent: #10B981;--obsidian-accent-hover: #059669;--obsidian-accent-muted: #ECFDF5;--obsidian-accent-glow: rgba(16, 185, 129, .08);--sl-color-white: #FBFBFC;--sl-color-gray-1: #F2F3F5;--sl-color-gray-2: #EAEBEE;--sl-color-gray-3: #D2D4DA;--sl-color-gray-4: #707682;--sl-color-gray-5: #4B505C;--sl-color-gray-6: #111318;--sl-color-black: #111318;--sl-color-text: #111318;--sl-color-text-accent: #111318;--sl-color-bg: #FBFBFC;--sl-color-bg-nav: #FBFBFC;--sl-color-bg-sidebar: #FBFBFC;--sl-color-bg-inline-code: #F2F3F5;--sl-color-hairline: #D2D4DA;--sl-color-hairline-light: #E2E4E8;--sl-color-hairline-shade: #707682;--sl-image-bg-color: #FBFBFC;--sl-social-icon-color: #4B505C;--sl-social-icon-hover-color: #111318}html.theme-transition,html.theme-transition *,html.theme-transition *:before,html.theme-transition *:after{transition:background-color .2s ease,color .2s ease,border-color .2s ease,box-shadow .2s ease,fill .2s ease!important}.theme-toggle svg{transition:transform .3s ease,opacity .2s ease}.theme-toggle.animating .theme-icon-sun{transform:rotate(180deg) scale(0);opacity:0}.theme-toggle.animating .theme-icon-moon{transform:rotate(-180deg) scale(0);opacity:0}
+</style>
+<link rel="stylesheet" href="/_astro/privacy.BZYv7ICz.css"><script type="module" src="/_astro/page.CeFg0eVk.js"></script></head> <body class="astro-fb3qbcs3"> <script>
+    (function() {
+        // Determine theme: localStorage > system preference > dark default
+        function getPreferredTheme() {
+            var saved = localStorage.getItem('site-theme');
+            if (saved === 'light' || saved === 'dark') return saved;
+            if (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) {
+                return 'light';
+            }
+            return 'dark';
+        }
+
+        function applyTheme(theme) {
+            document.documentElement.dataset.siteTheme = theme;
+            // Starlight uses data-theme="light" for its light theme (which we override via CSS).
+            // Keep it as "light" always so Starlight doesn't inject its own dark styles.
+            document.documentElement.dataset.theme = 'light';
+        }
+
+        // Apply immediately to prevent flash (no transition class yet)
+        applyTheme(getPreferredTheme());
+
+        // Enable smooth transitions after first paint to avoid flash-of-transition on load
+        if (document.readyState === 'complete') {
+            document.documentElement.classList.add('theme-transition');
+        } else {
+            window.addEventListener('load', function() {
+                // Small delay to ensure initial paint is done
+                requestAnimationFrame(function() {
+                    document.documentElement.classList.add('theme-transition');
+                });
+            });
+        }
+
+        // Global toggle function
+        window.toggleTheme = function() {
+            var current = document.documentElement.dataset.siteTheme || 'dark';
+            var next = current === 'dark' ? 'light' : 'dark';
+            localStorage.setItem('site-theme', next);
+
+            // Animate toggle icons
+            document.querySelectorAll('.theme-toggle').forEach(function(btn) {
+                btn.classList.add('animating');
+                btn.setAttribute('aria-label', next === 'dark' ? 'Switch to light mode' : 'Switch to dark mode');
+            });
+
+            // Apply theme (colors transition smoothly via CSS)
+            applyTheme(next);
+
+            // Remove animation class after transition completes
+            setTimeout(function() {
+                document.querySelectorAll('.theme-toggle').forEach(function(btn) {
+                    btn.classList.remove('animating');
+                });
+            }, 300);
+        };
+
+        // Listen for system preference changes (only if no saved preference)
+        if (window.matchMedia) {
+            window.matchMedia('(prefers-color-scheme: light)').addEventListener('change', function(e) {
+                if (!localStorage.getItem('site-theme')) {
+                    applyTheme(e.matches ? 'light' : 'dark');
+                }
+            });
+        }
+    })();
+</script> <div class="page astro-fb3qbcs3"> <header class="header astro-fb3qbcs3"> <div class="header-content astro-fb3qbcs3"> <div class="title-wrapper astro-fb3qbcs3"> <a href="/" class="site-title astro-fb3qbcs3"> <img src="/img/enya.png" alt="Enya" class="astro-fb3qbcs3"> </a> </div> <div class="right-group astro-fb3qbcs3"> <div class="header-links astro-fb3qbcs3"> <a href="/docs" class="header-link astro-fb3qbcs3">docs</a> <a href="https://github.com/meldrumlabs/enya" target="_blank" rel="noopener noreferrer" class="header-link astro-fb3qbcs3" id="github-link">github</a> </div> <button class="theme-toggle astro-fb3qbcs3" onclick="toggleTheme()" aria-label="Switch to light mode"> <svg class="theme-icon theme-icon-sun astro-fb3qbcs3" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5" class="astro-fb3qbcs3"></circle><line x1="12" y1="1" x2="12" y2="3" class="astro-fb3qbcs3"></line><line x1="12" y1="21" x2="12" y2="23" class="astro-fb3qbcs3"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64" class="astro-fb3qbcs3"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78" class="astro-fb3qbcs3"></line><line x1="1" y1="12" x2="3" y2="12" class="astro-fb3qbcs3"></line><line x1="21" y1="12" x2="23" y2="12" class="astro-fb3qbcs3"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36" class="astro-fb3qbcs3"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22" class="astro-fb3qbcs3"></line></svg> <svg class="theme-icon theme-icon-moon astro-fb3qbcs3" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" class="astro-fb3qbcs3"></path></svg> </button> <button class="mobile-menu-toggle astro-fb3qbcs3" id="mobile-menu-toggle" aria-label="Toggle menu" aria-expanded="false"> <span class="menu-icon menu-icon-bars astro-fb3qbcs3">☰</span> <span class="menu-icon menu-icon-times astro-fb3qbcs3">✕</span> </button> </div> <div class="mobile-menu astro-fb3qbcs3" id="mobile-menu"> <a href="/docs" class="mobile-menu-link astro-fb3qbcs3">docs</a> <a href="https://github.com/meldrumlabs/enya" target="_blank" rel="noopener noreferrer" class="mobile-menu-link astro-fb3qbcs3" id="mobile-github-link">github</a> <button class="mobile-menu-link mobile-theme-toggle astro-fb3qbcs3" onclick="toggleTheme()">toggle theme</button> </div> </div> </header> <main class="main astro-fb3qbcs3"> <section class="privacy-section astro-fb3qbcs3"> <div class="privacy-content astro-fb3qbcs3"> <h1 class="privacy-title astro-fb3qbcs3">Privacy</h1> <p class="privacy-updated astro-fb3qbcs3">Last updated: February 2026</p> <p class="privacy-intro astro-fb3qbcs3">Enya is built by <a href="https://meldrumlabs.com" target="_blank" rel="noopener noreferrer" class="astro-fb3qbcs3">Meldrum Labs</a> AB. This page explains what data we handle and why. The short version: Enya runs locally, we store almost nothing, and we never sell your data.</p> <h2 class="section-title astro-fb3qbcs3">The editor</h2> <p class="section-text astro-fb3qbcs3">Enya runs on your machine. Your workspaces, configuration, observability data, and source code stay local. Enya connects directly to your data sources (Prometheus, Loki, Tempo, etc.) — nothing is proxied through our servers. Enya does not collect telemetry, usage analytics, or crash reports.</p> <h2 class="section-title astro-fb3qbcs3">Snapshots</h2> <p class="section-text astro-fb3qbcs3">Snapshots let you share a workspace via a link. Sharing is entirely opt-in — nothing is uploaded unless you explicitly choose to share.</p> <p class="section-text astro-fb3qbcs3">Sharing requires GitHub sign-in. We receive your GitHub user ID and username through OAuth and store them to associate snapshots with your account. We do not access your repositories, email, or any other GitHub data.</p> <p class="section-text astro-fb3qbcs3">Snapshot data is compressed and uploaded to Cloudflare R2 hosted by Meldrum Labs. A minimum set of metadata (user ID, snapshot ID, file size, timestamp) is stored to enforce a 50 MB per-user quota. Snapshots auto-expire after 7 days. Snapshot links are public — anyone with the URL can view it.</p> <h2 class="section-title astro-fb3qbcs3">Website</h2> <p class="section-text astro-fb3qbcs3">The enya.build website is hosted on Cloudflare Pages. We use Cloudflare Web Analytics for cookie-free page view metrics. No personal data is collected.</p> <h2 class="section-title astro-fb3qbcs3">Third-party services</h2> <ul class="section-list astro-fb3qbcs3"> <li class="astro-fb3qbcs3"><strong class="astro-fb3qbcs3">Cloudflare</strong> — Website hosting (Pages), analytics (Web Analytics), snapshot storage (R2), and metadata (D1)</li> <li class="astro-fb3qbcs3"><strong class="astro-fb3qbcs3">GitHub</strong> — OAuth authentication for snapshot uploads</li> </ul> <h2 class="section-title astro-fb3qbcs3">Changes & contact</h2> <p class="section-text astro-fb3qbcs3">We may update this policy as Enya evolves. Changes will be reflected on this page with an updated date. Questions? Reach out at <a href="mailto:contact@meldrumlabs.com" class="astro-fb3qbcs3">contact@meldrumlabs.com</a>.</p> </div> </section> </main> <footer class="footer astro-fb3qbcs3"> <div class="footer-bottom astro-fb3qbcs3"> <div class="copyright-wrapper astro-fb3qbcs3">
+© 2026 <a href="https://meldrumlabs.com" target="_blank" rel="noopener noreferrer" class="astro-fb3qbcs3">Meldrum Labs</a> AB · MIT License · <a href="/privacy" class="astro-fb3qbcs3">Privacy</a> <br class="astro-fb3qbcs3"> <span class="trademark-notice astro-fb3qbcs3">Apache Arrow and Apache DataFusion are trademarks of the Apache Software Foundation.</span> </div> </div> </footer> </div>  <script type="module">document.addEventListener("DOMContentLoaded",()=>{const n=document.getElementById("mobile-menu-toggle"),i=document.getElementById("mobile-menu");n&&i&&(n.addEventListener("click",()=>{const t=n.getAttribute("aria-expanded")==="true";n.setAttribute("aria-expanded",(!t).toString()),i.classList.toggle("open",!t)}),i.querySelectorAll(".mobile-menu-link").forEach(t=>{t.addEventListener("click",()=>{n.setAttribute("aria-expanded","false"),i.classList.remove("open")})}));const o=document.getElementById("github-link"),s=document.getElementById("mobile-github-link"),a=e=>{let t;e>=1e3?t=(e/1e3).toFixed(1).replace(/\.0$/,"")+"k":t=e.toString();const l=`github <span class="star-count">[${t}★]</span>`;o&&(o.innerHTML=l),s&&(s.innerHTML=l)};(o||s)&&fetch("https://api.github.com/repos/meldrumlabs/enya").then(e=>e.json()).then(e=>{e.stargazers_count&&a(e.stargazers_count)}).catch(e=>{console.error("Failed to fetch GitHub stars:",e)})});</script></body></html>
