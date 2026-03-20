@@ -2,6 +2,8 @@
 
 pub mod ai_provider;
 pub mod chat_types;
+pub mod diff_rendering;
+pub mod diff_widget;
 pub mod file_opener;
 pub mod finder;
 pub mod finder_utils;

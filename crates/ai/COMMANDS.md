@@ -363,6 +363,73 @@ Loads a saved workspace by name. This is the key command for agent-to-human hand
 
 ---
 
+### `open_pr_review`
+
+Opens the PR review pane for the current repository. Automatically detects the GitHub owner/repo from the configured git remote.
+
+No parameters required.
+
+**Example:**
+```json
+{"action": "open_pr_review"}
+```
+
+---
+
+### `review_pr`
+
+Navigates to a specific PR in the review pane. If no PR review pane is open, one is created automatically.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `number` | number | Yes | PR number to review |
+| `focus` | string | No | Focus area (e.g., "security", "performance") |
+
+**Example:**
+```json
+{"action": "review_pr", "number": 42, "focus": "security"}
+```
+
+---
+
+### `add_pr_comment`
+
+Adds a draft review comment on the currently open PR. Comments accumulate as drafts until submitted.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `path` | string | Yes | File path relative to repo root |
+| `line` | number | Yes | Line number in the new version |
+| `body` | string | Yes | Comment text |
+
+**Example:**
+```json
+{"action": "add_pr_comment", "path": "src/main.rs", "line": 42, "body": "Consider using a constant here instead of a magic number."}
+```
+
+---
+
+### `submit_pr_review`
+
+Submits the current PR review with all accumulated draft comments.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `event` | string | Yes | Review event: `"approve"`, `"request_changes"`, or `"comment"` |
+| `body` | string | No | Review summary body |
+
+**Example:**
+```json
+{"action": "submit_pr_review", "event": "approve", "body": "LGTM! Clean implementation."}
+```
+
+**Typical PR review workflow:**
+1. Open the PR: `{"action": "review_pr", "number": 42}`
+2. Add comments: `{"action": "add_pr_comment", "path": "src/lib.rs", "line": 15, "body": "..."}`
+3. Submit: `{"action": "submit_pr_review", "event": "approve"}`
+
+---
+
 ## Command Preferences
 
 When responding to users:
@@ -377,6 +444,7 @@ When responding to users:
 8. **Investigation**: Use `create_pane` with `"floating": true` for temporary investigation panes that don't disrupt the layout
 9. **Focus**: Use `maximize_pane` to fullscreen important metrics during incident response
 10. **Handoff**: Use `load_workspace` to load a workspace built via CLI into the GUI for the human
+11. **PR Reviews**: Use `review_pr` → `add_pr_comment` → `submit_pr_review` for AI-assisted code review workflows
 
 ## Implementation
 

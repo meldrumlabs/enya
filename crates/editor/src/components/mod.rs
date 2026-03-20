@@ -15,9 +15,9 @@ pub use pane::{
     AgentAiProvider, Bar, BarChartViz, CommitMarker, DataPoint, GaugeChart, HeatmapCell,
     HeatmapLabels, HeatmapViz, InlineChart, InlineContent, InlineSearchResults, InlineSource,
     InlineTable, InlineTableColumn, LogsBackend, LogsPane, LogsPaneAction, PluginChartPane,
-    PluginGaugePane, PluginStatPane, PluginTablePane, QueryPane, QueryPaneAction, SearchResultItem,
-    Series, SparklineViz, SqlPane, SqlPaneAction, StatChart, Threshold, TimeSeriesChart,
-    TracingPane, TracingPaneAction, Visualization, VisualizationType,
+    PluginGaugePane, PluginStatPane, PluginTablePane, PrReviewPane, PrReviewPaneAction, QueryPane,
+    QueryPaneAction, SearchResultItem, Series, SparklineViz, SqlPane, SqlPaneAction, StatChart,
+    Threshold, TimeSeriesChart, TracingPane, TracingPaneAction, Visualization, VisualizationType,
 };
 #[cfg(all(not(target_arch = "wasm32"), feature = "terminal"))]
 pub use pane::{TerminalPane, TerminalPaneAction};

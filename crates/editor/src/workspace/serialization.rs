@@ -201,6 +201,24 @@ impl Workspace {
                 pane_tile_ids.push(tile_id);
                 continue;
             }
+            if pane_config.visualization == "pr_review" {
+                // Parse owner/repo from the query field
+                if let Some((owner, repo)) = pane_config
+                    .query
+                    .split_once('/')
+                    .map(|(o, r)| (o.to_string(), r.to_string()))
+                {
+                    let pr_pane = crate::components::PrReviewPane::new(
+                        &owner,
+                        &repo,
+                        self.async_runtime.clone(),
+                    );
+                    let pane: Box<dyn Component> = Box::new(pr_pane);
+                    let tile_id = self.viewport_tree.tiles.insert_pane(pane);
+                    pane_tile_ids.push(tile_id);
+                }
+                continue;
+            }
             if pane_config.visualization == "tracing" {
                 let tracing_pane = if let Some(data) = snapshot_data {
                     let mut pane = TracingPane::new();

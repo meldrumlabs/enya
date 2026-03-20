@@ -468,6 +468,58 @@ impl Workspace {
         }
     }
 
+    /// Add a PR review pane to the viewport.
+    pub fn add_pr_review_pane(
+        &mut self,
+        owner: &str,
+        repo: &str,
+        token: Option<String>,
+    ) -> Option<TileId> {
+        use crate::components::PrReviewPane;
+
+        let mut pr_pane = PrReviewPane::new(owner, repo, self.async_runtime.clone());
+        pr_pane.set_token(token);
+
+        let pane: Box<dyn Component> = Box::new(pr_pane);
+        let pane_tile = self.viewport_tree.tiles.insert_pane(pane);
+
+        if self.add_tile_to_viewport(pane_tile) {
+            self.behavior.set_focused_tile(Some(pane_tile));
+            self.show_landing = false;
+            log::debug!("Added PR review pane for {owner}/{repo}");
+            Some(pane_tile)
+        } else {
+            None
+        }
+    }
+
+    /// Find the first PrReviewPane in the viewport, if any.
+    fn find_pr_review_pane_mut(&mut self) -> Option<&mut crate::components::PrReviewPane> {
+        // First pass: find the tile ID (immutable borrow)
+        let pr_tile_id = {
+            let mut found = None;
+            for tile_id in self.get_pane_tile_ids() {
+                if let Some(egui_tiles::Tile::Pane(pane)) = self.viewport_tree.tiles.get(tile_id) {
+                    if pane.as_any().is::<crate::components::PrReviewPane>() {
+                        found = Some(tile_id);
+                        break;
+                    }
+                }
+            }
+            found
+        };
+
+        // Second pass: get mutable reference
+        if let Some(tile_id) = pr_tile_id {
+            if let Some(egui_tiles::Tile::Pane(pane)) = self.viewport_tree.tiles.get_mut(tile_id) {
+                return pane
+                    .as_any_mut()
+                    .downcast_mut::<crate::components::PrReviewPane>();
+            }
+        }
+        None
+    }
+
     /// Handle commands from the AI agent.
     ///
     /// These commands are parsed from the agent's response and executed
@@ -953,6 +1005,68 @@ impl Workspace {
                         success = true;
                     } else {
                         log::warn!("No SQL results available for inline table");
+                    }
+                }
+                AgentCommand::OpenPrReview => {
+                    #[cfg(not(target_arch = "wasm32"))]
+                    {
+                        if let Some(url) = self.codebase_manager.status().url() {
+                            if let Some((owner, repo)) = crate::github_api::parse_owner_repo(url) {
+                                let token = self
+                                    .git_credential_token
+                                    .clone()
+                                    .or(self.github_token.clone());
+                                self.add_pr_review_pane(&owner, &repo, token);
+                                success = true;
+                            }
+                        }
+                    }
+                }
+                AgentCommand::ReviewPr { number, .. } => {
+                    if let Some(pr_pane) = self.find_pr_review_pane_mut() {
+                        pr_pane.open_pr(number);
+                        success = true;
+                    } else {
+                        // No PR pane open yet — try to create one first
+                        #[cfg(not(target_arch = "wasm32"))]
+                        {
+                            if let Some(url) = self.codebase_manager.status().url() {
+                                if let Some((owner, repo)) =
+                                    crate::github_api::parse_owner_repo(url)
+                                {
+                                    let token = self.github_token.clone();
+                                    self.add_pr_review_pane(&owner, &repo, token);
+                                    if let Some(pr_pane) = self.find_pr_review_pane_mut() {
+                                        pr_pane.open_pr(number);
+                                        success = true;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                AgentCommand::AddPrComment { path, line, body } => {
+                    if let Some(pr_pane) = self.find_pr_review_pane_mut() {
+                        pr_pane.add_draft_comment(path, line, body);
+                        success = true;
+                    }
+                }
+                AgentCommand::SubmitPrReview { event, body } => {
+                    use crate::github_api::ReviewEvent;
+                    let review_event = match event.to_lowercase().as_str() {
+                        "approve" => Some(ReviewEvent::Approve),
+                        "request_changes" => Some(ReviewEvent::RequestChanges),
+                        "comment" => Some(ReviewEvent::Comment),
+                        _ => None,
+                    };
+                    if let Some(review_event) = review_event {
+                        if let Some(pr_pane) = self.find_pr_review_pane_mut() {
+                            if let Some(body) = body {
+                                pr_pane.set_draft_body(body);
+                            }
+                            pr_pane.submit_review(review_event);
+                            success = true;
+                        }
                     }
                 }
                 AgentCommand::LoadWorkspace { workspace } => {

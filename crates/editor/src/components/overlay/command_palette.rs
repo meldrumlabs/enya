@@ -100,6 +100,8 @@ pub enum CommandResult {
     ShareWorkspace,
     /// Upload snapshot to blob server with conversation data (:snapshot [title])
     UploadSnapshot(Option<String>),
+    /// Open a PR review pane (optionally for a specific owner/repo)
+    OpenPrReview(Option<String>),
     /// Open a terminal pane (native only)
     OpenTerminal,
     /// Open a tracing pane (optionally with a trace ID)
@@ -226,6 +228,12 @@ const BASE_COMMANDS: &[PaletteCommand] = &[
         name: "metric",
         aliases: &["m"],
         description: "Add a metric pane by name",
+        kind: CommandKind::SingleArg,
+    },
+    PaletteCommand {
+        name: "review",
+        aliases: &["pr", "pulls"],
+        description: "Open PR review pane (optionally: owner/repo)",
         kind: CommandKind::SingleArg,
     },
 ];
@@ -566,6 +574,14 @@ impl CommandPalette {
             }
             "sql" | "datafusion" => CommandResult::OpenSql,
             "logs" | "log" => CommandResult::OpenLogs,
+            "review" | "pr" | "pulls" => {
+                let repo = if args.is_empty() {
+                    None
+                } else {
+                    Some(args.join(" "))
+                };
+                CommandResult::OpenPrReview(repo)
+            }
             "float" | "fl" => {
                 if !args.is_empty() && (args[0] == "arrange" || args[0] == "a") {
                     CommandResult::ArrangeFloatingPanes

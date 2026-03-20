@@ -5,6 +5,7 @@ pub mod inline_content;
 pub mod logs_pane;
 pub mod pane_info;
 pub mod plugin;
+pub mod pr_review;
 pub mod query_pane;
 pub mod sql;
 #[cfg(all(not(target_arch = "wasm32"), feature = "terminal"))]
@@ -20,6 +21,7 @@ pub use inline_content::{
 };
 pub use logs_pane::{LogsBackend, LogsPane, LogsPaneAction};
 pub use plugin::{PluginChartPane, PluginGaugePane, PluginStatPane, PluginTablePane};
+pub use pr_review::{PrReviewPane, PrReviewPaneAction};
 #[cfg(all(not(target_arch = "wasm32"), feature = "sql"))]
 pub use sql::{DiffView, PlanTreeView, PlanViewMode, PlanViewer, StatsView};
 pub use sql::{SqlPane, SqlPaneAction};

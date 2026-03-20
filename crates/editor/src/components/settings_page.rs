@@ -57,7 +57,7 @@ pub enum SettingsPageResult {
         custom_theme: Option<String>,
         font: EditorFont,
     },
-    /// User clicked "Sign in with GitHub".
+    /// User clicked "Sign in with GitHub" (OAuth).
     GitHubSignIn,
     /// User clicked "Sign out".
     GitHubSignOut,
@@ -1016,6 +1016,9 @@ impl SettingsPage {
                     .show(ui, |ui| {
                         ui.set_width(ui.available_width());
 
+                        #[allow(unused_mut)]
+                        let mut oauth_clicked = false;
+
                         ui.horizontal(|ui| {
                             // GitHub icon
                             ui.label(
@@ -1074,13 +1077,13 @@ impl SettingsPage {
                                                 .set_cursor_icon(egui::CursorIcon::PointingHand);
                                         }
                                         if response.clicked() || kb_action {
-                                            *result = SettingsPageResult::GitHubSignIn;
+                                            oauth_clicked = true;
                                         }
                                     }
 
                                     #[cfg(target_arch = "wasm32")]
                                     {
-                                        let _ = (accent, kb_action, result);
+                                        let _ = (accent, kb_action);
                                         ui.label(
                                             RichText::new("Desktop only")
                                                 .color(text_tertiary.gamma_multiply(0.6))
@@ -1099,6 +1102,11 @@ impl SettingsPage {
                                     .color(self.theme.semantic_error())
                                     .font(typography::proportional(typography::XS)),
                             );
+                        }
+
+                        // Handle deferred actions
+                        if oauth_clicked {
+                            *result = SettingsPageResult::GitHubSignIn;
                         }
                     });
             }
