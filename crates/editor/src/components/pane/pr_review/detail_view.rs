@@ -2,7 +2,6 @@
 
 use egui::RichText;
 
-use crate::components::util::diff_widget;
 use crate::github_api::{ReviewEvent, relative_time};
 use crate::ui::theme::AppTheme;
 use crate::ui::typography;
@@ -14,15 +13,17 @@ impl PrReviewPane {
     pub(super) fn show_detail_view(&mut self, ui: &mut egui::Ui) {
         let theme = self.theme;
 
-        // Header: back button + PR info
-        ui.add_space(6.0);
+        // Tab bar: back + #number + tabs + review actions
+        ui.add_space(4.0);
+        let mut clicked_event: Option<ReviewEvent> = None;
+        let mut go_back = false;
         ui.horizontal(|ui| {
             ui.add_space(8.0);
 
-            // Back button
+            // Back chevron
             let back_btn = ui.add(
                 egui::Button::new(
-                    RichText::new(format!("{} Back", egui_nerdfonts::regular::ARROW_LEFT))
+                    RichText::new(egui_nerdfonts::regular::CHEVRON_LEFT)
                         .size(typography::SM)
                         .color(theme.text_secondary()),
                 )
@@ -30,134 +31,21 @@ impl PrReviewPane {
                 .stroke(egui::Stroke::NONE),
             );
             if back_btn.clicked() {
-                self.view = PrReviewView::List;
-                self.current_pr = None;
-                self.pr_files.clear();
-                self.file_diffs.clear();
-                self.review_comments.clear();
-                self.issue_comments.clear();
-                self.check_runs.clear();
-                self.draft_comments.clear();
-                self.draft_body.clear();
-                self.commenting_line = None;
-                self.comment_input.clear();
-                self.submit_error = None;
-                self.submit_success = None;
+                go_back = true;
             }
 
-            ui.add_space(4.0);
-
+            // PR number
             if let Some(pr) = &self.current_pr {
-                // PR number
                 ui.label(
                     RichText::new(format!("#{}", pr.number))
                         .color(theme.accent_primary())
-                        .font(typography::monospace(typography::MD))
-                        .strong(),
+                        .font(typography::monospace(typography::SM)),
                 );
-                ui.add_space(8.0);
-
-                // Title
-                ui.label(
-                    RichText::new(&pr.title)
-                        .color(theme.text_primary())
-                        .font(typography::proportional(typography::MD)),
-                );
-
-                // Stats on the right
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.add_space(12.0);
-
-                    // Check status indicator
-                    let check_icon = if self.check_runs.is_empty() {
-                        egui_nerdfonts::regular::CIRCLE_SMALL
-                    } else if self
-                        .check_runs
-                        .iter()
-                        .all(|c| c.conclusion.as_deref() == Some("success"))
-                    {
-                        egui_nerdfonts::regular::CHECK
-                    } else if self
-                        .check_runs
-                        .iter()
-                        .any(|c| c.conclusion.as_deref() == Some("failure"))
-                    {
-                        egui_nerdfonts::regular::X
-                    } else {
-                        egui_nerdfonts::regular::CLOCK
-                    };
-
-                    let check_color = if self.check_runs.is_empty() {
-                        theme.text_secondary()
-                    } else if self
-                        .check_runs
-                        .iter()
-                        .all(|c| c.conclusion.as_deref() == Some("success"))
-                    {
-                        theme.diff_added_text()
-                    } else if self
-                        .check_runs
-                        .iter()
-                        .any(|c| c.conclusion.as_deref() == Some("failure"))
-                    {
-                        theme.diff_removed_text()
-                    } else {
-                        theme.diff_hunk_text()
-                    };
-
-                    ui.label(
-                        RichText::new(format!("{check_icon} {} checks", self.check_runs.len()))
-                            .color(check_color)
-                            .font(typography::proportional(typography::SM)),
-                    );
-
-                    ui.add_space(12.0);
-
-                    // File count and stats
-                    if pr.deletions > 0 {
-                        diff_widget::render_stat_badge(ui, pr.deletions as usize, false, theme);
-                        ui.add_space(4.0);
-                    }
-                    if pr.additions > 0 {
-                        diff_widget::render_stat_badge(ui, pr.additions as usize, true, theme);
-                        ui.add_space(8.0);
-                    }
-                    ui.label(
-                        RichText::new(format!("{} files", pr.changed_files))
-                            .color(theme.text_secondary())
-                            .font(typography::proportional(typography::SM)),
-                    );
-
-                    ui.add_space(12.0);
-
-                    // Branch info
-                    ui.label(
-                        RichText::new(format!(
-                            "{} {} {}",
-                            pr.head.ref_name,
-                            egui_nerdfonts::regular::ARROW_RIGHT,
-                            pr.base.ref_name
-                        ))
-                        .color(theme.text_secondary())
-                        .font(typography::monospace(typography::XS)),
-                    );
-                });
             }
-        });
-        ui.add_space(6.0);
 
-        // Separator
-        ui.painter().hline(
-            ui.available_rect_before_wrap().x_range(),
-            ui.cursor().top(),
-            egui::Stroke::new(1.0, theme.border_subtle()),
-        );
+            ui.add_space(8.0);
 
-        // Tab bar with review actions on the right
-        ui.add_space(4.0);
-        let mut clicked_event: Option<ReviewEvent> = None;
-        ui.horizontal(|ui| {
-            ui.add_space(12.0);
+            // Tabs
             render_tab(ui, theme, "Files", DetailTab::Files, &mut self.active_tab);
             ui.add_space(8.0);
             render_tab(
@@ -300,7 +188,23 @@ impl PrReviewPane {
             });
         });
 
-        // Handle review submission outside the layout closure
+        // Handle deferred actions outside closures
+        if go_back {
+            self.view = PrReviewView::List;
+            self.current_pr = None;
+            self.pr_files.clear();
+            self.file_diffs.clear();
+            self.review_comments.clear();
+            self.issue_comments.clear();
+            self.check_runs.clear();
+            self.draft_comments.clear();
+            self.draft_body.clear();
+            self.commenting_line = None;
+            self.comment_input.clear();
+            self.submit_error = None;
+            self.submit_success = None;
+            return;
+        }
         if let Some(event) = clicked_event {
             self.submit_review(event);
         }
@@ -386,7 +290,7 @@ impl PrReviewPane {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.add_space(16.0);
 
-                let view_mode = if self.split_view { "split" } else { "unified" };
+                let view_mode = if self.split_view { "split" } else { "stacked" };
                 let hint = if self.file_diffs.len() > 1 {
                     format!(
                         "o open \u{2022} s {view_mode} \u{2022} n/p files \u{2022} j/k scroll \u{2022} 1/2/3 tabs \u{2022} Esc back"

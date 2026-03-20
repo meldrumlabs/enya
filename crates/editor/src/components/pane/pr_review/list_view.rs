@@ -9,6 +9,25 @@ use crate::ui::typography;
 use super::PrReviewPane;
 
 impl PrReviewPane {
+    /// Get the indices of PRs matching the current filter query.
+    pub(super) fn filtered_pr_indices(&self) -> Vec<usize> {
+        if self.filter_query.is_empty() {
+            return (0..self.pull_requests.len()).collect();
+        }
+
+        let query = self.filter_query.to_lowercase();
+        self.pull_requests
+            .iter()
+            .enumerate()
+            .filter(|(_, pr)| {
+                pr.title.to_lowercase().contains(&query)
+                    || pr.user.login.to_lowercase().contains(&query)
+                    || format!("#{}", pr.number).contains(&query)
+            })
+            .map(|(i, _)| i)
+            .collect()
+    }
+
     /// Render the PR list view.
     pub(super) fn show_list_view(&mut self, ui: &mut egui::Ui) {
         let theme = self.theme;
@@ -25,52 +44,7 @@ impl PrReviewPane {
             return;
         }
 
-        // Header
-        ui.add_space(8.0);
-        ui.horizontal(|ui| {
-            ui.add_space(12.0);
-            ui.label(
-                RichText::new(format!(
-                    "{} Pull Requests",
-                    egui_nerdfonts::regular::GIT_PULL_REQUEST
-                ))
-                .color(theme.text_primary())
-                .font(typography::proportional(typography::LG))
-                .strong(),
-            );
-
-            ui.add_space(8.0);
-            ui.label(
-                RichText::new(format!("{}/{}", self.owner, self.repo))
-                    .color(theme.text_secondary())
-                    .font(typography::proportional(typography::SM)),
-            );
-
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.add_space(12.0);
-                let refresh_btn = ui.add(
-                    egui::Button::new(
-                        RichText::new(format!("{} Refresh", egui_nerdfonts::regular::REFRESH))
-                            .size(typography::SM)
-                            .color(theme.text_secondary()),
-                    )
-                    .fill(theme.bg_elevated())
-                    .stroke(egui::Stroke::new(1.0, theme.border_subtle()))
-                    .corner_radius(4.0),
-                );
-                if refresh_btn.clicked() {
-                    self.fetch_pr_list();
-                }
-            });
-        });
-        ui.add_space(8.0);
-
-        // Separator
-        ui.painter().hline(
-            ui.available_rect_before_wrap().x_range(),
-            ui.cursor().top(),
-            egui::Stroke::new(1.0, theme.border_subtle()),
-        );
+        ui.add_space(2.0);
 
         // Loading state
         if self.list_loading {
@@ -111,15 +85,108 @@ impl PrReviewPane {
             return;
         }
 
+        // ── Filter bar ──
+        let filter_id = ui.id().with("pr_filter_input");
+        if self.filter_active {
+            ui.add_space(4.0);
+            ui.horizontal(|ui| {
+                ui.add_space(12.0);
+                ui.label(
+                    RichText::new("/")
+                        .color(theme.accent_primary())
+                        .font(typography::monospace(typography::SM))
+                        .strong(),
+                );
+                let response = ui.add(
+                    egui::TextEdit::singleline(&mut self.filter_query)
+                        .hint_text("Filter by title, author, or #number...")
+                        .desired_width(ui.available_width() - 24.0)
+                        .font(typography::proportional(typography::SM))
+                        .text_color(theme.text_primary()),
+                );
+                // Auto-focus on first frame
+                if !ui.ctx().memory(|m| m.focused() == Some(filter_id)) {
+                    response.request_focus();
+                }
+            });
+            ui.add_space(4.0);
+            ui.painter().hline(
+                ui.available_rect_before_wrap().x_range(),
+                ui.cursor().top(),
+                egui::Stroke::new(1.0, theme.accent_primary().gamma_multiply(0.3)),
+            );
+        } else if !self.filter_query.is_empty() {
+            // Show active filter badge (query persists after Enter)
+            ui.add_space(4.0);
+            ui.horizontal(|ui| {
+                ui.add_space(12.0);
+                ui.label(
+                    RichText::new(format!(
+                        "{} \"{}\"",
+                        egui_nerdfonts::regular::FILTER_1,
+                        self.filter_query
+                    ))
+                    .color(theme.accent_primary())
+                    .font(typography::proportional(typography::SM)),
+                );
+                ui.add_space(4.0);
+                let clear_btn = ui.add(
+                    egui::Button::new(
+                        RichText::new(egui_nerdfonts::regular::X)
+                            .size(typography::SM)
+                            .color(theme.text_secondary()),
+                    )
+                    .fill(egui::Color32::TRANSPARENT)
+                    .stroke(egui::Stroke::NONE),
+                );
+                if clear_btn.clicked() {
+                    self.filter_query.clear();
+                    self.selected_pr_index = 0;
+                }
+            });
+            ui.add_space(4.0);
+            ui.painter().hline(
+                ui.available_rect_before_wrap().x_range(),
+                ui.cursor().top(),
+                egui::Stroke::new(1.0, theme.border_subtle()),
+            );
+        }
+
+        // Compute filtered indices
+        let filtered_indices = self.filtered_pr_indices();
+
+        // Clamp selected index to filtered range
+        if self.selected_pr_index >= filtered_indices.len() {
+            self.selected_pr_index = filtered_indices.len().saturating_sub(1);
+        }
+
+        if filtered_indices.is_empty() && !self.filter_query.is_empty() {
+            ui.add_space(40.0);
+            ui.vertical_centered(|ui| {
+                ui.label(
+                    RichText::new("No matching pull requests")
+                        .color(theme.text_secondary())
+                        .font(typography::proportional(typography::MD)),
+                );
+                ui.add_space(4.0);
+                ui.label(
+                    RichText::new("Try a different search query")
+                        .color(theme.text_secondary().gamma_multiply(0.7))
+                        .font(typography::proportional(typography::SM)),
+                );
+            });
+        }
+
         // PR list
         let mut clicked_pr_number: Option<u32> = None;
         egui::ScrollArea::vertical()
             .id_salt("pr_list_scroll")
             .auto_shrink([false, false])
             .show(ui, |ui| {
-                for (i, pr) in self.pull_requests.iter().enumerate() {
-                    let is_selected = i == self.selected_pr_index;
-                    let row_height = 52.0;
+                for (display_idx, &pr_idx) in filtered_indices.iter().enumerate() {
+                    let pr = &self.pull_requests[pr_idx];
+                    let is_selected = display_idx == self.selected_pr_index;
+                    let row_height = 56.0;
 
                     let (rect, response) = ui.allocate_exact_size(
                         egui::vec2(ui.available_width(), row_height),
@@ -128,13 +195,18 @@ impl PrReviewPane {
 
                     let is_hovered = response.hovered();
 
-                    // Background
+                    // Row background
                     if is_selected {
                         ui.painter().rect_filled(
                             rect,
                             0.0,
                             theme.accent_primary().gamma_multiply(0.08),
                         );
+                        // Left accent bar
+                        let bar_rect =
+                            egui::Rect::from_min_size(rect.min, egui::vec2(3.0, row_height));
+                        ui.painter()
+                            .rect_filled(bar_rect, 0.0, theme.accent_primary());
                     } else if is_hovered {
                         ui.painter().rect_filled(
                             rect,
@@ -147,98 +219,211 @@ impl PrReviewPane {
                     ui.painter().hline(
                         rect.x_range(),
                         rect.bottom(),
-                        egui::Stroke::new(1.0, theme.border_subtle().gamma_multiply(0.5)),
+                        egui::Stroke::new(1.0, theme.border_subtle().gamma_multiply(0.4)),
                     );
 
-                    let content_rect = rect.shrink2(egui::vec2(12.0, 4.0));
+                    let left_pad = 16.0;
+                    let right_pad = 12.0;
+                    let top_line_y = rect.top() + 10.0;
+                    let bottom_line_y = rect.bottom() - 16.0;
 
-                    // Status dot
-                    let dot_color = if pr.draft {
-                        theme.text_secondary().gamma_multiply(0.5)
+                    // ── Top line: state icon + number + title ──
+
+                    let mut cx = rect.left() + left_pad;
+
+                    // PR state icon
+                    let (state_icon, state_color) = if pr.draft {
+                        (
+                            egui_nerdfonts::regular::GIT_PULL_REQUEST_DRAFT,
+                            theme.text_secondary().gamma_multiply(0.6),
+                        )
                     } else {
-                        theme.accent_primary()
+                        (
+                            egui_nerdfonts::regular::GIT_PULL_REQUEST,
+                            theme.diff_added_text(),
+                        )
                     };
-                    let dot_center = egui::pos2(content_rect.left() + 6.0, content_rect.center().y);
-                    ui.painter().circle_filled(dot_center, 4.0, dot_color);
+                    let icon_galley = ui.painter().layout_no_wrap(
+                        state_icon.to_string(),
+                        typography::proportional(typography::MD),
+                        state_color,
+                    );
+                    ui.painter().galley(
+                        egui::pos2(cx, top_line_y),
+                        icon_galley.clone(),
+                        state_color,
+                    );
+                    cx += icon_galley.size().x + 6.0;
 
                     // PR number
                     let number_text = format!("#{}", pr.number);
+                    let number_color = if is_selected {
+                        theme.accent_primary()
+                    } else {
+                        theme.text_secondary()
+                    };
                     let number_galley = ui.painter().layout_no_wrap(
                         number_text,
                         typography::monospace(typography::SM),
-                        theme.text_secondary(),
+                        number_color,
                     );
-                    let number_x = content_rect.left() + 18.0;
                     ui.painter().galley(
-                        egui::pos2(number_x, content_rect.top() + 6.0),
+                        egui::pos2(cx, top_line_y + 1.0),
                         number_galley.clone(),
-                        theme.text_secondary(),
+                        number_color,
                     );
+                    cx += number_galley.size().x + 8.0;
 
-                    // Title
-                    let title_x = number_x + number_galley.size().x + 8.0;
-                    let title_max_width = (content_rect.right() - title_x - 100.0).max(50.0);
+                    // Title — fill remaining width (leave space for right-side badges)
+                    let badge_reserve = if pr.draft { 60.0 } else { 0.0 };
+                    let title_max = (rect.right() - right_pad - cx - badge_reserve).max(40.0);
+                    let title_color = if is_selected {
+                        theme.text_primary()
+                    } else {
+                        theme.text_primary().gamma_multiply(0.9)
+                    };
                     let title_galley = ui.painter().layout(
                         pr.title.clone(),
-                        typography::proportional(typography::MD),
-                        theme.text_primary(),
-                        title_max_width,
+                        typography::proportional(typography::SM),
+                        title_color,
+                        title_max,
                     );
                     ui.painter().galley(
-                        egui::pos2(title_x, content_rect.top() + 4.0),
+                        egui::pos2(cx, top_line_y + 1.0),
                         title_galley,
-                        theme.text_primary(),
+                        title_color,
                     );
 
-                    // Author and timestamp
-                    let subtitle = format!(
-                        "{} {} {}",
-                        pr.user.login,
-                        egui_nerdfonts::regular::CIRCLE_SMALL,
-                        relative_time(&pr.updated_at)
-                    );
-                    let subtitle_galley = ui.painter().layout_no_wrap(
-                        subtitle,
+                    // Draft badge (top-right)
+                    if pr.draft {
+                        let badge_galley = ui.painter().layout_no_wrap(
+                            "Draft".to_string(),
+                            typography::proportional(typography::XS),
+                            theme.text_secondary().gamma_multiply(0.8),
+                        );
+                        let badge_w = badge_galley.size().x + 10.0;
+                        let badge_h = badge_galley.size().y + 4.0;
+                        let badge_x = rect.right() - right_pad - badge_w;
+                        let badge_y = top_line_y + 1.0;
+                        let badge_rect = egui::Rect::from_min_size(
+                            egui::pos2(badge_x, badge_y),
+                            egui::vec2(badge_w, badge_h),
+                        );
+                        ui.painter().rect_filled(
+                            badge_rect,
+                            3.0,
+                            theme.border_subtle().gamma_multiply(0.8),
+                        );
+                        ui.painter().galley(
+                            egui::pos2(badge_x + 5.0, badge_y + 2.0),
+                            badge_galley,
+                            theme.text_secondary().gamma_multiply(0.8),
+                        );
+                    }
+
+                    // ── Bottom line: author + time + stats ──
+
+                    let mut bx = rect.left() + left_pad + icon_galley.size().x + 6.0;
+
+                    // Author
+                    let author_galley = ui.painter().layout_no_wrap(
+                        pr.user.login.clone(),
                         typography::proportional(typography::XS),
                         theme.text_secondary(),
                     );
                     ui.painter().galley(
-                        egui::pos2(
-                            title_x,
-                            content_rect.bottom() - subtitle_galley.size().y - 4.0,
-                        ),
-                        subtitle_galley,
+                        egui::pos2(bx, bottom_line_y),
+                        author_galley.clone(),
                         theme.text_secondary(),
                     );
+                    bx += author_galley.size().x;
 
-                    // Draft badge
-                    if pr.draft {
-                        let badge_text = "Draft";
-                        let badge_galley = ui.painter().layout_no_wrap(
-                            badge_text.to_string(),
-                            typography::proportional(typography::XS),
-                            theme.text_secondary(),
+                    // Separator dot
+                    let sep_galley = ui.painter().layout_no_wrap(
+                        format!(" {} ", egui_nerdfonts::regular::CIRCLE_SMALL),
+                        typography::proportional(typography::XS),
+                        theme.text_secondary().gamma_multiply(0.5),
+                    );
+                    ui.painter().galley(
+                        egui::pos2(bx, bottom_line_y),
+                        sep_galley.clone(),
+                        theme.text_secondary().gamma_multiply(0.5),
+                    );
+                    bx += sep_galley.size().x;
+
+                    // Timestamp
+                    let time_galley = ui.painter().layout_no_wrap(
+                        relative_time(&pr.updated_at),
+                        typography::proportional(typography::XS),
+                        theme.text_secondary().gamma_multiply(0.7),
+                    );
+                    ui.painter().galley(
+                        egui::pos2(bx, bottom_line_y),
+                        time_galley,
+                        theme.text_secondary().gamma_multiply(0.7),
+                    );
+
+                    // Stats on the right of the bottom line
+                    let mut rx = rect.right() - right_pad;
+
+                    if pr.deletions > 0 {
+                        let del_text = format!("-{}", pr.deletions);
+                        let del_galley = ui.painter().layout_no_wrap(
+                            del_text,
+                            typography::monospace(typography::XS),
+                            theme.diff_removed_gutter(),
                         );
-                        let badge_x = content_rect.right() - badge_galley.size().x - 4.0;
-                        let badge_rect = egui::Rect::from_min_size(
-                            egui::pos2(badge_x - 4.0, content_rect.center().y - 9.0),
-                            egui::vec2(badge_galley.size().x + 8.0, 18.0),
-                        );
-                        ui.painter()
-                            .rect_filled(badge_rect, 4.0, theme.border_subtle());
+                        rx -= del_galley.size().x;
                         ui.painter().galley(
-                            egui::pos2(
-                                badge_x,
-                                content_rect.center().y - badge_galley.size().y / 2.0,
-                            ),
-                            badge_galley,
-                            theme.text_secondary(),
+                            egui::pos2(rx, bottom_line_y),
+                            del_galley,
+                            theme.diff_removed_gutter(),
+                        );
+                        rx -= 4.0;
+                    }
+
+                    if pr.additions > 0 {
+                        let add_text = format!("+{}", pr.additions);
+                        let add_galley = ui.painter().layout_no_wrap(
+                            add_text,
+                            typography::monospace(typography::XS),
+                            theme.diff_added_gutter(),
+                        );
+                        rx -= add_galley.size().x;
+                        ui.painter().galley(
+                            egui::pos2(rx, bottom_line_y),
+                            add_galley,
+                            theme.diff_added_gutter(),
+                        );
+                        rx -= 6.0;
+                    }
+
+                    if pr.changed_files > 0 {
+                        let files_text = format!(
+                            "{} {}",
+                            pr.changed_files,
+                            if pr.changed_files == 1 {
+                                "file"
+                            } else {
+                                "files"
+                            }
+                        );
+                        let files_galley = ui.painter().layout_no_wrap(
+                            files_text,
+                            typography::proportional(typography::XS),
+                            theme.text_secondary().gamma_multiply(0.6),
+                        );
+                        rx -= files_galley.size().x;
+                        ui.painter().galley(
+                            egui::pos2(rx, bottom_line_y),
+                            files_galley,
+                            theme.text_secondary().gamma_multiply(0.6),
                         );
                     }
 
                     // Handle click — open PR detail
                     if response.clicked() {
-                        self.selected_pr_index = i;
+                        self.selected_pr_index = display_idx;
                         clicked_pr_number = Some(pr.number);
                     }
                 }
@@ -259,8 +444,17 @@ impl PrReviewPane {
         ui.add_space(6.0);
         ui.horizontal(|ui| {
             ui.add_space(16.0);
+            let count_label = if self.filter_query.is_empty() {
+                format!("{} open", self.pull_requests.len())
+            } else {
+                format!(
+                    "{}/{} matched",
+                    filtered_indices.len(),
+                    self.pull_requests.len()
+                )
+            };
             ui.label(
-                RichText::new(format!("{} open", self.pull_requests.len()))
+                RichText::new(count_label)
                     .color(muted)
                     .font(typography::proportional(typography::SM)),
             );
@@ -269,7 +463,7 @@ impl PrReviewPane {
                 ui.add_space(16.0);
                 ui.label(
                     RichText::new(
-                        "j/k navigate \u{2022} Enter open \u{2022} r refresh \u{2022} g/G top/bottom",
+                        "/ filter \u{2022} j/k navigate \u{2022} Enter open \u{2022} r refresh \u{2022} g/G top/bottom",
                     )
                     .color(muted.gamma_multiply(0.7))
                     .font(typography::proportional(typography::XS)),

@@ -93,7 +93,7 @@ impl PrReviewPane {
                 ui.add_space(4.0);
 
                 // Split view toggle
-                let split_label = if self.split_view { "Unified" } else { "Split" };
+                let split_label = if self.split_view { "Stacked" } else { "Split" };
                 let split_btn = ui.add(
                     egui::Button::new(
                         RichText::new(split_label)
@@ -138,7 +138,7 @@ impl PrReviewPane {
     ) {
         let theme = self.theme;
 
-        egui::ScrollArea::both()
+        let scroll_output = egui::ScrollArea::both()
             .id_salt("pr_diff_unified")
             .auto_shrink([false, false])
             .show(ui, |ui| {
@@ -156,11 +156,19 @@ impl PrReviewPane {
 
                 ui.add_space(8.0);
             });
+
+        // Apply keyboard scroll delta
+        if self.diff_scroll_delta != 0.0 {
+            let mut state = scroll_output.state;
+            state.offset.y = (state.offset.y + self.diff_scroll_delta).max(0.0);
+            state.store(ui.ctx(), scroll_output.id);
+            self.diff_scroll_delta = 0.0;
+        }
     }
 
     /// Render split (side-by-side) diff view.
     fn render_split_diff(
-        &self,
+        &mut self,
         ui: &mut egui::Ui,
         file_diff: &crate::components::util::diff_rendering::FileDiff,
         line_num_width: usize,
@@ -209,7 +217,7 @@ impl PrReviewPane {
             egui::Stroke::new(1.0, theme.border_subtle()),
         );
 
-        egui::ScrollArea::vertical()
+        let scroll_output = egui::ScrollArea::vertical()
             .id_salt("pr_diff_split")
             .auto_shrink([false, false])
             .show(ui, |ui| {
@@ -276,6 +284,14 @@ impl PrReviewPane {
 
                 ui.add_space(8.0);
             });
+
+        // Apply keyboard scroll delta
+        if self.diff_scroll_delta != 0.0 {
+            let mut state = scroll_output.state;
+            state.offset.y = (state.offset.y + self.diff_scroll_delta).max(0.0);
+            state.store(ui.ctx(), scroll_output.id);
+            self.diff_scroll_delta = 0.0;
+        }
     }
 
     /// Render inline comments and the comment input for a specific line.

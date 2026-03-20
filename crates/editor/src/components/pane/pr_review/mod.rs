@@ -76,7 +76,6 @@ pub struct PrReviewPane {
     id: usize,
     name: String,
     theme: AppTheme,
-    description: String,
 
     // GitHub repo info
     owner: String,
@@ -126,6 +125,12 @@ pub struct PrReviewPane {
     /// Whether to open the file opener popup (deferred from keyboard).
     pending_open_file_opener: bool,
 
+    // ── List filter ──
+    /// Whether the `/` filter bar is active in list view.
+    filter_active: bool,
+    /// The current filter query string.
+    filter_query: String,
+
     // ── Keyboard deferred actions ──
     /// PR number to open (set by keyboard, consumed next frame).
     pending_open_pr: Option<u32>,
@@ -137,6 +142,10 @@ pub struct PrReviewPane {
     // ── Focus ──
     /// Whether this pane is the focused tile in the workspace.
     focused: bool,
+
+    // ── Diff scroll ──
+    /// Pending vertical scroll delta for the diff area (set by j/k keys).
+    diff_scroll_delta: f32,
 
     // ── Preload cache ──
     /// Cached preloaded PR data, keyed by PR number.
@@ -159,7 +168,6 @@ impl PrReviewPane {
             id: next_id_usize(),
             name: format!("PRs: {owner}/{repo}"),
             theme: AppTheme::default(),
-            description: format!("Pull requests for {owner}/{repo}"),
             owner: owner.to_string(),
             repo: repo.to_string(),
             view: PrReviewView::List,
@@ -193,10 +201,13 @@ impl PrReviewPane {
             file_opener: FileOpenerPopup::new(),
             repo_root: None,
             pending_open_file_opener: false,
+            filter_active: false,
+            filter_query: String::new(),
             pending_open_pr: None,
             pending_refresh: false,
             pending_go_back: false,
             focused: false,
+            diff_scroll_delta: 0.0,
             preload_cache: FxHashMap::default(),
             pending_preloads: Vec::new(),
             preload_started: false,
@@ -595,12 +606,26 @@ impl PrReviewPane {
             return;
         }
 
-        // Don't consume keys if a text input is focused (e.g. comment input)
+        // Don't consume keys if a text input is focused (e.g. comment input, filter bar)
         if ctx.memory(|m| m.focused().is_some()) {
             let esc = ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape));
-            if esc && self.commenting_line.is_some() {
-                self.commenting_line = None;
-                self.comment_input.clear();
+            if esc {
+                if self.filter_active {
+                    self.filter_active = false;
+                    self.filter_query.clear();
+                    self.selected_pr_index = 0;
+                } else if self.commenting_line.is_some() {
+                    self.commenting_line = None;
+                    self.comment_input.clear();
+                }
+            }
+            // Enter in filter mode closes the bar but keeps the query
+            if self.filter_active {
+                let enter =
+                    ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter));
+                if enter {
+                    self.filter_active = false;
+                }
             }
             return;
         }
@@ -618,7 +643,8 @@ impl PrReviewPane {
                     // In list view: j/k navigate, Enter/l open PR.
                     // Escape and h are NOT consumed — they pass through to the
                     // workspace so it can unfocus or navigate to another pane.
-                    let count = self.pull_requests.len();
+                    let filtered = self.filtered_pr_indices();
+                    let count = filtered.len();
 
                     // Always consume navigation keys to prevent workspace from
                     // stealing them (even when list is empty/loading).
@@ -643,8 +669,10 @@ impl PrReviewPane {
                             self.selected_pr_index = self.selected_pr_index.saturating_sub(1);
                         }
                         if open {
-                            if let Some(pr) = self.pull_requests.get(self.selected_pr_index) {
-                                self.pending_open_pr = Some(pr.number);
+                            if let Some(&pr_idx) = filtered.get(self.selected_pr_index) {
+                                if let Some(pr) = self.pull_requests.get(pr_idx) {
+                                    self.pending_open_pr = Some(pr.number);
+                                }
                             }
                         }
                         if jump_bottom {
@@ -656,6 +684,13 @@ impl PrReviewPane {
                     }
                     if refresh {
                         self.pending_refresh = true;
+                    }
+
+                    // / — activate filter
+                    if input.consume_key(egui::Modifiers::NONE, egui::Key::Slash) {
+                        self.filter_active = true;
+                        self.filter_query.clear();
+                        self.selected_pr_index = 0;
                     }
                 }
                 PrReviewView::Detail => {
@@ -669,22 +704,22 @@ impl PrReviewPane {
                         self.pending_go_back = true;
                     }
 
-                    // j / Down — next file
+                    // j / Down — scroll diff down
+                    let scroll_amount = 60.0;
                     if input.consume_key(egui::Modifiers::NONE, egui::Key::J)
                         || input.consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown)
                     {
-                        let max = self.pr_files.len().saturating_sub(1);
-                        self.selected_file_index = (self.selected_file_index + 1).min(max);
+                        self.diff_scroll_delta += scroll_amount;
                     }
 
-                    // k / Up — previous file
+                    // k / Up — scroll diff up
                     if input.consume_key(egui::Modifiers::NONE, egui::Key::K)
                         || input.consume_key(egui::Modifiers::NONE, egui::Key::ArrowUp)
                     {
-                        self.selected_file_index = self.selected_file_index.saturating_sub(1);
+                        self.diff_scroll_delta -= scroll_amount;
                     }
 
-                    // s — toggle split/unified view
+                    // s — toggle split/stacked view
                     if input.consume_key(egui::Modifiers::NONE, egui::Key::S) {
                         self.split_view = !self.split_view;
                     }
@@ -694,13 +729,16 @@ impl PrReviewPane {
                         self.pending_open_file_opener = true;
                     }
 
-                    // n / p — next/previous file
+                    // n — next file
                     if input.consume_key(egui::Modifiers::NONE, egui::Key::N) {
                         let max = self.pr_files.len().saturating_sub(1);
                         self.selected_file_index = (self.selected_file_index + 1).min(max);
+                        self.diff_scroll_delta = 0.0;
                     }
+                    // p — previous file
                     if input.consume_key(egui::Modifiers::NONE, egui::Key::P) {
                         self.selected_file_index = self.selected_file_index.saturating_sub(1);
+                        self.diff_scroll_delta = 0.0;
                     }
 
                     // 1/2/3 — switch tabs
@@ -744,6 +782,7 @@ impl crate::components::Component for PrReviewPane {
             self.review_comments.clear();
             self.issue_comments.clear();
             self.check_runs.clear();
+            self.diff_scroll_delta = 0.0;
         }
 
         // Auto-fetch PR list on first render if we have a token
@@ -806,14 +845,14 @@ impl crate::components::Component for PrReviewPane {
     fn label(&self) -> egui::RichText {
         let icon = egui_nerdfonts::regular::GIT_PULL_REQUEST;
         if let Some(pr) = &self.current_pr {
-            egui::RichText::new(format!("{icon} PR #{}", pr.number))
+            egui::RichText::new(format!("{icon} #{} {}", pr.number, pr.title))
         } else {
             egui::RichText::new(format!("{icon} Pull Requests"))
         }
     }
 
     fn description(&self) -> &str {
-        &self.description
+        ""
     }
 
     fn to_pane_config(&self) -> Option<enya_config::PaneConfig> {
