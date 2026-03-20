@@ -3,7 +3,7 @@
 use egui::RichText;
 
 use crate::components::util::diff_widget;
-use crate::github_api::relative_time;
+use crate::github_api::{ReviewEvent, relative_time};
 use crate::ui::theme::AppTheme;
 use crate::ui::typography;
 
@@ -153,8 +153,9 @@ impl PrReviewPane {
             egui::Stroke::new(1.0, theme.border_subtle()),
         );
 
-        // Tab bar
+        // Tab bar with review actions on the right
         ui.add_space(4.0);
+        let mut clicked_event: Option<ReviewEvent> = None;
         ui.horizontal(|ui| {
             ui.add_space(12.0);
             render_tab(ui, theme, "Files", DetailTab::Files, &mut self.active_tab);
@@ -168,7 +169,141 @@ impl PrReviewPane {
             );
             ui.add_space(8.0);
             render_tab(ui, theme, "Checks", DetailTab::Checks, &mut self.active_tab);
+
+            // Review actions on the right
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.add_space(12.0);
+
+                let has_content = !self.draft_comments.is_empty() || !self.draft_body.is_empty();
+                let can_submit = self.token.is_some() && !self.submitting_review;
+
+                // Approve (always enabled if signed in)
+                let approve_btn = ui.add_enabled(
+                    can_submit,
+                    egui::Button::new(RichText::new("Approve").size(typography::XS).color(
+                        if can_submit {
+                            theme.diff_added_text()
+                        } else {
+                            theme.text_secondary().gamma_multiply(0.5)
+                        },
+                    ))
+                    .fill(if can_submit {
+                        theme.diff_added_bg()
+                    } else {
+                        theme.bg_elevated()
+                    })
+                    .stroke(egui::Stroke::new(
+                        1.0,
+                        if can_submit {
+                            theme.diff_added_gutter().gamma_multiply(0.3)
+                        } else {
+                            theme.border_subtle()
+                        },
+                    ))
+                    .corner_radius(4.0),
+                );
+                if approve_btn.clicked() {
+                    clicked_event = Some(ReviewEvent::Approve);
+                }
+
+                ui.add_space(4.0);
+
+                // Request Changes (needs content)
+                let rc_enabled = has_content && can_submit;
+                let rc_btn = ui.add_enabled(
+                    rc_enabled,
+                    egui::Button::new(RichText::new("Request Changes").size(typography::XS).color(
+                        if rc_enabled {
+                            theme.diff_removed_text()
+                        } else {
+                            theme.text_secondary().gamma_multiply(0.5)
+                        },
+                    ))
+                    .fill(if rc_enabled {
+                        theme.diff_removed_bg()
+                    } else {
+                        theme.bg_elevated()
+                    })
+                    .stroke(egui::Stroke::new(
+                        1.0,
+                        if rc_enabled {
+                            theme.diff_removed_gutter().gamma_multiply(0.3)
+                        } else {
+                            theme.border_subtle()
+                        },
+                    ))
+                    .corner_radius(4.0),
+                );
+                if rc_btn.clicked() {
+                    clicked_event = Some(ReviewEvent::RequestChanges);
+                }
+
+                ui.add_space(4.0);
+
+                // Comment (needs content)
+                let comment_enabled = has_content && can_submit;
+                let comment_btn = ui.add_enabled(
+                    comment_enabled,
+                    egui::Button::new(RichText::new("Comment").size(typography::XS).color(
+                        if comment_enabled {
+                            theme.text_primary()
+                        } else {
+                            theme.text_secondary().gamma_multiply(0.5)
+                        },
+                    ))
+                    .fill(theme.bg_elevated())
+                    .stroke(egui::Stroke::new(1.0, theme.border_subtle()))
+                    .corner_radius(4.0),
+                );
+                if comment_btn.clicked() {
+                    clicked_event = Some(ReviewEvent::Comment);
+                }
+
+                // Submitting indicator
+                if self.submitting_review {
+                    ui.add_space(4.0);
+                    ui.spinner();
+                }
+
+                // Draft count badge
+                let draft_count = self.draft_comments.len();
+                if draft_count > 0 {
+                    ui.add_space(8.0);
+                    ui.label(
+                        RichText::new(format!(
+                            "{} {}",
+                            egui_nerdfonts::regular::COMMENT,
+                            draft_count
+                        ))
+                        .color(theme.accent_primary())
+                        .font(typography::proportional(typography::XS)),
+                    );
+                }
+
+                // Success/error messages
+                if let Some(ref msg) = self.submit_success {
+                    ui.add_space(8.0);
+                    ui.label(
+                        RichText::new(format!("{} {msg}", egui_nerdfonts::regular::CHECK))
+                            .color(theme.diff_added_text())
+                            .font(typography::proportional(typography::XS)),
+                    );
+                }
+                if let Some(ref msg) = self.submit_error {
+                    ui.add_space(8.0);
+                    ui.label(
+                        RichText::new(format!("{} {msg}", egui_nerdfonts::regular::X))
+                            .color(theme.diff_removed_text())
+                            .font(typography::proportional(typography::XS)),
+                    );
+                }
+            });
         });
+
+        // Handle review submission outside the layout closure
+        if let Some(event) = clicked_event {
+            self.submit_review(event);
+        }
         ui.add_space(4.0);
 
         // Separator below tabs
@@ -219,8 +354,56 @@ impl PrReviewPane {
             DetailTab::Checks => self.show_checks_tab(ui, theme),
         }
 
-        // Review bar at the bottom
-        self.show_review_bar(ui);
+        // Keybinding hints footer
+        self.render_keybinding_footer(ui, theme);
+    }
+
+    /// Render keybinding hints at the bottom of the detail view.
+    fn render_keybinding_footer(&self, ui: &mut egui::Ui, theme: AppTheme) {
+        let muted = theme.text_secondary();
+        let separator_color = theme.border_subtle();
+
+        // Separator above footer
+        ui.painter().hline(
+            ui.available_rect_before_wrap().x_range(),
+            ui.cursor().top(),
+            egui::Stroke::new(1.0, separator_color),
+        );
+        ui.add_space(6.0);
+
+        ui.horizontal(|ui| {
+            ui.add_space(16.0);
+
+            // Current file path
+            if let Some(file_diff) = self.file_diffs.get(self.selected_file_index) {
+                ui.label(
+                    RichText::new(&file_diff.path)
+                        .color(muted)
+                        .font(typography::monospace(typography::SM)),
+                );
+            }
+
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.add_space(16.0);
+
+                let view_mode = if self.split_view { "split" } else { "unified" };
+                let hint = if self.file_diffs.len() > 1 {
+                    format!(
+                        "o open \u{2022} s {view_mode} \u{2022} n/p files \u{2022} j/k scroll \u{2022} 1/2/3 tabs \u{2022} Esc back"
+                    )
+                } else {
+                    format!(
+                        "o open \u{2022} s {view_mode} \u{2022} j/k scroll \u{2022} 1/2/3 tabs \u{2022} Esc back"
+                    )
+                };
+                ui.label(
+                    RichText::new(hint)
+                        .color(muted.gamma_multiply(0.7))
+                        .font(typography::proportional(typography::XS)),
+                );
+            });
+        });
+        ui.add_space(8.0);
     }
 
     /// Render the Files tab — file list + diff view.

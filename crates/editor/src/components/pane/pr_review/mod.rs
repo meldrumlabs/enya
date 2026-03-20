@@ -6,7 +6,6 @@
 mod detail_view;
 mod diff_view;
 mod list_view;
-mod review_bar;
 
 use rustc_hash::FxHashMap;
 use std::sync::Arc;
@@ -15,6 +14,7 @@ use parking_lot::Mutex;
 
 use crate::AsyncRuntime;
 use crate::components::util::diff_rendering::FileDiff;
+use crate::components::util::file_opener::FileOpenerPopup;
 use crate::components::util::next_id_usize;
 use crate::github_api::{
     self, CheckRun, DraftComment, IssueComment, PrComment, PrFile, PullRequest, ReviewEvent,
@@ -119,6 +119,13 @@ pub struct PrReviewPane {
     submit_success: Option<String>,
     pending_submit: Arc<Mutex<Option<PrSubmitResult>>>,
 
+    // ── File opener ──
+    file_opener: FileOpenerPopup,
+    /// Repo root for constructing full file paths.
+    repo_root: Option<std::path::PathBuf>,
+    /// Whether to open the file opener popup (deferred from keyboard).
+    pending_open_file_opener: bool,
+
     // ── Keyboard deferred actions ──
     /// PR number to open (set by keyboard, consumed next frame).
     pending_open_pr: Option<u32>,
@@ -183,6 +190,9 @@ impl PrReviewPane {
             submit_error: None,
             submit_success: None,
             pending_submit: Arc::new(Mutex::new(None)),
+            file_opener: FileOpenerPopup::new(),
+            repo_root: None,
+            pending_open_file_opener: false,
             pending_open_pr: None,
             pending_refresh: false,
             pending_go_back: false,
@@ -204,6 +214,11 @@ impl PrReviewPane {
     /// Set whether this pane is the focused tile. Called each frame from workspace.
     pub fn set_focused(&mut self, focused: bool) {
         self.focused = focused;
+    }
+
+    /// Set the repository root path for file opener. Called each frame from workspace.
+    pub fn set_repo_root(&mut self, repo_root: Option<std::path::PathBuf>) {
+        self.repo_root = repo_root;
     }
 
     /// Get the current PR number if one is open.
@@ -591,54 +606,56 @@ impl PrReviewPane {
         }
 
         ctx.input_mut(|input| {
+            // Always consume keys that would conflict with workspace navigation
+            // when this pane is focused, to prevent accidental pane close/navigate.
+            // x (workspace: close pane) — never pass through when focused.
+            input.consume_key(egui::Modifiers::NONE, egui::Key::X);
+            // u (workspace: undo) — never pass through when focused.
+            input.consume_key(egui::Modifiers::NONE, egui::Key::U);
+
             match self.view {
                 PrReviewView::List => {
                     // In list view: j/k navigate, Enter/l open PR.
                     // Escape and h are NOT consumed — they pass through to the
                     // workspace so it can unfocus or navigate to another pane.
                     let count = self.pull_requests.len();
-                    if count == 0 {
-                        return;
-                    }
 
-                    // j / Down — move selection down
-                    if input.consume_key(egui::Modifiers::NONE, egui::Key::J)
-                        || input.consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown)
-                    {
-                        self.selected_pr_index =
-                            (self.selected_pr_index + 1).min(count.saturating_sub(1));
-                    }
-
-                    // k / Up — move selection up
-                    if input.consume_key(egui::Modifiers::NONE, egui::Key::K)
-                        || input.consume_key(egui::Modifiers::NONE, egui::Key::ArrowUp)
-                    {
-                        self.selected_pr_index = self.selected_pr_index.saturating_sub(1);
-                    }
-
-                    // Enter / l — open selected PR
-                    if input.consume_key(egui::Modifiers::NONE, egui::Key::Enter)
+                    // Always consume navigation keys to prevent workspace from
+                    // stealing them (even when list is empty/loading).
+                    let down = input.consume_key(egui::Modifiers::NONE, egui::Key::J)
+                        || input.consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown);
+                    let up = input.consume_key(egui::Modifiers::NONE, egui::Key::K)
+                        || input.consume_key(egui::Modifiers::NONE, egui::Key::ArrowUp);
+                    let open = input.consume_key(egui::Modifiers::NONE, egui::Key::Enter)
                         || input.consume_key(egui::Modifiers::NONE, egui::Key::L)
-                        || input.consume_key(egui::Modifiers::NONE, egui::Key::ArrowRight)
-                    {
-                        if let Some(pr) = self.pull_requests.get(self.selected_pr_index) {
-                            self.pending_open_pr = Some(pr.number);
+                        || input.consume_key(egui::Modifiers::NONE, egui::Key::ArrowRight);
+                    let refresh = input.consume_key(egui::Modifiers::NONE, egui::Key::R);
+                    let jump_bottom = input.consume_key(egui::Modifiers::SHIFT, egui::Key::G);
+                    let jump_top = input.consume_key(egui::Modifiers::NONE, egui::Key::G);
+
+                    // Only act on navigation when we have PRs to navigate
+                    if count > 0 {
+                        if down {
+                            self.selected_pr_index =
+                                (self.selected_pr_index + 1).min(count.saturating_sub(1));
+                        }
+                        if up {
+                            self.selected_pr_index = self.selected_pr_index.saturating_sub(1);
+                        }
+                        if open {
+                            if let Some(pr) = self.pull_requests.get(self.selected_pr_index) {
+                                self.pending_open_pr = Some(pr.number);
+                            }
+                        }
+                        if jump_bottom {
+                            self.selected_pr_index = count.saturating_sub(1);
+                        }
+                        if jump_top {
+                            self.selected_pr_index = 0;
                         }
                     }
-
-                    // r — refresh list
-                    if input.consume_key(egui::Modifiers::NONE, egui::Key::R) {
+                    if refresh {
                         self.pending_refresh = true;
-                    }
-
-                    // G — jump to bottom
-                    if input.consume_key(egui::Modifiers::SHIFT, egui::Key::G) {
-                        self.selected_pr_index = count.saturating_sub(1);
-                    }
-
-                    // g — jump to top
-                    if input.consume_key(egui::Modifiers::NONE, egui::Key::G) {
-                        self.selected_pr_index = 0;
                     }
                 }
                 PrReviewView::Detail => {
@@ -664,6 +681,25 @@ impl PrReviewPane {
                     if input.consume_key(egui::Modifiers::NONE, egui::Key::K)
                         || input.consume_key(egui::Modifiers::NONE, egui::Key::ArrowUp)
                     {
+                        self.selected_file_index = self.selected_file_index.saturating_sub(1);
+                    }
+
+                    // s — toggle split/unified view
+                    if input.consume_key(egui::Modifiers::NONE, egui::Key::S) {
+                        self.split_view = !self.split_view;
+                    }
+
+                    // o — open current file in external editor
+                    if input.consume_key(egui::Modifiers::NONE, egui::Key::O) {
+                        self.pending_open_file_opener = true;
+                    }
+
+                    // n / p — next/previous file
+                    if input.consume_key(egui::Modifiers::NONE, egui::Key::N) {
+                        let max = self.pr_files.len().saturating_sub(1);
+                        self.selected_file_index = (self.selected_file_index + 1).min(max);
+                    }
+                    if input.consume_key(egui::Modifiers::NONE, egui::Key::P) {
                         self.selected_file_index = self.selected_file_index.saturating_sub(1);
                     }
 
@@ -723,6 +759,31 @@ impl crate::components::Component for PrReviewPane {
         match self.view {
             PrReviewView::List => self.show_list_view(ui),
             PrReviewView::Detail => self.show_detail_view(ui),
+        }
+
+        // Show file opener popup (rendered on top)
+        use crate::components::util::file_opener::{FileOpenerAction, FileOpenerResult};
+        let file_opener_result = self.file_opener.show(ui.ctx(), self.theme);
+        if let FileOpenerResult::Selected(action) = file_opener_result {
+            match action {
+                FileOpenerAction::OpenIn(app) => {
+                    if let Some(path) = self.file_opener.file_path() {
+                        if let Err(e) = app.execute(path) {
+                            log::warn!("Failed to open in {}: {e}", app.name());
+                        }
+                    }
+                }
+                FileOpenerAction::CopyPath => {
+                    if let Some(path) = self.file_opener.file_path() {
+                        ui.ctx().copy_text(path.display().to_string());
+                    }
+                }
+                FileOpenerAction::CopyRelativePath => {
+                    if let Some(rel) = self.file_opener.relative_path() {
+                        ui.ctx().copy_text(rel.display().to_string());
+                    }
+                }
+            }
         }
     }
 

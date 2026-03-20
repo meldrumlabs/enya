@@ -249,17 +249,34 @@ impl PrReviewPane {
             self.open_pr(number);
         }
 
-        // Footer hints
-        ui.add_space(4.0);
+        // Keybinding hints footer
+        let muted = theme.text_secondary();
+        ui.painter().hline(
+            ui.available_rect_before_wrap().x_range(),
+            ui.cursor().top(),
+            egui::Stroke::new(1.0, theme.border_subtle()),
+        );
+        ui.add_space(6.0);
         ui.horizontal(|ui| {
-            ui.add_space(12.0);
+            ui.add_space(16.0);
             ui.label(
                 RichText::new(format!("{} open", self.pull_requests.len()))
-                    .color(theme.text_secondary().gamma_multiply(0.7))
-                    .font(typography::proportional(typography::XS)),
+                    .color(muted)
+                    .font(typography::proportional(typography::SM)),
             );
+
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.add_space(16.0);
+                ui.label(
+                    RichText::new(
+                        "j/k navigate \u{2022} Enter open \u{2022} r refresh \u{2022} g/G top/bottom",
+                    )
+                    .color(muted.gamma_multiply(0.7))
+                    .font(typography::proportional(typography::XS)),
+                );
+            });
         });
-        ui.add_space(4.0);
+        ui.add_space(8.0);
     }
 }
 

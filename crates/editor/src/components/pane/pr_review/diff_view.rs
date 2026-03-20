@@ -4,6 +4,8 @@ use egui::RichText;
 
 use crate::components::util::diff_rendering::{DiffLineKind, build_split_view_lines};
 use crate::components::util::diff_widget;
+#[cfg(not(target_arch = "wasm32"))]
+use crate::ui::icons::APP_GHOSTTY;
 use crate::ui::typography;
 
 use super::PrReviewPane;
@@ -51,19 +53,56 @@ impl PrReviewPane {
             );
 
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.add_space(8.0);
+                ui.add_space(16.0);
+
+                // Open button with Ghostty icon preview (native only)
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    let open_btn = ui.add(
+                        egui::Button::image_and_text(
+                            egui::Image::new(APP_GHOSTTY.as_image_source())
+                                .fit_to_exact_size(egui::vec2(14.0, 14.0)),
+                            RichText::new(format!(
+                                "Open {}",
+                                egui_nerdfonts::regular::CHEVRON_DOWN
+                            ))
+                            .size(typography::SM)
+                            .color(theme.text_secondary()),
+                        )
+                        .fill(theme.bg_elevated())
+                        .stroke(egui::Stroke::new(1.0, theme.border_subtle()))
+                        .corner_radius(4.0),
+                    );
+
+                    if open_btn.clicked() || self.pending_open_file_opener {
+                        self.pending_open_file_opener = false;
+                        let popup_pos = open_btn.rect.left_bottom();
+                        let file_path = if let Some(root) = &self.repo_root {
+                            root.join(&file_diff.path)
+                        } else {
+                            std::path::PathBuf::from(&file_diff.path)
+                        };
+                        self.file_opener.open_with_base(
+                            popup_pos,
+                            file_path,
+                            self.repo_root.clone(),
+                        );
+                    }
+                }
+
+                ui.add_space(4.0);
 
                 // Split view toggle
                 let split_label = if self.split_view { "Unified" } else { "Split" };
                 let split_btn = ui.add(
                     egui::Button::new(
                         RichText::new(split_label)
-                            .size(typography::XS)
+                            .size(typography::SM)
                             .color(theme.text_secondary()),
                     )
                     .fill(theme.bg_elevated())
                     .stroke(egui::Stroke::new(1.0, theme.border_subtle()))
-                    .corner_radius(3.0),
+                    .corner_radius(4.0),
                 );
                 if split_btn.clicked() {
                     self.split_view = !self.split_view;

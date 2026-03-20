@@ -670,6 +670,12 @@ impl Workspace {
                 {
                     pr_pane.set_token(pr_token.clone());
                     pr_pane.set_focused(focused_tile == Some(tile_id));
+                    #[cfg(not(target_arch = "wasm32"))]
+                    pr_pane.set_repo_root(
+                        self.codebase_manager
+                            .index()
+                            .map(|idx| idx.repo_path.clone()),
+                    );
                 }
             }
         }
