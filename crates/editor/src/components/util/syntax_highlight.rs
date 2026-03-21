@@ -146,6 +146,14 @@ impl SyntaxHighlightData {
                 tree_sitter_javascript::INJECTIONS_QUERY,
                 tree_sitter_javascript::LOCALS_QUERY,
             ),
+            #[cfg(feature = "all-languages")]
+            "toml" => HighlightConfiguration::new(
+                tree_sitter_toml_ng::LANGUAGE.into(),
+                "toml",
+                tree_sitter_toml_ng::HIGHLIGHTS_QUERY,
+                "",
+                "",
+            ),
             // Default to Rust for unknown languages (better than no highlighting)
             _ => HighlightConfiguration::new(
                 tree_sitter_rust::LANGUAGE.into(),

@@ -58,6 +58,10 @@ pub struct FileDiff {
     pub old_highlight: Option<SyntaxHighlightData>,
     /// Syntax highlight data for the new version of the file.
     pub new_highlight: Option<SyntaxHighlightData>,
+    /// Full old file content lines (for context expansion). Loaded lazily.
+    pub old_file_lines: Option<Vec<String>>,
+    /// Full new file content lines (for context expansion). Loaded lazily.
+    pub new_file_lines: Option<Vec<String>>,
 }
 
 /// A single line in a diff with word-level change information.
@@ -82,6 +86,10 @@ pub struct DiffLine {
     pub old_recon_num: Option<usize>,
     /// Line number in the reconstructed new file (1-indexed, for syntax highlighting lookup).
     pub new_recon_num: Option<usize>,
+    /// For HunkHeader: the old file line number where this hunk starts.
+    pub hunk_old_start: Option<usize>,
+    /// For HunkHeader: the new file line number where this hunk starts.
+    pub hunk_new_start: Option<usize>,
 }
 
 /// The type of diff line.
@@ -228,6 +236,19 @@ impl DiffViewerOverlay {
             }
             if !new_content.is_empty() {
                 file.new_highlight = Some(SyntaxHighlightData::new(&new_content, &lang));
+            }
+        }
+
+        // Load full file contents for context expansion (native only)
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(ref repo_root) = self.repo_root {
+            let commit = self.commit_hash.clone();
+            for file in &mut self.file_diffs {
+                let path = file.path.clone();
+                // Old version: parent commit
+                file.old_file_lines = load_file_at_commit(repo_root, &format!("{commit}^"), &path);
+                // New version: this commit
+                file.new_file_lines = load_file_at_commit(repo_root, &commit, &path);
             }
         }
 
@@ -887,6 +908,8 @@ impl DiffViewerOverlay {
 
         // Track clicks for line selection
         let mut clicked_line: Option<(usize, bool)> = None;
+        // Track hunk expand clicks: (line_index_of_hunk_header)
+        let mut expand_hunk_idx: Option<usize> = None;
 
         // Scrollable diff content — no cloning needed thanks to field splitting
         egui::ScrollArea::both()
@@ -922,8 +945,15 @@ impl DiffViewerOverlay {
                         accent,
                         search_highlights: line_search_highlights,
                     };
-                    if let Some(shift) = render_diff_line_unified(ui, &line_ctx) {
-                        clicked_line = Some((line_idx, shift));
+                    let result = render_diff_line_unified(ui, &line_ctx);
+                    match result {
+                        DiffLineAction::Click(shift) => {
+                            clicked_line = Some((line_idx, shift));
+                        }
+                        DiffLineAction::ExpandHunk => {
+                            expand_hunk_idx = Some(line_idx);
+                        }
+                        DiffLineAction::None => {}
                     }
                 }
 
@@ -940,6 +970,106 @@ impl DiffViewerOverlay {
                 self.selection_anchor = Some(line_idx);
                 self.selected_lines = Some((line_idx, line_idx));
             }
+        }
+
+        // Process hunk expansion
+        if let Some(hunk_idx) = expand_hunk_idx {
+            self.expand_context(hunk_idx);
+        }
+    }
+
+    /// Expand context around a hunk header by splicing in lines from the full file.
+    fn expand_context(&mut self, hunk_line_idx: usize) {
+        let Some(file_diff) = self.file_diffs.get_mut(self.current_file_index) else {
+            return;
+        };
+        let Some(hunk_line) = file_diff.lines.get(hunk_line_idx) else {
+            return;
+        };
+        if hunk_line.kind != DiffLineKind::HunkHeader {
+            return;
+        }
+
+        let hidden_count = hunk_line.hidden_lines.unwrap_or(0);
+        if hidden_count == 0 {
+            return;
+        }
+
+        let hunk_old_start = hunk_line.hunk_old_start.unwrap_or(1);
+        let hunk_new_start = hunk_line.hunk_new_start.unwrap_or(1);
+
+        // We need the full file lines. Use old_file_lines as the source of context.
+        let Some(ref old_file_lines) = file_diff.old_file_lines else {
+            return;
+        };
+
+        // Determine the range of old file lines that are hidden before this hunk.
+        // The hidden lines are the gap between the previous hunk's end and this hunk's start.
+        // They correspond to old file lines [hunk_old_start - hidden_count .. hunk_old_start)
+        // (1-indexed, so subtract 1 for array access).
+        let expand_count = hidden_count.min(20); // expand up to 20 lines at a time
+        let expand_start_old = hunk_old_start.saturating_sub(expand_count + 1);
+        let expand_end_old = hunk_old_start.saturating_sub(1); // exclusive
+
+        // Correspondingly for new file: the gap is the same size
+        let expand_start_new = hunk_new_start.saturating_sub(expand_count + 1);
+
+        let mut new_lines = Vec::new();
+        let mut actual_expanded = 0;
+        for i in 0..expand_count {
+            let old_idx = expand_start_old + i;
+            if old_idx >= expand_end_old || old_idx >= old_file_lines.len() {
+                break;
+            }
+            let content = old_file_lines[old_idx].clone();
+            let old_num = old_idx + 1; // 1-indexed
+            let new_num = expand_start_new + i + 1;
+            new_lines.push(DiffLine {
+                content,
+                kind: DiffLineKind::Context,
+                old_line_num: Some(old_num),
+                new_line_num: Some(new_num),
+                word_highlights: Vec::new(),
+                hidden_lines: None,
+                hunk_context: None,
+                old_recon_num: None,
+                new_recon_num: None,
+                hunk_old_start: None,
+                hunk_new_start: None,
+            });
+            actual_expanded += 1;
+        }
+
+        if actual_expanded == 0 {
+            return;
+        }
+
+        // Update the hunk header's hidden count
+        let remaining = hidden_count.saturating_sub(actual_expanded);
+        file_diff.lines[hunk_line_idx].hidden_lines = if remaining > 0 {
+            Some(remaining)
+        } else {
+            Some(0) // keep header but show 0 hidden
+        };
+
+        // Insert the expanded context lines before the hunk header
+        let insert_pos = hunk_line_idx;
+        for (i, line) in new_lines.into_iter().enumerate() {
+            file_diff.lines.insert(insert_pos + i, line);
+        }
+
+        // Invalidate caches
+        self.hunk_offsets.clear();
+        self.search_matches.clear();
+
+        // Rebuild syntax highlighting data since lines changed
+        let lang = language_from_path(&file_diff.path).to_string();
+        let (old_content, new_content) = reconstruct_file_contents(file_diff);
+        if !old_content.is_empty() {
+            file_diff.old_highlight = Some(SyntaxHighlightData::new(&old_content, &lang));
+        }
+        if !new_content.is_empty() {
+            file_diff.new_highlight = Some(SyntaxHighlightData::new(&new_content, &lang));
         }
     }
 
@@ -1411,6 +1541,16 @@ fn render_stat_badge(ui: &mut egui::Ui, count: usize, is_addition: bool, theme: 
         });
 }
 
+/// Action returned from rendering a diff line.
+enum DiffLineAction {
+    /// No interaction.
+    None,
+    /// Line number area was clicked (shift_held).
+    Click(bool),
+    /// Hunk header was clicked to expand context.
+    ExpandHunk,
+}
+
 /// Context for rendering a unified diff line.
 struct UnifiedLineCtx<'a> {
     line: &'a DiffLine,
@@ -1426,9 +1566,7 @@ struct UnifiedLineCtx<'a> {
 }
 
 /// Renders a single diff line in unified view with syntax highlighting, hunk separators, and line selection.
-///
-/// Returns `Some(shift_held)` if the line number area was clicked (for line selection).
-fn render_diff_line_unified(ui: &mut egui::Ui, ctx: &UnifiedLineCtx<'_>) -> Option<bool> {
+fn render_diff_line_unified(ui: &mut egui::Ui, ctx: &UnifiedLineCtx<'_>) -> DiffLineAction {
     let UnifiedLineCtx {
         line,
         line_idx,
@@ -1445,18 +1583,28 @@ fn render_diff_line_unified(ui: &mut egui::Ui, ctx: &UnifiedLineCtx<'_>) -> Opti
     let line_num_width = *line_num_width;
     let mut clicked_shift: Option<bool> = None;
 
-    // Special rendering for hunk headers - styled separator
+    // Special rendering for hunk headers - styled separator (clickable to expand context)
     if line.kind == DiffLineKind::HunkHeader {
         let available_width = ui.available_width();
         let header_height = typography::SM + 12.0;
+        let has_hidden = line.hidden_lines.is_some_and(|n| n > 0);
 
-        let (rect, _) = ui.allocate_exact_size(
+        let (rect, response) = ui.allocate_exact_size(
             egui::vec2(available_width, header_height),
-            egui::Sense::hover(),
+            if has_hidden {
+                egui::Sense::click()
+            } else {
+                egui::Sense::hover()
+            },
         );
 
-        // Background
-        ui.painter().rect_filled(rect, 0.0, theme.diff_hunk_bg());
+        // Background — highlight on hover if expandable
+        let bg = if has_hidden && response.hovered() {
+            theme.diff_hunk_bg().gamma_multiply(1.4)
+        } else {
+            theme.diff_hunk_bg()
+        };
+        ui.painter().rect_filled(rect, 0.0, bg);
 
         // Subtle top/bottom separator lines
         ui.painter().hline(
@@ -1470,26 +1618,36 @@ fn render_diff_line_unified(ui: &mut egui::Ui, ctx: &UnifiedLineCtx<'_>) -> Opti
             egui::Stroke::new(1.0, theme.diff_hunk_text().gamma_multiply(0.2)),
         );
 
-        // Build display text: "··· N lines hidden ··· fn foo()"
-        let hidden_text = line
-            .hidden_lines
-            .map(|n| format!("··· {n} lines hidden ···"))
-            .unwrap_or_else(|| "···".to_string());
+        // Build display text
+        let hidden_text = if has_hidden {
+            let n = line.hidden_lines.unwrap_or(0);
+            format!(
+                "{} ··· {n} lines hidden ··· click to expand",
+                egui_nerdfonts::regular::UNFOLD_MORE_HORIZONTAL
+            )
+        } else {
+            "···".to_string()
+        };
         let context_text = line.hunk_context.as_deref().unwrap_or("");
 
         let center_y = rect.center().y;
 
-        // Draw hidden lines text (centered-ish)
+        // Draw hidden lines text
+        let text_alpha = if has_hidden && response.hovered() {
+            1.0
+        } else {
+            0.7
+        };
         let hidden_galley = ui.painter().layout_no_wrap(
             hidden_text,
             typography::proportional(typography::XS),
-            theme.diff_hunk_text().gamma_multiply(0.7),
+            theme.diff_hunk_text().gamma_multiply(text_alpha),
         );
         let text_x = rect.left() + 16.0;
         ui.painter().galley(
             egui::pos2(text_x, center_y - hidden_galley.size().y / 2.0),
             hidden_galley.clone(),
-            theme.diff_hunk_text().gamma_multiply(0.7),
+            theme.diff_hunk_text().gamma_multiply(text_alpha),
         );
 
         // Draw function context in syntax function color
@@ -1504,7 +1662,15 @@ fn render_diff_line_unified(ui: &mut egui::Ui, ctx: &UnifiedLineCtx<'_>) -> Opti
             );
         }
 
-        return None;
+        // Hover cursor
+        if has_hidden && response.hovered() {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+        }
+
+        if has_hidden && response.clicked() {
+            return DiffLineAction::ExpandHunk;
+        }
+        return DiffLineAction::None;
     }
 
     // File headers - keep existing style
@@ -1535,7 +1701,7 @@ fn render_diff_line_unified(ui: &mut egui::Ui, ctx: &UnifiedLineCtx<'_>) -> Opti
             egui::Id::new("diff_line_bg"),
         ));
         bg_painter.rect_filled(rect, 0.0, theme.diff_file_header_bg());
-        return None;
+        return DiffLineAction::None;
     }
 
     // Regular content lines (Context, Addition, Deletion)
@@ -1663,7 +1829,10 @@ fn render_diff_line_unified(ui: &mut egui::Ui, ctx: &UnifiedLineCtx<'_>) -> Opti
         bg_painter.rect_filled(rect, 0.0, accent.gamma_multiply(0.12));
     }
 
-    clicked_shift
+    match clicked_shift {
+        Some(shift) => DiffLineAction::Click(shift),
+        None => DiffLineAction::None,
+    }
 }
 
 /// Renders a header line (file header or hunk header) spanning full width in split view.
@@ -2163,11 +2332,15 @@ fn parse_diff_into_files(diff: &str) -> Vec<FileDiff> {
                     hunk_context: None,
                     old_recon_num: None,
                     new_recon_num: None,
+                    hunk_old_start: None,
+                    hunk_new_start: None,
                 }],
                 additions: 0,
                 deletions: 0,
                 old_highlight: None,
                 new_highlight: None,
+                old_file_lines: None,
+                new_file_lines: None,
             });
             continue;
         }
@@ -2223,6 +2396,8 @@ fn parse_diff_into_files(diff: &str) -> Vec<FileDiff> {
                     hunk_context,
                     old_recon_num: None,
                     new_recon_num: None,
+                    hunk_old_start: Some(old_line_num),
+                    hunk_new_start: Some(new_line_num),
                 });
                 continue;
             }
@@ -2273,6 +2448,8 @@ fn parse_diff_into_files(diff: &str) -> Vec<FileDiff> {
                 hunk_context: None,
                 old_recon_num: None,
                 new_recon_num: None,
+                hunk_old_start: None,
+                hunk_new_start: None,
             });
 
             // Track consecutive additions and deletions for word-level diff
@@ -2563,6 +2740,31 @@ fn reconstruct_file_contents(file: &mut FileDiff) -> (String, String) {
     (old_content, new_content)
 }
 
+/// Load a file's content at a specific git revision.
+/// Returns each line as a separate string, or `None` if the file doesn't exist at that revision.
+#[cfg(not(target_arch = "wasm32"))]
+fn load_file_at_commit(
+    repo_root: &std::path::Path,
+    commit: &str,
+    file_path: &str,
+) -> Option<Vec<String>> {
+    let output = std::process::Command::new("git")
+        .args(["show", &format!("{commit}:{file_path}")])
+        .current_dir(repo_root)
+        .output()
+        .ok()?;
+    if output.status.success() {
+        Some(
+            String::from_utf8_lossy(&output.stdout)
+                .lines()
+                .map(String::from)
+                .collect(),
+        )
+    } else {
+        None
+    }
+}
+
 /// Maps a file path to a language identifier for tree-sitter.
 fn language_from_path(path: &str) -> &str {
     let ext = std::path::Path::new(path)
@@ -2575,6 +2777,7 @@ fn language_from_path(path: &str) -> &str {
         "py" => "python",
         "js" | "jsx" => "javascript",
         "ts" | "tsx" => "typescript",
+        "toml" => "toml",
         other => other,
     }
 }

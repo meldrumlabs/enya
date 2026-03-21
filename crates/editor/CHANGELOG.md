@@ -11,6 +11,13 @@ All notable changes to the Enya editor will be documented in this file.
 - **Hunk-to-hunk navigation**: `{` / `}` keys jump directly between changed hunks instead of scrolling line by line.
 - **Line selection and copy**: Click line numbers to select lines (shift+click for range), `⌘C` to copy selected content. Selection cleared with `Esc`.
 - **Search within diff**: Press `/` or `⌘F` to open an inline search bar. Case-insensitive matching across all files with `Enter`/`Shift+Enter` to cycle through matches. Current match highlighted in orange, other matches in yellow. Automatically scrolls to match and switches files.
+- **Expand context on demand**: Click hunk separators to reveal up to 20 additional lines of surrounding context from the full file. Expands incrementally with each click.
+- **TOML syntax highlighting**: Added tree-sitter TOML grammar for syntax-highlighted TOML diffs.
+- **All language grammars enabled by default**: Syntax highlighting for Rust, Go, Python, JavaScript/TypeScript, and TOML now ships out of the box.
+
+### Fixed
+
+- **Keyboard commands after closing diff viewer**: Fixed a bug where vim-style navigation (space+f, ?, etc.) stopped working after closing the diff viewer because the search TextEdit's focus lingered in egui memory.
 
 ## [0.1.1] - 2026-03-18
 

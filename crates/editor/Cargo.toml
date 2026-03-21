@@ -69,6 +69,7 @@ tree-sitter-highlight = "0.25"
 tree-sitter-go = { version = "0.25", optional = true }
 tree-sitter-python = { version = "0.25", optional = true }
 tree-sitter-javascript = { version = "0.25", optional = true }
+tree-sitter-toml-ng = { version = "0.7", optional = true }
 # Async runtime for AI agent and background tasks
 tokio = { workspace = true, features = ["rt-multi-thread", "net", "io-util", "time"] }
 # Embedded OTLP receiver HTTP server (optional, enabled by "otlp" feature)
@@ -147,7 +148,7 @@ egui_kittest = { version = "0.33.3", features = ["snapshot", "wgpu"] }
 [features]
 # OTLP receiver is enabled by default so `cargo run` works out of the box.
 # For full functionality: cargo build -p enya-editor --features all-languages,terminal,sql
-default = ["otlp"]
+default = ["otlp", "all-languages"]
 # Embedded OTLP HTTP receiver on port 4318 for local OTel ingestion.
 otlp = ["dep:axum"]
 # Enable SQL pane support with DataFusion query engine (~500 dependencies).
@@ -160,6 +161,7 @@ all-languages = [
   "dep:tree-sitter-go",
   "dep:tree-sitter-python",
   "dep:tree-sitter-javascript",
+  "dep:tree-sitter-toml-ng",
 ]
 # Enable puffin profiling backend (use with puffin_viewer)
 puffin = ["profiling/profile-with-puffin", "dep:puffin", "dep:puffin_http"]
