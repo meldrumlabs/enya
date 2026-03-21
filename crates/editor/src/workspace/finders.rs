@@ -123,12 +123,12 @@ impl Workspace {
             }
             SearchResultKind::Commit {
                 hash,
-                timestamp,
+                timestamp: _,
                 diff,
             } => {
                 log::debug!("Opening diff viewer for commit: {} - {}", hash, result.name);
                 // Open the diff viewer overlay with the commit's full diff
-                self.diff_viewer.open(hash, &result.name, *timestamp, diff);
+                self.diff_viewer.open(hash, &result.name, diff);
             }
         }
     }
@@ -262,7 +262,7 @@ impl Workspace {
                 diff,
             } => {
                 log::debug!("Opening diff viewer for commit: {hash}");
-                self.diff_viewer.open(&hash, &message, 0, &diff);
+                self.diff_viewer.open(&hash, &message, &diff);
                 None
             }
             UnifiedFinderAction::Error(msg) => Some(WorkspaceAction::Notify {

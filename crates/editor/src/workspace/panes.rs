@@ -1925,7 +1925,7 @@ impl Workspace {
     /// Open the diff viewer with specific content.
     pub fn open_diff_viewer_with_content(&mut self, hash: &str, message: &str, diff: &str) {
         log::debug!("Opening diff viewer for commit from chat: {hash}");
-        self.diff_viewer.open(hash, message, 0, diff);
+        self.diff_viewer.open(hash, message, diff);
     }
 
     /// Open the diff viewer for a specific commit hash (fetches diff content automatically).
@@ -1952,7 +1952,7 @@ impl Workspace {
                 let diff_content = String::from_utf8_lossy(&output.stdout).to_string();
                 if !diff_content.is_empty() {
                     log::debug!("Opening diff viewer for commit: {hash}");
-                    self.diff_viewer.open(hash, message, 0, &diff_content);
+                    self.diff_viewer.open(hash, message, &diff_content);
                 } else {
                     log::warn!("No diff content for commit: {hash}");
                 }

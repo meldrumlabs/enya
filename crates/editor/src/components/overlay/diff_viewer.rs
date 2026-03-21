@@ -3,10 +3,12 @@
 //! Features:
 //! - **Side panel file list** - Version control style file tree on the right
 //! - **Word-level diff highlighting** - Shows exactly which characters changed
+//! - **Syntax highlighting** - Tree-sitter language-aware colors layered under diffs
 //! - **Split view toggle** - Switch between unified and side-by-side diff views
 //! - **Dual line numbers** - Old and new line numbers in the gutter
 //! - **Colored gutter stripes** - Green/red bars for add/remove
-//! - **GitHub dark color palette** - Professional, high-contrast styling
+//! - **Expandable context** - Click hunk separators to reveal surrounding lines
+//! - **Search** - Inline search across all files with match cycling
 //! - **Commit info header** - Shows hash, message, and file stats
 //!
 //! # Keyboard Shortcuts
@@ -15,7 +17,11 @@
 //! - `n` / `p` - Next/previous changed file
 //! - `j` / `k` - Scroll down/up
 //! - `h` / `l` - Scroll left/right
-//! - `Escape` - Close overlay
+//! - `{` / `}` - Jump to previous/next hunk
+//! - `/` or `⌘F` - Open search bar
+//! - `⌘C` - Copy selected lines
+//! - `o` - Open file in external app
+//! - `Escape` - Close search → clear selection → close overlay
 
 use std::path::PathBuf;
 
@@ -210,7 +216,7 @@ impl DiffViewerOverlay {
     }
 
     /// Opens the overlay with a commit diff.
-    pub fn open(&mut self, hash: &str, message: &str, _timestamp: i64, diff_content: &str) {
+    pub fn open(&mut self, hash: &str, message: &str, diff_content: &str) {
         self.commit_hash = hash.to_string();
         self.commit_message = message.to_string();
         self.file_diffs = parse_diff_into_files(diff_content);
@@ -1541,6 +1547,41 @@ fn render_stat_badge(ui: &mut egui::Ui, count: usize, is_addition: bool, theme: 
         });
 }
 
+/// Returns (text_color, bg_color, gutter_color) for a diff line kind.
+fn diff_line_colors(
+    kind: DiffLineKind,
+    theme: AppTheme,
+) -> (Color32, Option<Color32>, Option<Color32>) {
+    match kind {
+        DiffLineKind::Addition => (
+            theme.diff_added_text(),
+            Some(theme.diff_added_bg()),
+            Some(theme.diff_added_gutter()),
+        ),
+        DiffLineKind::Deletion => (
+            theme.diff_removed_text(),
+            Some(theme.diff_removed_bg()),
+            Some(theme.diff_removed_gutter()),
+        ),
+        DiffLineKind::Context => (theme.diff_context_text(), None, None),
+        DiffLineKind::HunkHeader => (theme.diff_hunk_text(), Some(theme.diff_hunk_bg()), None),
+        DiffLineKind::FileHeader => (
+            theme.diff_file_header(),
+            Some(theme.diff_file_header_bg()),
+            None,
+        ),
+    }
+}
+
+/// Returns the word-level highlight background color for a diff line kind.
+fn diff_word_bg(kind: DiffLineKind, theme: AppTheme) -> Option<Color32> {
+    match kind {
+        DiffLineKind::Addition => Some(theme.diff_added_word_bg()),
+        DiffLineKind::Deletion => Some(theme.diff_removed_word_bg()),
+        _ => None,
+    }
+}
+
 /// Action returned from rendering a diff line.
 enum DiffLineAction {
     /// No interaction.
@@ -1705,20 +1746,7 @@ fn render_diff_line_unified(ui: &mut egui::Ui, ctx: &UnifiedLineCtx<'_>) -> Diff
     }
 
     // Regular content lines (Context, Addition, Deletion)
-    let (base_text_color, bg_color, gutter_color) = match line.kind {
-        DiffLineKind::Addition => (
-            theme.diff_added_text(),
-            Some(theme.diff_added_bg()),
-            Some(theme.diff_added_gutter()),
-        ),
-        DiffLineKind::Deletion => (
-            theme.diff_removed_text(),
-            Some(theme.diff_removed_bg()),
-            Some(theme.diff_removed_gutter()),
-        ),
-        DiffLineKind::Context => (theme.diff_context_text(), None, None),
-        _ => unreachable!(),
-    };
+    let (base_text_color, bg_color, gutter_color) = diff_line_colors(line.kind, theme);
 
     let available_width = ui.available_width();
 
@@ -1739,11 +1767,7 @@ fn render_diff_line_unified(ui: &mut egui::Ui, ctx: &UnifiedLineCtx<'_>) -> Diff
         &line.content
     };
 
-    let word_bg = match line.kind {
-        DiffLineKind::Addition => Some(theme.diff_added_word_bg()),
-        DiffLineKind::Deletion => Some(theme.diff_removed_word_bg()),
-        _ => None,
-    };
+    let word_bg = diff_word_bg(line.kind, theme);
 
     let layout_job = build_diff_line_layout_job(
         content,
@@ -1935,25 +1959,7 @@ fn render_split_line_with_syntax(
         return;
     };
 
-    let (text_color, bg_color, gutter_color) = match line.kind {
-        DiffLineKind::Addition => (
-            theme.diff_added_text(),
-            Some(theme.diff_added_bg()),
-            Some(theme.diff_added_gutter()),
-        ),
-        DiffLineKind::Deletion => (
-            theme.diff_removed_text(),
-            Some(theme.diff_removed_bg()),
-            Some(theme.diff_removed_gutter()),
-        ),
-        DiffLineKind::HunkHeader => (theme.diff_hunk_text(), Some(theme.diff_hunk_bg()), None),
-        DiffLineKind::FileHeader => (
-            theme.diff_file_header(),
-            Some(theme.diff_file_header_bg()),
-            None,
-        ),
-        DiffLineKind::Context => (theme.diff_context_text(), None, None),
-    };
+    let (text_color, bg_color, gutter_color) = diff_line_colors(line.kind, theme);
 
     let gutter_width = 3.0;
     let line_num_area_width = (line_num_width + 1) as f32 * 8.0;
@@ -2046,11 +2052,7 @@ fn render_split_line_with_syntax(
         );
     } else {
         // Build LayoutJob with syntax colors
-        let word_bg = match line.kind {
-            DiffLineKind::Addition => Some(theme.diff_added_word_bg()),
-            DiffLineKind::Deletion => Some(theme.diff_removed_word_bg()),
-            _ => None,
-        };
+        let word_bg = diff_word_bg(line.kind, theme);
         let job = build_diff_line_layout_job_sm(
             &content,
             &line.word_highlights,
