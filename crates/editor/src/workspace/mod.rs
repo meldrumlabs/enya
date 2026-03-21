@@ -676,8 +676,6 @@ impl Workspace {
                             .index()
                             .map(|idx| idx.repo_path.clone()),
                     );
-                    #[cfg(not(target_arch = "wasm32"))]
-                    pr_pane.set_ai_model(Some(self.agent_panel.model_id().to_string()));
                 }
             }
         }

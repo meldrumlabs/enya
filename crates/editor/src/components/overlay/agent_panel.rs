@@ -241,11 +241,6 @@ impl AgentPanel {
         });
     }
 
-    /// Get the current model ID.
-    pub fn model_id(&self) -> &str {
-        &self.selected_model
-    }
-
     /// Get the current provider
     pub fn provider(&self) -> AiProvider {
         self.selected_provider
