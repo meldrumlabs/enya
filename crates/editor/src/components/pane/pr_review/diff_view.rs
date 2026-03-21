@@ -358,15 +358,34 @@ impl PrReviewPane {
             .map(|(i, _)| i)
             .collect();
 
+        // Collect deferred accept/reject actions
+        let mut accept_idx: Option<usize> = None;
+        let mut reject_idx: Option<usize> = None;
+
         for &idx in &draft_indices {
             let draft = &self.draft_comments[idx];
+            let is_ai = draft.ai_generated;
+
+            let (fill, stroke_color, badge_label, badge_color) = if is_ai {
+                (
+                    theme.accent_primary().gamma_multiply(0.06),
+                    theme.accent_primary().gamma_multiply(0.35),
+                    format!("{} AI", egui_nerdfonts::regular::SPARKLE_FILL),
+                    theme.accent_primary(),
+                )
+            } else {
+                (
+                    theme.accent_primary().gamma_multiply(0.08),
+                    theme.accent_primary().gamma_multiply(0.3),
+                    "Draft".to_string(),
+                    theme.accent_primary(),
+                )
+            };
+
             ui.add_space(2.0);
             egui::Frame::new()
-                .fill(theme.accent_primary().gamma_multiply(0.08))
-                .stroke(egui::Stroke::new(
-                    1.0,
-                    theme.accent_primary().gamma_multiply(0.3),
-                ))
+                .fill(fill)
+                .stroke(egui::Stroke::new(1.0, stroke_color))
                 .corner_radius(4.0)
                 .inner_margin(egui::Margin::same(8))
                 .outer_margin(egui::Margin {
@@ -378,11 +397,49 @@ impl PrReviewPane {
                 .show(ui, |ui| {
                     ui.horizontal(|ui| {
                         ui.label(
-                            RichText::new("Draft")
-                                .color(theme.accent_primary())
+                            RichText::new(&badge_label)
+                                .color(badge_color)
                                 .font(typography::proportional(typography::XS))
                                 .strong(),
                         );
+
+                        // Accept/reject buttons for AI comments
+                        if is_ai {
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    // Reject (x)
+                                    let reject_btn = ui.add(
+                                        egui::Button::new(
+                                            RichText::new(egui_nerdfonts::regular::X)
+                                                .size(typography::XS)
+                                                .color(theme.diff_removed_text()),
+                                        )
+                                        .fill(egui::Color32::TRANSPARENT)
+                                        .stroke(egui::Stroke::NONE),
+                                    );
+                                    if reject_btn.clicked() {
+                                        reject_idx = Some(idx);
+                                    }
+                                    reject_btn.on_hover_text("Reject");
+
+                                    // Accept (check)
+                                    let accept_btn = ui.add(
+                                        egui::Button::new(
+                                            RichText::new(egui_nerdfonts::regular::CHECK)
+                                                .size(typography::XS)
+                                                .color(theme.diff_added_text()),
+                                        )
+                                        .fill(egui::Color32::TRANSPARENT)
+                                        .stroke(egui::Stroke::NONE),
+                                    );
+                                    if accept_btn.clicked() {
+                                        accept_idx = Some(idx);
+                                    }
+                                    accept_btn.on_hover_text("Accept");
+                                },
+                            );
+                        }
                     });
                     ui.add_space(2.0);
                     ui.label(
@@ -392,6 +449,17 @@ impl PrReviewPane {
                     );
                 });
             ui.add_space(2.0);
+        }
+
+        // Apply deferred accept/reject actions
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            if let Some(idx) = accept_idx {
+                self.accept_ai_comment(idx);
+            }
+            if let Some(idx) = reject_idx {
+                self.reject_ai_comment(idx);
+            }
         }
 
         // Comment input (if this line is being commented on)

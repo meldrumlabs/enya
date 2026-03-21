@@ -55,11 +55,87 @@ type PrCommentsResult = Result<(Vec<PrComment>, Vec<IssueComment>), String>;
 type PrChecksResult = Result<Vec<CheckRun>, String>;
 type PrSubmitResult = Result<(), String>;
 
+/// AI review focus area.
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum AiReviewFocus {
+    General,
+    Security,
+    Performance,
+    Correctness,
+    Style,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl AiReviewFocus {
+    const ALL: [AiReviewFocus; 5] = [
+        AiReviewFocus::General,
+        AiReviewFocus::Security,
+        AiReviewFocus::Performance,
+        AiReviewFocus::Correctness,
+        AiReviewFocus::Style,
+    ];
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::General => "General",
+            Self::Security => "Security",
+            Self::Performance => "Performance",
+            Self::Correctness => "Correctness",
+            Self::Style => "Style",
+        }
+    }
+
+    fn description(self) -> &'static str {
+        match self {
+            Self::General => "Broad review covering bugs, logic, and design",
+            Self::Security => "Focus on vulnerabilities, auth, and injection risks",
+            Self::Performance => "Focus on bottlenecks, allocations, and complexity",
+            Self::Correctness => "Focus on edge cases, error handling, and invariants",
+            Self::Style => "Focus on naming, structure, and idiomatic patterns",
+        }
+    }
+
+    fn prompt_instruction(self) -> &'static str {
+        match self {
+            Self::General => {
+                "Review this pull request for bugs, logic errors, design issues, and anything that could cause problems. Cover all aspects."
+            }
+            Self::Security => {
+                "Focus your review on security vulnerabilities: injection risks, auth/authz issues, data exposure, unsafe operations, and OWASP top 10 concerns."
+            }
+            Self::Performance => {
+                "Focus your review on performance: unnecessary allocations, O(n²) algorithms, missing caching, blocking operations, and resource leaks."
+            }
+            Self::Correctness => {
+                "Focus your review on correctness: edge cases, off-by-one errors, null/None handling, error propagation, race conditions, and violated invariants."
+            }
+            Self::Style => {
+                "Focus your review on code style: naming conventions, idiomatic patterns, unnecessary complexity, missing abstractions, and readability."
+            }
+        }
+    }
+}
+
+/// State of an in-progress or completed AI review.
+#[cfg(not(target_arch = "wasm32"))]
+pub(super) struct AiReviewState {
+    pub focus: AiReviewFocus,
+    pub streaming: bool,
+    pub summary: String,
+    pub response_text: String,
+    pub comment_count: usize,
+    pub error: Option<String>,
+    /// Activity log (thinking, tool use) for live status display.
+    pub activities: Vec<crate::components::util::ActivityItem>,
+}
+
 /// All preloaded data for a single PR.
 struct PreloadedPr {
     pr: PullRequest,
     files: Vec<PrFile>,
     file_diffs: Vec<FileDiff>,
+    raw_diff_text: String,
     review_comments: Vec<PrComment>,
     issue_comments: Vec<IssueComment>,
     check_runs: Vec<CheckRun>,
@@ -95,6 +171,7 @@ pub struct PrReviewPane {
     current_pr: Option<PullRequest>,
     pr_files: Vec<PrFile>,
     file_diffs: Vec<FileDiff>,
+    raw_diff_text: String,
     review_comments: Vec<PrComment>,
     issue_comments: Vec<IssueComment>,
     check_runs: Vec<CheckRun>,
@@ -146,6 +223,22 @@ pub struct PrReviewPane {
     // ── Diff scroll ──
     /// Pending vertical scroll delta for the diff area (set by j/k keys).
     diff_scroll_delta: f32,
+
+    // ── AI review ──
+    /// The AI model ID to use for reviews (synced from settings).
+    #[cfg(not(target_arch = "wasm32"))]
+    ai_model: Option<String>,
+    #[cfg(not(target_arch = "wasm32"))]
+    ai_review: Option<AiReviewState>,
+    #[cfg(not(target_arch = "wasm32"))]
+    ai_event_receiver: Option<std::sync::mpsc::Receiver<enya_ai::AgentEvent>>,
+    /// Whether the AI focus picker popup is shown.
+    show_ai_focus_picker: bool,
+    /// Selected index in the focus picker.
+    selected_focus_index: usize,
+    /// Deferred: start AI review with selected focus (set by Enter key in picker).
+    #[cfg(not(target_arch = "wasm32"))]
+    pending_start_ai_review: Option<AiReviewFocus>,
 
     // ── Preload cache ──
     /// Cached preloaded PR data, keyed by PR number.
@@ -208,6 +301,17 @@ impl PrReviewPane {
             pending_go_back: false,
             focused: false,
             diff_scroll_delta: 0.0,
+            raw_diff_text: String::new(),
+            #[cfg(not(target_arch = "wasm32"))]
+            ai_model: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            ai_review: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            ai_event_receiver: None,
+            show_ai_focus_picker: false,
+            selected_focus_index: 0,
+            #[cfg(not(target_arch = "wasm32"))]
+            pending_start_ai_review: None,
             preload_cache: FxHashMap::default(),
             pending_preloads: Vec::new(),
             preload_started: false,
@@ -225,6 +329,12 @@ impl PrReviewPane {
     /// Set whether this pane is the focused tile. Called each frame from workspace.
     pub fn set_focused(&mut self, focused: bool) {
         self.focused = focused;
+    }
+
+    /// Set the AI model ID. Called each frame from workspace.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn set_ai_model(&mut self, model: Option<String>) {
+        self.ai_model = model;
     }
 
     /// Set the repository root path for file opener. Called each frame from workspace.
@@ -254,6 +364,7 @@ impl PrReviewPane {
             line,
             side: "RIGHT".to_string(),
             body,
+            ai_generated: false,
         });
     }
 
@@ -267,6 +378,7 @@ impl PrReviewPane {
             self.current_pr = Some(cached.pr);
             self.pr_files = cached.files;
             self.file_diffs = cached.file_diffs;
+            self.raw_diff_text = cached.raw_diff_text;
             self.review_comments = cached.review_comments;
             self.issue_comments = cached.issue_comments;
             self.check_runs = cached.check_runs;
@@ -432,6 +544,7 @@ impl PrReviewPane {
                         pr,
                         files,
                         file_diffs,
+                        raw_diff_text: diff,
                         review_comments,
                         issue_comments,
                         check_runs,
@@ -527,6 +640,7 @@ impl PrReviewPane {
                 Ok((pr, files, diff)) => {
                     self.file_diffs =
                         crate::components::util::diff_rendering::parse_diff_into_files(&diff);
+                    self.raw_diff_text = diff;
                     let pr_number = pr.number;
                     let head_sha_empty = pr.head.sha.is_empty();
                     self.current_pr = Some(pr);
@@ -570,6 +684,10 @@ impl PrReviewPane {
             }
         }
 
+        // Poll AI review events
+        #[cfg(not(target_arch = "wasm32"))]
+        self.poll_ai_review();
+
         // Poll review submission
         let submit_result = self.pending_submit.lock().take();
         if let Some(result) = submit_result {
@@ -589,6 +707,280 @@ impl PrReviewPane {
                     self.submit_error = Some(e);
                 }
             }
+        }
+    }
+}
+
+// ── AI review ────────────────────────────────────────────────────────────
+
+#[cfg(not(target_arch = "wasm32"))]
+impl PrReviewPane {
+    /// Build the system prompt for the AI review agent.
+    fn build_ai_review_prompt(&self, focus: AiReviewFocus) -> String {
+        let pr = self.current_pr.as_ref().expect("PR must be loaded");
+        let title = &pr.title;
+        let number = pr.number;
+        let description = pr.body.as_deref().unwrap_or("(no description)");
+
+        format!(
+            r#"You are reviewing Pull Request #{number}: "{title}"
+
+## PR Description
+{description}
+
+## Review Focus
+{focus_instruction}
+
+## Full Diff
+```diff
+{diff}
+```
+
+## Instructions
+
+Review the diff above and provide inline comments on specific lines where you find issues.
+For each issue, emit a command block like this:
+
+```enya-command
+{{"action": "add_pr_comment", "path": "path/to/file.rs", "line": 42, "body": "Your comment here"}}
+```
+
+Rules:
+- The `path` must exactly match a file path from the diff headers (e.g. `src/main.rs`)
+- The `line` must be a line number from the NEW side of the diff (right side, lines with `+` prefix or unchanged lines)
+- Be specific and actionable — explain what the issue is and suggest a fix
+- Focus on substantive issues, not nitpicks
+- Do NOT comment on every file — only where there are real concerns
+- After all comments, write a brief summary of your review findings
+
+Keep your review concise and high-signal."#,
+            focus_instruction = focus.prompt_instruction(),
+            diff = self.raw_diff_text,
+        )
+    }
+
+    /// Start an AI review session with the given focus.
+    fn start_ai_review(&mut self, focus: AiReviewFocus) {
+        if self.current_pr.is_none() || self.raw_diff_text.is_empty() {
+            return;
+        }
+
+        // Clear any previous AI-generated draft comments
+        self.draft_comments.retain(|c| !c.ai_generated);
+
+        let prompt = self.build_ai_review_prompt(focus);
+
+        let client =
+            enya_ai::AcpClient::claude_code_with_runtime(self.async_runtime.handle().clone());
+
+        let working_dir = self.repo_root.clone();
+        log::info!("PR AI review: starting with model={:?}", self.ai_model);
+        let receiver =
+            client.prompt_with_context(prompt, working_dir, self.ai_model.as_deref(), None);
+
+        self.ai_event_receiver = Some(receiver);
+        self.ai_review = Some(AiReviewState {
+            focus,
+            streaming: true,
+            summary: String::new(),
+            response_text: String::new(),
+            comment_count: 0,
+            error: None,
+            activities: Vec::new(),
+        });
+    }
+
+    /// Poll the AI review event stream. Called each frame from `poll_results()`.
+    fn poll_ai_review(&mut self) {
+        let Some(receiver) = &self.ai_event_receiver else {
+            return;
+        };
+
+        let mut events = Vec::new();
+        while let Ok(event) = receiver.try_recv() {
+            events.push(event);
+        }
+
+        if events.is_empty() {
+            return;
+        }
+
+        if self.ai_review.is_none() {
+            return;
+        }
+
+        // Accumulate text and detect terminal events
+        let mut done = false;
+        let mut error_msg: Option<String> = None;
+
+        for event in events {
+            match event {
+                enya_ai::AgentEvent::TextDelta(text) => {
+                    if let Some(state) = &mut self.ai_review {
+                        state.response_text.push_str(&text);
+                        state.summary.push_str(&text);
+                    }
+                }
+                enya_ai::AgentEvent::ThinkingDelta(text) => {
+                    if let Some(state) = &mut self.ai_review {
+                        // Update or create thinking activity
+                        if let Some(last) = state.activities.last_mut() {
+                            if let crate::components::util::ActivityType::Thinking(
+                                ref mut thinking_text,
+                            ) = last.activity_type
+                            {
+                                // Keep only the tail of thinking text for display
+                                thinking_text.push_str(&text);
+                                if thinking_text.len() > 80 {
+                                    let truncated =
+                                        thinking_text[thinking_text.len() - 60..].to_string();
+                                    *thinking_text = format!("...{truncated}");
+                                }
+                            } else {
+                                state
+                                    .activities
+                                    .push(crate::components::util::ActivityItem {
+                                        activity_type:
+                                            crate::components::util::ActivityType::Thinking(
+                                                text.clone(),
+                                            ),
+                                        in_progress: true,
+                                    });
+                            }
+                        } else {
+                            state
+                                .activities
+                                .push(crate::components::util::ActivityItem {
+                                    activity_type: crate::components::util::ActivityType::Thinking(
+                                        text.clone(),
+                                    ),
+                                    in_progress: true,
+                                });
+                        }
+                    }
+                }
+                enya_ai::AgentEvent::ToolCallStart {
+                    name, raw_input, ..
+                } => {
+                    if let Some(state) = &mut self.ai_review {
+                        // Mark previous activities as done
+                        for a in &mut state.activities {
+                            a.in_progress = false;
+                        }
+                        let tool_name = name
+                            .strip_prefix("mcp__acp__")
+                            .or_else(|| name.strip_prefix("mcp__"))
+                            .unwrap_or(&name)
+                            .to_string();
+                        let summary = raw_input
+                            .as_ref()
+                            .map(|v| {
+                                let s = v.to_string();
+                                if s.len() > 60 {
+                                    format!("{}...", &s[..57])
+                                } else {
+                                    s
+                                }
+                            })
+                            .unwrap_or_default();
+                        state
+                            .activities
+                            .push(crate::components::util::ActivityItem {
+                                activity_type: crate::components::util::ActivityType::ToolUse {
+                                    tool: tool_name,
+                                    summary,
+                                },
+                                in_progress: true,
+                            });
+                    }
+                }
+                enya_ai::AgentEvent::ToolResult { .. } => {
+                    if let Some(state) = &mut self.ai_review {
+                        if let Some(last) = state.activities.last_mut() {
+                            last.in_progress = false;
+                        }
+                    }
+                }
+                enya_ai::AgentEvent::Done { .. } => {
+                    done = true;
+                }
+                enya_ai::AgentEvent::Error(err) => {
+                    error_msg = Some(format!("{err:?}"));
+                }
+                _ => {}
+            }
+        }
+
+        // Parse commands from accumulated response (works both during streaming and on done)
+        if let Some(state) = &self.ai_review {
+            let commands =
+                crate::components::overlay::agent_context::parse_commands(&state.response_text);
+            for cmd in commands {
+                if let crate::components::overlay::agent_context::AgentCommand::AddPrComment {
+                    path,
+                    line,
+                    body,
+                } = cmd
+                {
+                    let already_exists = self.draft_comments.iter().any(|c| {
+                        c.ai_generated && c.path == path && c.line == line && c.body == body
+                    });
+                    if !already_exists {
+                        self.draft_comments.push(DraftComment {
+                            path,
+                            line,
+                            side: "RIGHT".to_string(),
+                            body,
+                            ai_generated: true,
+                        });
+                    }
+                }
+            }
+        }
+
+        // Update state
+        if let Some(state) = &mut self.ai_review {
+            state.comment_count = self
+                .draft_comments
+                .iter()
+                .filter(|c| c.ai_generated)
+                .count();
+            if done {
+                state.streaming = false;
+            }
+            if let Some(err) = error_msg {
+                state.streaming = false;
+                state.error = Some(err);
+            }
+        }
+    }
+
+    /// Dismiss the AI review — remove all AI-generated comments and reset state.
+    pub(super) fn dismiss_ai_review(&mut self) {
+        self.draft_comments.retain(|c| !c.ai_generated);
+        self.ai_review = None;
+        self.ai_event_receiver = None;
+    }
+
+    /// Accept an AI comment — convert it to a regular draft.
+    pub(super) fn accept_ai_comment(&mut self, index: usize) {
+        if let Some(comment) = self.draft_comments.get_mut(index) {
+            comment.ai_generated = false;
+        }
+    }
+
+    /// Reject an AI comment — remove it.
+    pub(super) fn reject_ai_comment(&mut self, index: usize) {
+        if index < self.draft_comments.len() {
+            self.draft_comments.remove(index);
+        }
+        // Update count
+        if let Some(review) = &mut self.ai_review {
+            review.comment_count = self
+                .draft_comments
+                .iter()
+                .filter(|c| c.ai_generated)
+                .count();
         }
     }
 }
@@ -751,6 +1143,44 @@ impl PrReviewPane {
                     if input.consume_key(egui::Modifiers::NONE, egui::Key::Num3) {
                         self.active_tab = DetailTab::Checks;
                     }
+
+                    // a — toggle AI focus picker (only on native, not while streaming)
+                    #[cfg(not(target_arch = "wasm32"))]
+                    {
+                        let ai_streaming = self.ai_review.as_ref().is_some_and(|r| r.streaming);
+                        if input.consume_key(egui::Modifiers::NONE, egui::Key::A) {
+                            if self.show_ai_focus_picker {
+                                self.show_ai_focus_picker = false;
+                            } else if !ai_streaming {
+                                self.show_ai_focus_picker = true;
+                                self.selected_focus_index = 0;
+                            }
+                        }
+
+                        // Focus picker navigation
+                        if self.show_ai_focus_picker {
+                            if input.consume_key(egui::Modifiers::NONE, egui::Key::J)
+                                || input.consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown)
+                            {
+                                self.selected_focus_index = (self.selected_focus_index + 1)
+                                    .min(AiReviewFocus::ALL.len() - 1);
+                            }
+                            if input.consume_key(egui::Modifiers::NONE, egui::Key::K)
+                                || input.consume_key(egui::Modifiers::NONE, egui::Key::ArrowUp)
+                            {
+                                self.selected_focus_index =
+                                    self.selected_focus_index.saturating_sub(1);
+                            }
+                            if input.consume_key(egui::Modifiers::NONE, egui::Key::Escape) {
+                                self.show_ai_focus_picker = false;
+                            }
+                            if input.consume_key(egui::Modifiers::NONE, egui::Key::Enter) {
+                                let focus = AiReviewFocus::ALL[self.selected_focus_index];
+                                self.pending_start_ai_review = Some(focus);
+                                self.show_ai_focus_picker = false;
+                            }
+                        }
+                    }
                 }
             }
         });
@@ -783,6 +1213,17 @@ impl crate::components::Component for PrReviewPane {
             self.issue_comments.clear();
             self.check_runs.clear();
             self.diff_scroll_delta = 0.0;
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                self.ai_review = None;
+                self.ai_event_receiver = None;
+            }
+        }
+
+        // Start AI review (deferred from keyboard)
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(focus) = self.pending_start_ai_review.take() {
+            self.start_ai_review(focus);
         }
 
         // Auto-fetch PR list on first render if we have a token

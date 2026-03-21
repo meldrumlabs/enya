@@ -3,9 +3,12 @@
 use egui::RichText;
 
 use crate::github_api::{ReviewEvent, relative_time};
+use crate::ui::semantic_icons;
 use crate::ui::theme::AppTheme;
 use crate::ui::typography;
 
+#[cfg(not(target_arch = "wasm32"))]
+use super::AiReviewFocus;
 use super::{DetailTab, PrReviewPane, PrReviewView};
 
 impl PrReviewPane {
@@ -17,6 +20,8 @@ impl PrReviewPane {
         ui.add_space(4.0);
         let mut clicked_event: Option<ReviewEvent> = None;
         let mut go_back = false;
+        #[cfg(not(target_arch = "wasm32"))]
+        let mut dismiss_ai = false;
         ui.horizontal(|ui| {
             ui.add_space(8.0);
 
@@ -153,6 +158,66 @@ impl PrReviewPane {
                     ui.spinner();
                 }
 
+                // AI streaming indicator
+                #[cfg(not(target_arch = "wasm32"))]
+                if let Some(ref ai_review) = self.ai_review {
+                    if ai_review.streaming {
+                        ui.add_space(8.0);
+                        ui.spinner();
+                        ui.add_space(4.0);
+                        let label = if ai_review.comment_count > 0 {
+                            format!("AI reviewing... {} comments", ai_review.comment_count)
+                        } else {
+                            "AI reviewing...".to_string()
+                        };
+                        ui.label(
+                            RichText::new(label)
+                                .color(theme.accent_primary())
+                                .font(typography::proportional(typography::XS)),
+                        );
+                    } else {
+                        // Completed — show count + dismiss
+                        ui.add_space(8.0);
+                        let count = ai_review.comment_count;
+                        let focus_label = ai_review.focus.label();
+                        let label = if let Some(ref err) = ai_review.error {
+                            format!("AI error: {err}")
+                        } else {
+                            format!(
+                                "{} AI: {} comments ({})",
+                                egui_nerdfonts::regular::SPARKLE_FILL,
+                                count,
+                                focus_label,
+                            )
+                        };
+                        let label_color = if ai_review.error.is_some() {
+                            theme.diff_removed_text()
+                        } else {
+                            theme.accent_primary()
+                        };
+                        ui.label(
+                            RichText::new(label)
+                                .color(label_color)
+                                .font(typography::proportional(typography::XS)),
+                        );
+
+                        // Dismiss button
+                        let dismiss_btn = ui.add(
+                            egui::Button::new(
+                                RichText::new(egui_nerdfonts::regular::X)
+                                    .size(typography::XS)
+                                    .color(theme.text_secondary()),
+                            )
+                            .fill(egui::Color32::TRANSPARENT)
+                            .stroke(egui::Stroke::NONE),
+                        );
+                        if dismiss_btn.clicked() {
+                            dismiss_ai = true;
+                        }
+                        dismiss_btn.on_hover_text("Dismiss AI review");
+                    }
+                }
+
                 // Draft count badge
                 let draft_count = self.draft_comments.len();
                 if draft_count > 0 {
@@ -205,6 +270,10 @@ impl PrReviewPane {
             self.submit_success = None;
             return;
         }
+        #[cfg(not(target_arch = "wasm32"))]
+        if dismiss_ai {
+            self.dismiss_ai_review();
+        }
         if let Some(event) = clicked_event {
             self.submit_review(event);
         }
@@ -251,6 +320,14 @@ impl PrReviewPane {
             return;
         }
 
+        // AI activity panel (shown during streaming)
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(ref ai_review) = self.ai_review {
+            if ai_review.streaming && !ai_review.activities.is_empty() {
+                self.render_ai_activity_panel(ui, theme, &ai_review.activities.clone());
+            }
+        }
+
         // Tab content
         match self.active_tab {
             DetailTab::Files => self.show_files_tab(ui),
@@ -260,6 +337,199 @@ impl PrReviewPane {
 
         // Keybinding hints footer
         self.render_keybinding_footer(ui, theme);
+
+        // AI focus picker popup (rendered last via Area for proper z-ordering)
+        #[cfg(not(target_arch = "wasm32"))]
+        if self.show_ai_focus_picker {
+            self.render_ai_focus_picker(ui, theme);
+        }
+    }
+
+    /// Render the AI review focus picker popup as a floating overlay.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn render_ai_focus_picker(&self, ui: &mut egui::Ui, theme: AppTheme) {
+        let popup_width = 320.0;
+        let row_height = 36.0;
+        let popup_height = row_height * AiReviewFocus::ALL.len() as f32 + 40.0;
+
+        // Position: center horizontally in the pane, below the tab bar
+        let pane_rect = ui.max_rect();
+        let x = pane_rect.center().x - popup_width / 2.0;
+        let y = pane_rect.top() + 40.0;
+
+        egui::Area::new(ui.id().with("ai_focus_picker"))
+            .order(egui::Order::Foreground)
+            .fixed_pos(egui::pos2(x, y))
+            .show(ui.ctx(), |ui| {
+                egui::Frame::new()
+                    .fill(theme.bg_elevated())
+                    .stroke(egui::Stroke::new(1.0, theme.border_subtle()))
+                    .corner_radius(8.0)
+                    .show(ui, |ui| {
+                        ui.set_width(popup_width);
+                        ui.set_height(popup_height);
+
+                        // Title
+                        ui.add_space(10.0);
+                        ui.horizontal(|ui| {
+                            ui.add_space(16.0);
+                            ui.label(
+                                RichText::new(format!(
+                                    "{} AI Review",
+                                    egui_nerdfonts::regular::SPARKLE_FILL
+                                ))
+                                .color(theme.text_primary())
+                                .font(typography::proportional(typography::SM))
+                                .strong(),
+                            );
+                        });
+                        ui.add_space(4.0);
+
+                        // Focus options
+                        for (i, focus) in AiReviewFocus::ALL.iter().enumerate() {
+                            let is_selected = i == self.selected_focus_index;
+
+                            let (rect, _response) = ui.allocate_exact_size(
+                                egui::vec2(popup_width, row_height),
+                                egui::Sense::hover(),
+                            );
+
+                            if is_selected {
+                                let inner = rect.shrink2(egui::vec2(4.0, 0.0));
+                                ui.painter().rect_filled(
+                                    inner,
+                                    4.0,
+                                    theme.accent_primary().gamma_multiply(0.12),
+                                );
+                                // Left accent bar
+                                let bar = egui::Rect::from_min_size(
+                                    egui::pos2(inner.left(), inner.top()),
+                                    egui::vec2(3.0, row_height),
+                                );
+                                ui.painter().rect_filled(bar, 2.0, theme.accent_primary());
+                            }
+
+                            let label_color = if is_selected {
+                                theme.text_primary()
+                            } else {
+                                theme.text_primary().gamma_multiply(0.85)
+                            };
+                            let desc_color = theme.text_secondary().gamma_multiply(0.8);
+
+                            // Label
+                            let label_galley = ui.painter().layout_no_wrap(
+                                focus.label().to_string(),
+                                typography::proportional(typography::SM),
+                                label_color,
+                            );
+                            ui.painter().galley(
+                                egui::pos2(rect.left() + 20.0, rect.top() + 4.0),
+                                label_galley,
+                                label_color,
+                            );
+
+                            // Description
+                            let desc_galley = ui.painter().layout(
+                                focus.description().to_string(),
+                                typography::proportional(typography::XS),
+                                desc_color,
+                                (popup_width - 40.0).max(100.0),
+                            );
+                            ui.painter().galley(
+                                egui::pos2(rect.left() + 20.0, rect.top() + 20.0),
+                                desc_galley,
+                                desc_color,
+                            );
+                        }
+
+                        // Hint
+                        ui.add_space(4.0);
+                        ui.horizontal(|ui| {
+                            ui.add_space(16.0);
+                            ui.label(
+                                RichText::new(
+                                    "j/k select \u{2022} Enter start \u{2022} Esc cancel",
+                                )
+                                .color(theme.text_secondary().gamma_multiply(0.6))
+                                .font(typography::proportional(typography::XS)),
+                            );
+                        });
+                        ui.add_space(6.0);
+                    });
+            });
+    }
+
+    /// Render the AI activity panel showing thinking and tool use during streaming.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn render_ai_activity_panel(
+        &self,
+        ui: &mut egui::Ui,
+        theme: AppTheme,
+        activities: &[crate::components::util::ActivityItem],
+    ) {
+        let accent = theme.accent_primary();
+        let muted = theme.text_secondary();
+
+        egui::Frame::new()
+            .fill(theme.bg_elevated().gamma_multiply(0.5))
+            .inner_margin(egui::Margin::symmetric(16, 8))
+            .show(ui, |ui| {
+                ui.set_width(ui.available_width());
+
+                // Show last few activities (most recent at bottom)
+                let max_visible = 4;
+                let start = activities.len().saturating_sub(max_visible);
+                for activity in &activities[start..] {
+                    ui.horizontal(|ui| {
+                        let (icon, text) = match &activity.activity_type {
+                            crate::components::util::ActivityType::Thinking(text) => {
+                                (semantic_icons::status::LOADING, text.clone())
+                            }
+                            crate::components::util::ActivityType::ToolUse { tool, summary } => {
+                                let icon = match tool.as_str() {
+                                    "Read" => semantic_icons::file::GENERIC,
+                                    "Grep" | "Glob" => semantic_icons::action::SEARCH,
+                                    "Bash" => semantic_icons::file::CODE,
+                                    "Edit" | "Write" => semantic_icons::action::EDIT,
+                                    _ => semantic_icons::action::TOOL,
+                                };
+                                (icon, format!("{tool}: {summary}"))
+                            }
+                            crate::components::util::ActivityType::Error(msg) => {
+                                (semantic_icons::diagnostic::ERROR, msg.clone())
+                            }
+                            _ => (semantic_icons::status::LOADING, String::new()),
+                        };
+
+                        let color = if activity.in_progress { accent } else { muted };
+                        ui.label(
+                            RichText::new(icon)
+                                .color(color)
+                                .font(typography::proportional(typography::XS)),
+                        );
+                        ui.add_space(4.0);
+
+                        // Truncate long text
+                        let display_text = if text.len() > 100 {
+                            format!("{}...", &text[..97])
+                        } else {
+                            text
+                        };
+                        ui.label(
+                            RichText::new(display_text)
+                                .color(color)
+                                .font(typography::proportional(typography::XS)),
+                        );
+                    });
+                }
+            });
+
+        // Subtle separator
+        ui.painter().hline(
+            ui.available_rect_before_wrap().x_range(),
+            ui.cursor().top(),
+            egui::Stroke::new(1.0, theme.border_subtle()),
+        );
     }
 
     /// Render keybinding hints at the bottom of the detail view.
@@ -293,11 +563,11 @@ impl PrReviewPane {
                 let view_mode = if self.split_view { "split" } else { "stacked" };
                 let hint = if self.file_diffs.len() > 1 {
                     format!(
-                        "o open \u{2022} s {view_mode} \u{2022} n/p files \u{2022} j/k scroll \u{2022} 1/2/3 tabs \u{2022} Esc back"
+                        "a AI review \u{2022} o open \u{2022} s {view_mode} \u{2022} n/p files \u{2022} j/k scroll \u{2022} 1/2/3 tabs \u{2022} Esc back"
                     )
                 } else {
                     format!(
-                        "o open \u{2022} s {view_mode} \u{2022} j/k scroll \u{2022} 1/2/3 tabs \u{2022} Esc back"
+                        "a AI review \u{2022} o open \u{2022} s {view_mode} \u{2022} j/k scroll \u{2022} 1/2/3 tabs \u{2022} Esc back"
                     )
                 };
                 ui.label(
