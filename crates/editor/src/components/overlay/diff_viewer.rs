@@ -3,10 +3,12 @@
 //! Features:
 //! - **Side panel file list** - Version control style file tree on the right
 //! - **Word-level diff highlighting** - Shows exactly which characters changed
+//! - **Syntax highlighting** - Tree-sitter language-aware colors layered under diffs
 //! - **Split view toggle** - Switch between unified and side-by-side diff views
 //! - **Dual line numbers** - Old and new line numbers in the gutter
 //! - **Colored gutter stripes** - Green/red bars for add/remove
-//! - **GitHub dark color palette** - Professional, high-contrast styling
+//! - **Expandable context** - Click hunk separators to reveal surrounding lines
+//! - **Search** - Inline search across all files with match cycling
 //! - **Commit info header** - Shows hash, message, and file stats
 //!
 //! # Keyboard Shortcuts
@@ -15,16 +17,22 @@
 //! - `n` / `p` - Next/previous changed file
 //! - `j` / `k` - Scroll down/up
 //! - `h` / `l` - Scroll left/right
-//! - `Escape` - Close overlay
+//! - `{` / `}` - Jump to previous/next hunk
+//! - `/` or `⌘F` - Open search bar
+//! - `⌘C` - Copy selected lines
+//! - `o` - Open file in external app
+//! - `Escape` - Close search → clear selection → close overlay
 
 use std::path::PathBuf;
 
-use egui::{Color32, Key, RichText};
+use egui::text::LayoutJob;
+use egui::{Color32, Key, RichText, TextFormat};
 use similar::{ChangeTag, TextDiff};
 
 use crate::components::OverlayColors;
 use crate::components::util::file_opener::{FileOpenerAction, FileOpenerPopup, FileOpenerResult};
 use crate::components::util::finder_utils::{OverlayStyle, draw_backdrop};
+use crate::components::util::syntax_highlight::SyntaxHighlightData;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::ui::icons::APP_GHOSTTY;
 use crate::ui::theme::AppTheme;
@@ -52,6 +60,14 @@ pub struct FileDiff {
     pub additions: usize,
     /// Number of deletions.
     pub deletions: usize,
+    /// Syntax highlight data for the old version of the file.
+    pub old_highlight: Option<SyntaxHighlightData>,
+    /// Syntax highlight data for the new version of the file.
+    pub new_highlight: Option<SyntaxHighlightData>,
+    /// Full old file content lines (for context expansion). Loaded lazily.
+    pub old_file_lines: Option<Vec<String>>,
+    /// Full new file content lines (for context expansion). Loaded lazily.
+    pub new_file_lines: Option<Vec<String>>,
 }
 
 /// A single line in a diff with word-level change information.
@@ -68,6 +84,18 @@ pub struct DiffLine {
     /// Word-level changes within this line (start, end byte indices of highlighted portions).
     /// These are the portions that differ from the corresponding line in the other version.
     pub word_highlights: Vec<(usize, usize)>,
+    /// For HunkHeader lines: number of hidden lines between previous hunk and this one.
+    pub hidden_lines: Option<usize>,
+    /// For HunkHeader lines: the function/method context text (after the closing @@).
+    pub hunk_context: Option<String>,
+    /// Line number in the reconstructed old file (1-indexed, for syntax highlighting lookup).
+    pub old_recon_num: Option<usize>,
+    /// Line number in the reconstructed new file (1-indexed, for syntax highlighting lookup).
+    pub new_recon_num: Option<usize>,
+    /// For HunkHeader: the old file line number where this hunk starts.
+    pub hunk_old_start: Option<usize>,
+    /// For HunkHeader: the new file line number where this hunk starts.
+    pub hunk_new_start: Option<usize>,
 }
 
 /// The type of diff line.
@@ -113,6 +141,22 @@ pub struct DiffViewerOverlay {
     file_opener: FileOpenerPopup,
     /// Flag to open file opener on next render (triggered by 'o' key).
     pending_open_file_opener: bool,
+    /// Pre-computed vertical pixel offsets of each hunk header for jump navigation.
+    hunk_offsets: Vec<f32>,
+    /// Index of the current hunk (for {/} navigation).
+    current_hunk_index: usize,
+    /// Selected line range (start_index, end_index) into the current file's lines vec.
+    selected_lines: Option<(usize, usize)>,
+    /// The line index where selection started (for shift+click extension).
+    selection_anchor: Option<usize>,
+    /// Whether the search bar is active.
+    search_active: bool,
+    /// Current search query text.
+    search_query: String,
+    /// Cached search matches: (file_index, line_index, byte_start, byte_end).
+    search_matches: Vec<(usize, usize, usize, usize)>,
+    /// Index of the currently focused match in `search_matches`.
+    current_match_index: usize,
 }
 
 impl Default for DiffViewerOverlay {
@@ -138,6 +182,14 @@ impl DiffViewerOverlay {
             pending_open_file_opener: false,
             repo_root: None,
             file_opener: FileOpenerPopup::new(),
+            hunk_offsets: Vec::new(),
+            current_hunk_index: 0,
+            selected_lines: None,
+            selection_anchor: None,
+            search_active: false,
+            search_query: String::new(),
+            search_matches: Vec::new(),
+            current_match_index: 0,
         }
     }
 
@@ -164,14 +216,47 @@ impl DiffViewerOverlay {
     }
 
     /// Opens the overlay with a commit diff.
-    pub fn open(&mut self, hash: &str, message: &str, _timestamp: i64, diff_content: &str) {
+    pub fn open(&mut self, hash: &str, message: &str, diff_content: &str) {
         self.commit_hash = hash.to_string();
         self.commit_message = message.to_string();
         self.file_diffs = parse_diff_into_files(diff_content);
         self.current_file_index = 0;
         self.scroll_offset_x = 0.0;
         self.scroll_offset_y = 0.0;
+        self.hunk_offsets = Vec::new();
+        self.current_hunk_index = 0;
+        self.selected_lines = None;
+        self.selection_anchor = None;
+        self.search_active = false;
+        self.search_query.clear();
+        self.search_matches.clear();
+        self.current_match_index = 0;
         self.is_open = true;
+
+        // Compute syntax highlighting for each file (native only)
+        for file in &mut self.file_diffs {
+            let lang = language_from_path(&file.path).to_string();
+            let (old_content, new_content) = reconstruct_file_contents(file);
+            if !old_content.is_empty() {
+                file.old_highlight = Some(SyntaxHighlightData::new(&old_content, &lang));
+            }
+            if !new_content.is_empty() {
+                file.new_highlight = Some(SyntaxHighlightData::new(&new_content, &lang));
+            }
+        }
+
+        // Load full file contents for context expansion (native only)
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(ref repo_root) = self.repo_root {
+            let commit = self.commit_hash.clone();
+            for file in &mut self.file_diffs {
+                let path = file.path.clone();
+                // Old version: parent commit
+                file.old_file_lines = load_file_at_commit(repo_root, &format!("{commit}^"), &path);
+                // New version: this commit
+                file.new_file_lines = load_file_at_commit(repo_root, &commit, &path);
+            }
+        }
 
         log::debug!(
             "DiffViewerOverlay::open() - {} files in diff",
@@ -182,6 +267,7 @@ impl DiffViewerOverlay {
     /// Closes the overlay.
     pub fn close(&mut self) {
         self.is_open = false;
+        self.search_active = false;
     }
 
     /// Show the overlay. Returns the result of the interaction.
@@ -192,65 +278,162 @@ impl DiffViewerOverlay {
         }
 
         let mut should_close = false;
+        let mut clear_focus = false;
 
         // Handle keyboard input (unless another overlay is on top or file opener is open)
         // Use consume_key to prevent multiple processing
         if !self.keyboard_disabled && !self.file_opener.is_open() {
             ctx.input_mut(|i| {
-                // Escape to close
+                // Escape: close search first, then clear selection, then close overlay
                 if i.consume_key(egui::Modifiers::NONE, Key::Escape) {
-                    should_close = true;
-                }
-
-                // O - open file opener popup (will be handled when button is rendered)
-                if i.consume_key(egui::Modifiers::NONE, Key::O) {
-                    self.pending_open_file_opener = true;
-                }
-
-                // File navigation: n/p
-                if !self.file_diffs.is_empty() {
-                    // N - next file
-                    if i.consume_key(egui::Modifiers::NONE, Key::N) {
-                        self.current_file_index =
-                            (self.current_file_index + 1) % self.file_diffs.len();
-                        self.scroll_offset_x = 0.0;
-                        self.scroll_offset_y = 0.0;
+                    if self.search_active {
+                        self.search_active = false;
+                        // Must clear focus so the now-hidden TextEdit doesn't
+                        // block vim-style keyboard handling in the workspace.
+                        clear_focus = true;
+                    } else if self.selected_lines.is_some() {
+                        self.selected_lines = None;
+                        self.selection_anchor = None;
+                    } else {
+                        should_close = true;
                     }
-                    // P or Shift+N - previous file
-                    if i.consume_key(egui::Modifiers::NONE, Key::P)
-                        || i.consume_key(egui::Modifiers::SHIFT, Key::N)
-                    {
-                        self.current_file_index = if self.current_file_index == 0 {
-                            self.file_diffs.len() - 1
+                }
+
+                // Cmd+F or / — open search (when search is not active)
+                if !self.search_active
+                    && (i.consume_key(egui::Modifiers::COMMAND, Key::F)
+                        || i.consume_key(egui::Modifiers::NONE, Key::Slash))
+                {
+                    self.search_active = true;
+                }
+
+                // When search is active, Enter/Shift+Enter navigate matches
+                if self.search_active && !self.search_matches.is_empty() {
+                    if i.consume_key(egui::Modifiers::NONE, Key::Enter) {
+                        self.current_match_index =
+                            (self.current_match_index + 1) % self.search_matches.len();
+                        self.scroll_to_current_match();
+                    }
+                    if i.consume_key(egui::Modifiers::SHIFT, Key::Enter) {
+                        self.current_match_index = if self.current_match_index == 0 {
+                            self.search_matches.len() - 1
                         } else {
-                            self.current_file_index - 1
+                            self.current_match_index - 1
                         };
-                        self.scroll_offset_x = 0.0;
-                        self.scroll_offset_y = 0.0;
+                        self.scroll_to_current_match();
                     }
                 }
 
-                // S - toggle split/unified view
-                if i.consume_key(egui::Modifiers::NONE, Key::S) {
-                    self.split_view = !self.split_view;
-                }
+                // The rest of keyboard shortcuts only apply when search is NOT active
+                // (otherwise typing in the search box would trigger them)
+                if !self.search_active {
+                    // Cmd+C - copy selected lines
+                    if i.consume_key(egui::Modifiers::COMMAND, Key::C) {
+                        if let Some((start, end)) = self.selected_lines {
+                            if let Some(file_diff) = self.file_diffs.get(self.current_file_index) {
+                                let min = start.min(end);
+                                let max = start.max(end);
+                                let text: String = file_diff
+                                    .lines
+                                    .get(min..=max)
+                                    .unwrap_or_default()
+                                    .iter()
+                                    .filter(|l| {
+                                        !matches!(
+                                            l.kind,
+                                            DiffLineKind::HunkHeader | DiffLineKind::FileHeader
+                                        )
+                                    })
+                                    .map(|l| l.content.as_str())
+                                    .collect::<Vec<_>>()
+                                    .join("\n");
+                                ctx.copy_text(text);
+                            }
+                        }
+                    }
 
-                // Vim-style scrolling
-                let scroll_step = 40.0;
-                let h_scroll_step = 50.0;
-                if i.consume_key(egui::Modifiers::NONE, Key::J) {
-                    self.scroll_offset_y += scroll_step;
-                }
-                if i.consume_key(egui::Modifiers::NONE, Key::K) {
-                    self.scroll_offset_y = (self.scroll_offset_y - scroll_step).max(0.0);
-                }
-                if i.consume_key(egui::Modifiers::NONE, Key::H) {
-                    self.scroll_offset_x = (self.scroll_offset_x - h_scroll_step).max(0.0);
-                }
-                if i.consume_key(egui::Modifiers::NONE, Key::L) {
-                    self.scroll_offset_x += h_scroll_step;
-                }
+                    // O - open file opener popup
+                    if i.consume_key(egui::Modifiers::NONE, Key::O) {
+                        self.pending_open_file_opener = true;
+                    }
+
+                    // File navigation: n/p
+                    if !self.file_diffs.is_empty() {
+                        if i.consume_key(egui::Modifiers::NONE, Key::N) {
+                            self.current_file_index =
+                                (self.current_file_index + 1) % self.file_diffs.len();
+                            self.scroll_offset_x = 0.0;
+                            self.scroll_offset_y = 0.0;
+                            self.hunk_offsets.clear();
+                            self.current_hunk_index = 0;
+                            self.selected_lines = None;
+                            self.selection_anchor = None;
+                        }
+                        if i.consume_key(egui::Modifiers::NONE, Key::P)
+                            || i.consume_key(egui::Modifiers::SHIFT, Key::N)
+                        {
+                            self.current_file_index = if self.current_file_index == 0 {
+                                self.file_diffs.len() - 1
+                            } else {
+                                self.current_file_index - 1
+                            };
+                            self.scroll_offset_x = 0.0;
+                            self.scroll_offset_y = 0.0;
+                            self.hunk_offsets.clear();
+                            self.current_hunk_index = 0;
+                            self.selected_lines = None;
+                            self.selection_anchor = None;
+                        }
+                    }
+
+                    // S - toggle split/unified view
+                    if i.consume_key(egui::Modifiers::NONE, Key::S) {
+                        self.split_view = !self.split_view;
+                    }
+
+                    // { / } - jump between hunks
+                    if i.consume_key(egui::Modifiers::SHIFT, Key::OpenBracket)
+                        && self.current_hunk_index > 0
+                    {
+                        self.current_hunk_index -= 1;
+                        self.scroll_offset_y = self
+                            .hunk_offsets
+                            .get(self.current_hunk_index)
+                            .copied()
+                            .unwrap_or(0.0);
+                    }
+                    if i.consume_key(egui::Modifiers::SHIFT, Key::CloseBracket)
+                        && self.current_hunk_index + 1 < self.hunk_offsets.len()
+                    {
+                        self.current_hunk_index += 1;
+                        self.scroll_offset_y = self
+                            .hunk_offsets
+                            .get(self.current_hunk_index)
+                            .copied()
+                            .unwrap_or(0.0);
+                    }
+
+                    // Vim-style scrolling
+                    let scroll_step = 40.0;
+                    let h_scroll_step = 50.0;
+                    if i.consume_key(egui::Modifiers::NONE, Key::J) {
+                        self.scroll_offset_y += scroll_step;
+                    }
+                    if i.consume_key(egui::Modifiers::NONE, Key::K) {
+                        self.scroll_offset_y = (self.scroll_offset_y - scroll_step).max(0.0);
+                    }
+                    if i.consume_key(egui::Modifiers::NONE, Key::H) {
+                        self.scroll_offset_x = (self.scroll_offset_x - h_scroll_step).max(0.0);
+                    }
+                    if i.consume_key(egui::Modifiers::NONE, Key::L) {
+                        self.scroll_offset_x += h_scroll_step;
+                    }
+                } // end if !self.search_active
             });
+        }
+
+        if clear_focus {
+            ctx.memory_mut(|mem| mem.surrender_focus(egui::Id::NULL));
         }
 
         if should_close {
@@ -289,6 +472,11 @@ impl DiffViewerOverlay {
 
                     // Header section (commit info only, no file tabs)
                     self.render_header(ui, &colors, separator_color);
+
+                    // Search bar (when active)
+                    if self.search_active {
+                        self.render_search_bar(ui, &colors, separator_color);
+                    }
 
                     // Main content: horizontal split with diff on left, file panel on right
                     // Calculate content height (leave room for footer)
@@ -394,6 +582,160 @@ impl DiffViewerOverlay {
             }
         }
         None
+    }
+
+    /// Recomputes search matches across all files for the current query.
+    fn recompute_search_matches(&mut self) {
+        self.search_matches.clear();
+        self.current_match_index = 0;
+        let query = self.search_query.to_lowercase();
+        if query.is_empty() {
+            return;
+        }
+        for (file_idx, file) in self.file_diffs.iter().enumerate() {
+            for (line_idx, line) in file.lines.iter().enumerate() {
+                if matches!(
+                    line.kind,
+                    DiffLineKind::HunkHeader | DiffLineKind::FileHeader
+                ) {
+                    continue;
+                }
+                let lower = line.content.to_lowercase();
+                let mut start = 0;
+                while let Some(pos) = lower[start..].find(&query) {
+                    let byte_start = start + pos;
+                    let byte_end = byte_start + query.len();
+                    self.search_matches
+                        .push((file_idx, line_idx, byte_start, byte_end));
+                    start = byte_end;
+                }
+            }
+        }
+    }
+
+    /// Scrolls the view to the current search match, switching files if needed.
+    fn scroll_to_current_match(&mut self) {
+        let Some(&(file_idx, line_idx, _, _)) = self.search_matches.get(self.current_match_index)
+        else {
+            return;
+        };
+
+        // Switch file if match is in a different file
+        if file_idx != self.current_file_index {
+            self.current_file_index = file_idx;
+            self.scroll_offset_x = 0.0;
+            self.hunk_offsets.clear();
+            self.current_hunk_index = 0;
+            self.selected_lines = None;
+            self.selection_anchor = None;
+        }
+
+        // Estimate scroll position from line index
+        let line_height = typography::MD + 4.0;
+        let hunk_header_height = typography::SM + 12.0;
+        if let Some(file_diff) = self.file_diffs.get(file_idx) {
+            let mut y = 4.0;
+            for (i, line) in file_diff.lines.iter().enumerate() {
+                if i == line_idx {
+                    // Center the match in the viewport (rough estimate)
+                    self.scroll_offset_y = (y - 100.0_f32).max(0.0);
+                    break;
+                }
+                y += if line.kind == DiffLineKind::HunkHeader {
+                    hunk_header_height
+                } else {
+                    line_height
+                };
+            }
+        }
+    }
+
+    /// Renders the search bar.
+    fn render_search_bar(
+        &mut self,
+        ui: &mut egui::Ui,
+        colors: &OverlayColors,
+        separator_color: Color32,
+    ) {
+        ui.horizontal(|ui| {
+            ui.add_space(16.0);
+
+            // Search icon
+            ui.label(
+                RichText::new(egui_nerdfonts::regular::MAGNIFY)
+                    .color(colors.accent)
+                    .size(14.0),
+            );
+            ui.add_space(4.0);
+
+            // Text input
+            let response = ui.add(
+                egui::TextEdit::singleline(&mut self.search_query)
+                    .desired_width(250.0)
+                    .font(typography::monospace(typography::SM))
+                    .hint_text("Search in diff...")
+                    .text_color(colors.text),
+            );
+
+            // Keep the text input focused while search is active
+            response.request_focus();
+
+            // Recompute matches when query changes
+            if response.changed() {
+                self.recompute_search_matches();
+                // Jump to first match in current file, or first match overall
+                if !self.search_matches.is_empty() {
+                    // Try to find first match in current file
+                    let first_in_file = self
+                        .search_matches
+                        .iter()
+                        .position(|m| m.0 == self.current_file_index);
+                    self.current_match_index = first_in_file.unwrap_or(0);
+                    self.scroll_to_current_match();
+                }
+            }
+
+            ui.add_space(8.0);
+
+            // Match count indicator
+            if !self.search_query.is_empty() {
+                let match_text = if self.search_matches.is_empty() {
+                    "No matches".to_string()
+                } else {
+                    format!(
+                        "{}/{}",
+                        self.current_match_index + 1,
+                        self.search_matches.len()
+                    )
+                };
+                ui.label(
+                    RichText::new(match_text)
+                        .color(if self.search_matches.is_empty() {
+                            self.theme.diff_removed_text()
+                        } else {
+                            colors.muted_text
+                        })
+                        .font(typography::proportional(typography::SM)),
+                );
+            }
+
+            // Hint
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.add_space(16.0);
+                ui.label(
+                    RichText::new("Enter next • Shift+Enter prev • Esc close")
+                        .color(colors.muted_text.gamma_multiply(0.6))
+                        .font(typography::proportional(typography::XS)),
+                );
+            });
+        });
+
+        // Separator below search bar
+        ui.painter().hline(
+            ui.available_rect_before_wrap().x_range(),
+            ui.cursor().top(),
+            egui::Stroke::new(1.0, separator_color),
+        );
     }
 
     /// Renders the header with commit info (no file tabs - those are now in the side panel).
@@ -512,7 +854,7 @@ impl DiffViewerOverlay {
     }
 
     /// Renders the diff content with line numbers, gutter, and word highlighting.
-    fn render_diff_content(&self, ui: &mut egui::Ui, colors: &OverlayColors) {
+    fn render_diff_content(&mut self, ui: &mut egui::Ui, colors: &OverlayColors) {
         if self.file_diffs.is_empty() {
             ui.add_space(24.0);
             ui.horizontal(|ui| {
@@ -527,7 +869,20 @@ impl DiffViewerOverlay {
             return;
         }
 
-        let Some(file_diff) = self.file_diffs.get(self.current_file_index) else {
+        // Destructure self to allow independent field borrows (avoids cloning)
+        let file_diffs = &self.file_diffs;
+        let hunk_offsets = &mut self.hunk_offsets;
+        let scroll_offset_x = self.scroll_offset_x;
+        let scroll_offset_y = self.scroll_offset_y;
+        let theme = self.theme;
+        let selected_lines = self.selected_lines;
+        let accent = colors.accent;
+        let search_matches = &self.search_matches;
+        let search_query = &self.search_query;
+        let current_match_index = self.current_match_index;
+        let current_file_index = self.current_file_index;
+
+        let Some(file_diff) = file_diffs.get(self.current_file_index) else {
             return;
         };
 
@@ -540,128 +895,187 @@ impl DiffViewerOverlay {
             .unwrap_or(1);
         let line_num_width = max_line_num.to_string().len().max(3);
 
-        // Scrollable diff content
+        // Pre-compute hunk offsets for {/} navigation
+        let line_height = typography::MD + 4.0;
+        let hunk_header_height = typography::SM + 12.0;
+        if hunk_offsets.is_empty() {
+            let mut y = 4.0; // initial add_space
+            for line in &file_diff.lines {
+                if line.kind == DiffLineKind::HunkHeader {
+                    hunk_offsets.push(y);
+                }
+                y += if line.kind == DiffLineKind::HunkHeader {
+                    hunk_header_height
+                } else {
+                    line_height
+                };
+            }
+        }
+
+        // Track clicks for line selection
+        let mut clicked_line: Option<(usize, bool)> = None;
+        // Track hunk expand clicks: (line_index_of_hunk_header)
+        let mut expand_hunk_idx: Option<usize> = None;
+
+        // Scrollable diff content — no cloning needed thanks to field splitting
         egui::ScrollArea::both()
             .id_salt("diff_viewer_scroll")
-            .scroll_offset(egui::vec2(self.scroll_offset_x, self.scroll_offset_y))
+            .scroll_offset(egui::vec2(scroll_offset_x, scroll_offset_y))
             .auto_shrink([false, false])
             .show(ui, |ui| {
                 ui.add_space(4.0);
-
-                // Use a vertical layout with no spacing for tight line rendering
                 ui.style_mut().spacing.item_spacing.y = 0.0;
 
-                for line in &file_diff.lines {
-                    self.render_diff_line(ui, line, line_num_width);
+                for (line_idx, line) in file_diff.lines.iter().enumerate() {
+                    // Compute search highlights for this line
+                    let line_search_highlights: Vec<(usize, usize, bool)> =
+                        if search_query.is_empty() {
+                            Vec::new()
+                        } else {
+                            search_matches
+                                .iter()
+                                .enumerate()
+                                .filter(|(_, m)| m.0 == current_file_index && m.1 == line_idx)
+                                .map(|(i, m)| (m.2, m.3, i == current_match_index))
+                                .collect()
+                        };
+
+                    let line_ctx = UnifiedLineCtx {
+                        line,
+                        line_idx,
+                        line_num_width,
+                        theme,
+                        old_highlight: file_diff.old_highlight.as_ref(),
+                        new_highlight: file_diff.new_highlight.as_ref(),
+                        selected_lines,
+                        accent,
+                        search_highlights: line_search_highlights,
+                    };
+                    let result = render_diff_line_unified(ui, &line_ctx);
+                    match result {
+                        DiffLineAction::Click(shift) => {
+                            clicked_line = Some((line_idx, shift));
+                        }
+                        DiffLineAction::ExpandHunk => {
+                            expand_hunk_idx = Some(line_idx);
+                        }
+                        DiffLineAction::None => {}
+                    }
                 }
 
                 ui.add_space(8.0);
             });
+
+        // Process line selection clicks
+        if let Some((line_idx, shift_held)) = clicked_line {
+            if shift_held {
+                if let Some(anchor) = self.selection_anchor {
+                    self.selected_lines = Some((anchor, line_idx));
+                }
+            } else {
+                self.selection_anchor = Some(line_idx);
+                self.selected_lines = Some((line_idx, line_idx));
+            }
+        }
+
+        // Process hunk expansion
+        if let Some(hunk_idx) = expand_hunk_idx {
+            self.expand_context(hunk_idx);
+        }
     }
 
-    /// Renders a single diff line with gutter, line numbers, and word highlighting.
-    fn render_diff_line(&self, ui: &mut egui::Ui, line: &DiffLine, line_num_width: usize) {
-        let theme = self.theme;
-        let (base_text_color, bg_color, gutter_color) = match line.kind {
-            DiffLineKind::Addition => (
-                theme.diff_added_text(),
-                Some(theme.diff_added_bg()),
-                Some(theme.diff_added_gutter()),
-            ),
-            DiffLineKind::Deletion => (
-                theme.diff_removed_text(),
-                Some(theme.diff_removed_bg()),
-                Some(theme.diff_removed_gutter()),
-            ),
-            DiffLineKind::HunkHeader => (theme.diff_hunk_text(), Some(theme.diff_hunk_bg()), None),
-            DiffLineKind::FileHeader => (
-                theme.diff_file_header(),
-                Some(theme.diff_file_header_bg()),
-                None,
-            ),
-            DiffLineKind::Context => (theme.diff_context_text(), None, None),
+    /// Expand context around a hunk header by splicing in lines from the full file.
+    fn expand_context(&mut self, hunk_line_idx: usize) {
+        let Some(file_diff) = self.file_diffs.get_mut(self.current_file_index) else {
+            return;
+        };
+        let Some(hunk_line) = file_diff.lines.get(hunk_line_idx) else {
+            return;
+        };
+        if hunk_line.kind != DiffLineKind::HunkHeader {
+            return;
+        }
+
+        let hidden_count = hunk_line.hidden_lines.unwrap_or(0);
+        if hidden_count == 0 {
+            return;
+        }
+
+        let hunk_old_start = hunk_line.hunk_old_start.unwrap_or(1);
+        let hunk_new_start = hunk_line.hunk_new_start.unwrap_or(1);
+
+        // We need the full file lines. Use old_file_lines as the source of context.
+        let Some(ref old_file_lines) = file_diff.old_file_lines else {
+            return;
         };
 
-        // Get the full available width for the background
-        let available_width = ui.available_width();
+        // Determine the range of old file lines that are hidden before this hunk.
+        // The hidden lines are the gap between the previous hunk's end and this hunk's start.
+        // They correspond to old file lines [hunk_old_start - hidden_count .. hunk_old_start)
+        // (1-indexed, so subtract 1 for array access).
+        let expand_count = hidden_count.min(20); // expand up to 20 lines at a time
+        let expand_start_old = hunk_old_start.saturating_sub(expand_count + 1);
+        let expand_end_old = hunk_old_start.saturating_sub(1); // exclusive
 
-        // Create a horizontal layout for the line
-        let response = ui.horizontal(|ui| {
-            // Gutter stripe (4px wide colored bar on the left)
-            let gutter_width = 4.0;
-            let (gutter_rect, _) = ui.allocate_exact_size(
-                egui::vec2(gutter_width, typography::MD + 4.0),
-                egui::Sense::hover(),
-            );
-            if let Some(gc) = gutter_color {
-                ui.painter().rect_filled(gutter_rect, 0.0, gc);
+        // Correspondingly for new file: the gap is the same size
+        let expand_start_new = hunk_new_start.saturating_sub(expand_count + 1);
+
+        let mut new_lines = Vec::new();
+        let mut actual_expanded = 0;
+        for i in 0..expand_count {
+            let old_idx = expand_start_old + i;
+            if old_idx >= expand_end_old || old_idx >= old_file_lines.len() {
+                break;
             }
-
-            ui.add_space(4.0);
-
-            // Line numbers area with darker background
-            let line_num_area_width = (line_num_width * 2 + 3) as f32 * 8.0; // Approximate char width
-            let (line_num_rect, _) = ui.allocate_exact_size(
-                egui::vec2(line_num_area_width, typography::MD + 4.0),
-                egui::Sense::hover(),
-            );
-
-            // Draw line number background
-            ui.painter()
-                .rect_filled(line_num_rect, 0.0, theme.diff_line_number_bg());
-
-            // Draw line numbers
-            let old_num_str = line
-                .old_line_num
-                .map(|n| format!("{n:>line_num_width$}"))
-                .unwrap_or_else(|| " ".repeat(line_num_width));
-            let new_num_str = line
-                .new_line_num
-                .map(|n| format!("{n:>line_num_width$}"))
-                .unwrap_or_else(|| " ".repeat(line_num_width));
-
-            let line_nums_text = format!("{old_num_str} {new_num_str}");
-
-            ui.painter().text(
-                line_num_rect.left_center() + egui::vec2(4.0, 0.0),
-                egui::Align2::LEFT_CENTER,
-                line_nums_text,
-                typography::monospace(typography::SM),
-                theme.diff_line_number(),
-            );
-
-            ui.add_space(8.0);
-
-            // Content area
-            let content = if line.content.is_empty() {
-                " "
-            } else {
-                &line.content
-            };
-
-            // Render content with optional word-level highlights
-            render_highlighted_text(
-                ui,
+            let content = old_file_lines[old_idx].clone();
+            let old_num = old_idx + 1; // 1-indexed
+            let new_num = expand_start_new + i + 1;
+            new_lines.push(DiffLine {
                 content,
-                &line.word_highlights,
-                base_text_color,
-                line.kind,
-                theme,
-            );
-        });
+                kind: DiffLineKind::Context,
+                old_line_num: Some(old_num),
+                new_line_num: Some(new_num),
+                word_highlights: Vec::new(),
+                hidden_lines: None,
+                hunk_context: None,
+                old_recon_num: None,
+                new_recon_num: None,
+                hunk_old_start: None,
+                hunk_new_start: None,
+            });
+            actual_expanded += 1;
+        }
 
-        // Draw full-width background behind the line
-        if let Some(bg) = bg_color {
-            let rect = egui::Rect::from_min_size(
-                response.response.rect.min,
-                egui::vec2(available_width, response.response.rect.height()),
-            );
-            // Draw background behind everything (lower z-order)
-            let bg_painter = ui.painter().clone().with_layer_id(egui::LayerId::new(
-                egui::Order::Background,
-                egui::Id::new("diff_line_bg"),
-            ));
-            bg_painter.rect_filled(rect, 0.0, bg);
+        if actual_expanded == 0 {
+            return;
+        }
+
+        // Update the hunk header's hidden count
+        let remaining = hidden_count.saturating_sub(actual_expanded);
+        file_diff.lines[hunk_line_idx].hidden_lines = if remaining > 0 {
+            Some(remaining)
+        } else {
+            Some(0) // keep header but show 0 hidden
+        };
+
+        // Insert the expanded context lines before the hunk header
+        let insert_pos = hunk_line_idx;
+        for (i, line) in new_lines.into_iter().enumerate() {
+            file_diff.lines.insert(insert_pos + i, line);
+        }
+
+        // Invalidate caches
+        self.hunk_offsets.clear();
+        self.search_matches.clear();
+
+        // Rebuild syntax highlighting data since lines changed
+        let lang = language_from_path(&file_diff.path).to_string();
+        let (old_content, new_content) = reconstruct_file_contents(file_diff);
+        if !old_content.is_empty() {
+            file_diff.old_highlight = Some(SyntaxHighlightData::new(&old_content, &lang));
+        }
+        if !new_content.is_empty() {
+            file_diff.new_highlight = Some(SyntaxHighlightData::new(&new_content, &lang));
         }
     }
 
@@ -669,7 +1083,7 @@ impl DiffViewerOverlay {
     ///
     /// Shows old version on the left, new version on the right, with aligned lines.
     fn render_split_diff_content(
-        &self,
+        &mut self,
         ui: &mut egui::Ui,
         colors: &OverlayColors,
         available_width: f32,
@@ -703,6 +1117,33 @@ impl DiffViewerOverlay {
             .max()
             .unwrap_or(1);
         let line_num_width = max_line_num.to_string().len().max(3);
+
+        // Pre-compute hunk offsets for {/} navigation (split view)
+        let split_line_height = typography::SM + 6.0;
+        let hunk_header_height = typography::SM + 12.0;
+        let hunk_offsets = &mut self.hunk_offsets;
+        if hunk_offsets.is_empty() {
+            let header_row_height = typography::SM + 4.0;
+            let mut y = header_row_height + 4.0; // column headers + spacing
+            for (left, _right) in &paired_lines {
+                let is_header = left
+                    .as_ref()
+                    .map(|l| matches!(l.kind, DiffLineKind::HunkHeader | DiffLineKind::FileHeader))
+                    .unwrap_or(false);
+                if is_header
+                    && left
+                        .as_ref()
+                        .is_some_and(|l| l.kind == DiffLineKind::HunkHeader)
+                {
+                    hunk_offsets.push(y);
+                }
+                y += if is_header {
+                    hunk_header_height
+                } else {
+                    split_line_height
+                };
+            }
+        }
 
         // Each side gets half the width minus some padding
         let side_width = ((available_width - 8.0) / 2.0).max(1.0);
@@ -777,7 +1218,7 @@ impl DiffViewerOverlay {
                     if is_header {
                         // Render header spanning full width
                         if let Some(line) = left.as_ref() {
-                            self.render_split_header_line(ui, line, available_width);
+                            render_split_header_line_styled(ui, line, available_width, theme);
                         }
                     } else {
                         // Render side-by-side content with constrained width
@@ -791,12 +1232,14 @@ impl DiffViewerOverlay {
                                 egui::Layout::left_to_right(egui::Align::Center),
                                 |ui| {
                                     ui.set_max_width(side_width);
-                                    self.render_split_line(
+                                    render_split_line_with_syntax(
                                         ui,
-                                        left.as_ref(),
+                                        *left,
                                         line_num_width,
                                         true,
                                         side_width,
+                                        theme,
+                                        file_diff.old_highlight.as_ref(),
                                     );
                                 },
                             );
@@ -816,12 +1259,14 @@ impl DiffViewerOverlay {
                                 egui::Layout::left_to_right(egui::Align::Center),
                                 |ui| {
                                     ui.set_max_width(side_width);
-                                    self.render_split_line(
+                                    render_split_line_with_syntax(
                                         ui,
-                                        right.as_ref(),
+                                        *right,
                                         line_num_width,
                                         false,
                                         side_width,
+                                        theme,
+                                        file_diff.new_highlight.as_ref(),
                                     );
                                 },
                             );
@@ -831,165 +1276,6 @@ impl DiffViewerOverlay {
 
                 ui.add_space(8.0);
             });
-    }
-
-    /// Renders a header line (file header or hunk header) spanning full width in split view.
-    fn render_split_header_line(&self, ui: &mut egui::Ui, line: &DiffLine, available_width: f32) {
-        let theme = self.theme;
-        let (text_color, bg_color) = match line.kind {
-            DiffLineKind::HunkHeader => (theme.diff_hunk_text(), theme.diff_hunk_bg()),
-            DiffLineKind::FileHeader => (theme.diff_file_header(), theme.diff_file_header_bg()),
-            _ => return, // Should not happen
-        };
-
-        let line_height = typography::SM + 6.0;
-
-        // Allocate space first, then draw background, then text
-        let (line_rect, _) = ui.allocate_exact_size(
-            egui::vec2(available_width, line_height),
-            egui::Sense::hover(),
-        );
-
-        // Draw background
-        ui.painter().rect_filled(line_rect, 0.0, bg_color);
-
-        // Draw text on top
-        ui.painter().text(
-            line_rect.left_center() + egui::vec2(8.0, 0.0),
-            egui::Align2::LEFT_CENTER,
-            &line.content,
-            typography::monospace(typography::SM),
-            text_color,
-        );
-    }
-
-    /// Renders a single line in the split view.
-    ///
-    /// `is_left` indicates whether this is the left (old) or right (new) side.
-    /// `side_width` is the fixed width for this side panel.
-    fn render_split_line(
-        &self,
-        ui: &mut egui::Ui,
-        line: Option<&DiffLine>,
-        line_num_width: usize,
-        is_left: bool,
-        side_width: f32,
-    ) {
-        let theme = self.theme;
-
-        // Constrain the layout to prevent content from expanding
-        ui.set_max_width(side_width);
-
-        let line_height = typography::SM + 6.0;
-
-        let Some(line) = line else {
-            // Empty placeholder line - just allocate space with subtle background
-            let (rect, _) =
-                ui.allocate_exact_size(egui::vec2(side_width, line_height), egui::Sense::hover());
-            ui.painter()
-                .rect_filled(rect, 0.0, theme.diff_line_number_bg().gamma_multiply(0.5));
-            return;
-        };
-
-        // Determine colors based on line kind
-        let (text_color, bg_color, gutter_color) = match line.kind {
-            DiffLineKind::Addition => (
-                theme.diff_added_text(),
-                Some(theme.diff_added_bg()),
-                Some(theme.diff_added_gutter()),
-            ),
-            DiffLineKind::Deletion => (
-                theme.diff_removed_text(),
-                Some(theme.diff_removed_bg()),
-                Some(theme.diff_removed_gutter()),
-            ),
-            DiffLineKind::HunkHeader => (theme.diff_hunk_text(), Some(theme.diff_hunk_bg()), None),
-            DiffLineKind::FileHeader => (
-                theme.diff_file_header(),
-                Some(theme.diff_file_header_bg()),
-                None,
-            ),
-            DiffLineKind::Context => (theme.diff_context_text(), None, None),
-        };
-
-        // Calculate widths for each element
-        let gutter_width = 3.0;
-        let line_num_area_width = (line_num_width + 1) as f32 * 8.0;
-        let content_max_width = (side_width - gutter_width - line_num_area_width - 12.0).max(50.0);
-
-        // Allocate the full line rect first, then paint background, then content
-        let (line_rect, _) =
-            ui.allocate_exact_size(egui::vec2(side_width, line_height), egui::Sense::hover());
-
-        // Draw background first (if any)
-        if let Some(bg) = bg_color {
-            ui.painter().rect_filled(line_rect, 0.0, bg);
-        }
-
-        // Now draw all the content on top using painter directly
-        let mut cursor_x = line_rect.left();
-
-        // Gutter stripe (3px wide)
-        if let Some(gc) = gutter_color {
-            let gutter_rect = egui::Rect::from_min_size(
-                egui::pos2(cursor_x, line_rect.top()),
-                egui::vec2(gutter_width, line_height),
-            );
-            ui.painter().rect_filled(gutter_rect, 0.0, gc);
-        }
-        cursor_x += gutter_width + 2.0;
-
-        // Line number background and text
-        let line_num_rect = egui::Rect::from_min_size(
-            egui::pos2(cursor_x, line_rect.top()),
-            egui::vec2(line_num_area_width, line_height),
-        );
-        ui.painter()
-            .rect_filled(line_num_rect, 0.0, theme.diff_line_number_bg());
-
-        let line_num = if is_left {
-            line.old_line_num
-        } else {
-            line.new_line_num
-        };
-        let line_num_str = line_num
-            .map(|n| format!("{n:>line_num_width$}"))
-            .unwrap_or_else(|| " ".repeat(line_num_width));
-
-        ui.painter().text(
-            line_num_rect.left_center() + egui::vec2(2.0, 0.0),
-            egui::Align2::LEFT_CENTER,
-            line_num_str,
-            typography::monospace(typography::SM),
-            theme.diff_line_number(),
-        );
-        cursor_x += line_num_area_width + 4.0;
-
-        // Content - truncate to fit available width
-        let content = if line.content.is_empty() {
-            " ".to_string()
-        } else {
-            // Estimate max characters that fit (assuming ~7px per monospace char at SM size)
-            let char_width = 7.0;
-            let max_chars = (content_max_width / char_width) as usize;
-            let char_count = line.content.chars().count();
-            if char_count > max_chars && max_chars > 3 {
-                // Use char_indices to safely truncate at character boundaries
-                let truncate_at = max_chars.saturating_sub(1);
-                let truncated: String = line.content.chars().take(truncate_at).collect();
-                format!("{truncated}…")
-            } else {
-                line.content.clone()
-            }
-        };
-
-        ui.painter().text(
-            egui::pos2(cursor_x, line_rect.center().y),
-            egui::Align2::LEFT_CENTER,
-            content,
-            typography::monospace(typography::SM),
-            text_color,
-        );
     }
 
     /// Renders the file panel on the right side with version control style file list.
@@ -1206,10 +1492,19 @@ impl DiffViewerOverlay {
 
                 // Keyboard hint - show current view mode and available shortcuts
                 let view_mode = if self.split_view { "split" } else { "unified" };
-                let hint = if self.file_diffs.len() > 1 {
-                    format!("o open • s {view_mode} • n/p files • j/k scroll • Esc")
+                let copy_hint = if self.selected_lines.is_some() {
+                    " • ⌘C copy"
                 } else {
-                    format!("o open • s {view_mode} • j/k scroll • Esc")
+                    ""
+                };
+                let hint = if self.file_diffs.len() > 1 {
+                    format!(
+                        "/ search • o open • s {view_mode} • n/p files • {{/}} hunks • j/k scroll{copy_hint} • Esc"
+                    )
+                } else {
+                    format!(
+                        "/ search • o open • s {view_mode} • {{/}} hunks • j/k scroll{copy_hint} • Esc"
+                    )
                 };
                 ui.label(
                     RichText::new(hint)
@@ -1252,92 +1547,738 @@ fn render_stat_badge(ui: &mut egui::Ui, count: usize, is_addition: bool, theme: 
         });
 }
 
-/// Renders text with optional word-level diff highlighting.
-///
-/// Word-level changes get a background highlight (brighter green/red).
-fn render_highlighted_text(
-    ui: &mut egui::Ui,
-    content: &str,
-    word_highlights: &[(usize, usize)],
-    base_color: Color32,
+/// Returns (text_color, bg_color, gutter_color) for a diff line kind.
+fn diff_line_colors(
     kind: DiffLineKind,
     theme: AppTheme,
-) {
-    // Get word-level highlight background color
-    let word_bg = match kind {
+) -> (Color32, Option<Color32>, Option<Color32>) {
+    match kind {
+        DiffLineKind::Addition => (
+            theme.diff_added_text(),
+            Some(theme.diff_added_bg()),
+            Some(theme.diff_added_gutter()),
+        ),
+        DiffLineKind::Deletion => (
+            theme.diff_removed_text(),
+            Some(theme.diff_removed_bg()),
+            Some(theme.diff_removed_gutter()),
+        ),
+        DiffLineKind::Context => (theme.diff_context_text(), None, None),
+        DiffLineKind::HunkHeader => (theme.diff_hunk_text(), Some(theme.diff_hunk_bg()), None),
+        DiffLineKind::FileHeader => (
+            theme.diff_file_header(),
+            Some(theme.diff_file_header_bg()),
+            None,
+        ),
+    }
+}
+
+/// Returns the word-level highlight background color for a diff line kind.
+fn diff_word_bg(kind: DiffLineKind, theme: AppTheme) -> Option<Color32> {
+    match kind {
         DiffLineKind::Addition => Some(theme.diff_added_word_bg()),
         DiffLineKind::Deletion => Some(theme.diff_removed_word_bg()),
         _ => None,
-    };
-
-    // If no highlights, render plain text
-    if word_highlights.is_empty() {
-        ui.label(
-            RichText::new(content)
-                .color(base_color)
-                .font(typography::monospace(typography::MD)),
-        );
-        return;
     }
+}
 
-    // Build segments based on word highlights
-    let mut segments: Vec<(&str, bool)> = Vec::new();
-    let mut pos = 0;
+/// Action returned from rendering a diff line.
+enum DiffLineAction {
+    /// No interaction.
+    None,
+    /// Line number area was clicked (shift_held).
+    Click(bool),
+    /// Hunk header was clicked to expand context.
+    ExpandHunk,
+}
 
-    for &(start, end) in word_highlights {
-        // Add unhighlighted text before this highlight
-        if start > pos {
-            if let Some(text) = content.get(pos..start) {
-                segments.push((text, false));
-            }
-        }
+/// Context for rendering a unified diff line.
+struct UnifiedLineCtx<'a> {
+    line: &'a DiffLine,
+    line_idx: usize,
+    line_num_width: usize,
+    theme: AppTheme,
+    old_highlight: Option<&'a SyntaxHighlightData>,
+    new_highlight: Option<&'a SyntaxHighlightData>,
+    selected_lines: Option<(usize, usize)>,
+    accent: Color32,
+    /// Search highlight ranges: (byte_start, byte_end, is_current_match).
+    search_highlights: Vec<(usize, usize, bool)>,
+}
 
-        // Add highlighted text
-        if let Some(text) = content.get(start..end) {
-            segments.push((text, true));
-        }
+/// Renders a single diff line in unified view with syntax highlighting, hunk separators, and line selection.
+fn render_diff_line_unified(ui: &mut egui::Ui, ctx: &UnifiedLineCtx<'_>) -> DiffLineAction {
+    let UnifiedLineCtx {
+        line,
+        line_idx,
+        line_num_width,
+        theme,
+        old_highlight,
+        new_highlight,
+        selected_lines,
+        accent,
+        search_highlights,
+    } = ctx;
+    let theme = *theme;
+    let line_idx = *line_idx;
+    let line_num_width = *line_num_width;
+    let mut clicked_shift: Option<bool> = None;
 
-        pos = end;
-    }
+    // Special rendering for hunk headers - styled separator (clickable to expand context)
+    if line.kind == DiffLineKind::HunkHeader {
+        let available_width = ui.available_width();
+        let header_height = typography::SM + 12.0;
+        let has_hidden = line.hidden_lines.is_some_and(|n| n > 0);
 
-    // Add remaining unhighlighted text
-    if pos < content.len() {
-        if let Some(text) = content.get(pos..) {
-            segments.push((text, false));
-        }
-    }
-
-    // Render segments inline
-    for (text, is_highlighted) in segments {
-        if is_highlighted {
-            if let Some(bg) = word_bg {
-                // Draw with word highlight background
-                egui::Frame::new()
-                    .fill(bg)
-                    .corner_radius(2.0)
-                    .inner_margin(egui::Margin::symmetric(0, 0))
-                    .show(ui, |ui| {
-                        ui.label(
-                            RichText::new(text)
-                                .color(base_color)
-                                .font(typography::monospace(typography::MD)),
-                        );
-                    });
+        let (rect, response) = ui.allocate_exact_size(
+            egui::vec2(available_width, header_height),
+            if has_hidden {
+                egui::Sense::click()
             } else {
-                ui.label(
-                    RichText::new(text)
-                        .color(base_color)
-                        .font(typography::monospace(typography::MD)),
-                );
-            }
+                egui::Sense::hover()
+            },
+        );
+
+        // Background — highlight on hover if expandable
+        let bg = if has_hidden && response.hovered() {
+            theme.diff_hunk_bg().gamma_multiply(1.4)
         } else {
-            ui.label(
-                RichText::new(text)
-                    .color(base_color)
-                    .font(typography::monospace(typography::MD)),
+            theme.diff_hunk_bg()
+        };
+        ui.painter().rect_filled(rect, 0.0, bg);
+
+        // Subtle top/bottom separator lines
+        ui.painter().hline(
+            rect.x_range(),
+            rect.top(),
+            egui::Stroke::new(1.0, theme.diff_hunk_text().gamma_multiply(0.2)),
+        );
+        ui.painter().hline(
+            rect.x_range(),
+            rect.bottom(),
+            egui::Stroke::new(1.0, theme.diff_hunk_text().gamma_multiply(0.2)),
+        );
+
+        // Build display text
+        let hidden_text = if has_hidden {
+            let n = line.hidden_lines.unwrap_or(0);
+            format!(
+                "{} ··· {n} lines hidden ··· click to expand",
+                egui_nerdfonts::regular::UNFOLD_MORE_HORIZONTAL
+            )
+        } else {
+            "···".to_string()
+        };
+        let context_text = line.hunk_context.as_deref().unwrap_or("");
+
+        let center_y = rect.center().y;
+
+        // Draw hidden lines text
+        let text_alpha = if has_hidden && response.hovered() {
+            1.0
+        } else {
+            0.7
+        };
+        let hidden_galley = ui.painter().layout_no_wrap(
+            hidden_text,
+            typography::proportional(typography::XS),
+            theme.diff_hunk_text().gamma_multiply(text_alpha),
+        );
+        let text_x = rect.left() + 16.0;
+        ui.painter().galley(
+            egui::pos2(text_x, center_y - hidden_galley.size().y / 2.0),
+            hidden_galley.clone(),
+            theme.diff_hunk_text().gamma_multiply(text_alpha),
+        );
+
+        // Draw function context in syntax function color
+        if !context_text.is_empty() {
+            let ctx_x = text_x + hidden_galley.size().x + 12.0;
+            ui.painter().text(
+                egui::pos2(ctx_x, center_y),
+                egui::Align2::LEFT_CENTER,
+                context_text,
+                typography::monospace(typography::XS),
+                theme.syntax_function().gamma_multiply(0.8),
             );
         }
+
+        // Hover cursor
+        if has_hidden && response.hovered() {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+        }
+
+        if has_hidden && response.clicked() {
+            return DiffLineAction::ExpandHunk;
+        }
+        return DiffLineAction::None;
     }
+
+    // File headers - keep existing style
+    if line.kind == DiffLineKind::FileHeader {
+        let available_width = ui.available_width();
+        let response = ui.horizontal(|ui| {
+            let gutter_width = 4.0;
+            let (gutter_rect, _) = ui.allocate_exact_size(
+                egui::vec2(gutter_width, typography::MD + 4.0),
+                egui::Sense::hover(),
+            );
+            // No gutter for file headers
+            let _ = gutter_rect;
+            ui.add_space(4.0);
+            ui.label(
+                RichText::new(&line.content)
+                    .color(theme.diff_file_header())
+                    .font(typography::monospace(typography::MD)),
+            );
+        });
+        // Background
+        let rect = egui::Rect::from_min_size(
+            response.response.rect.min,
+            egui::vec2(available_width, response.response.rect.height()),
+        );
+        let bg_painter = ui.painter().clone().with_layer_id(egui::LayerId::new(
+            egui::Order::Background,
+            egui::Id::new("diff_line_bg"),
+        ));
+        bg_painter.rect_filled(rect, 0.0, theme.diff_file_header_bg());
+        return DiffLineAction::None;
+    }
+
+    // Regular content lines (Context, Addition, Deletion)
+    let (base_text_color, bg_color, gutter_color) = diff_line_colors(line.kind, theme);
+
+    let available_width = ui.available_width();
+
+    // Check if this line is selected
+    let is_selected = selected_lines.is_some_and(|(start, end)| {
+        let min = start.min(end);
+        let max = start.max(end);
+        line_idx >= min && line_idx <= max
+    });
+
+    // Get syntax spans for this line
+    let syntax_spans = get_syntax_spans_for_line(line, *old_highlight, *new_highlight, theme);
+
+    // Build the layout job for content
+    let content = if line.content.is_empty() {
+        " "
+    } else {
+        &line.content
+    };
+
+    let word_bg = diff_word_bg(line.kind, theme);
+
+    let layout_job = build_diff_line_layout_job(
+        content,
+        &line.word_highlights,
+        base_text_color,
+        word_bg,
+        &syntax_spans,
+        search_highlights,
+    );
+
+    // Create a horizontal layout for the line
+    let response = ui.horizontal(|ui| {
+        // Gutter stripe (4px wide colored bar on the left)
+        let gutter_width = 4.0;
+        let (gutter_rect, _) = ui.allocate_exact_size(
+            egui::vec2(gutter_width, typography::MD + 4.0),
+            egui::Sense::hover(),
+        );
+        if let Some(gc) = gutter_color {
+            ui.painter().rect_filled(gutter_rect, 0.0, gc);
+        }
+
+        ui.add_space(4.0);
+
+        // Line numbers area with darker background - CLICKABLE for selection
+        let line_num_area_width = (line_num_width * 2 + 3) as f32 * 8.0;
+        let (line_num_rect, line_num_response) = ui.allocate_exact_size(
+            egui::vec2(line_num_area_width, typography::MD + 4.0),
+            egui::Sense::click(),
+        );
+
+        // Draw line number background
+        ui.painter()
+            .rect_filled(line_num_rect, 0.0, theme.diff_line_number_bg());
+
+        // Draw line numbers
+        let old_num_str = line
+            .old_line_num
+            .map(|n| format!("{n:>line_num_width$}"))
+            .unwrap_or_else(|| " ".repeat(line_num_width));
+        let new_num_str = line
+            .new_line_num
+            .map(|n| format!("{n:>line_num_width$}"))
+            .unwrap_or_else(|| " ".repeat(line_num_width));
+
+        let line_nums_text = format!("{old_num_str} {new_num_str}");
+
+        ui.painter().text(
+            line_num_rect.left_center() + egui::vec2(4.0, 0.0),
+            egui::Align2::LEFT_CENTER,
+            line_nums_text,
+            typography::monospace(typography::SM),
+            theme.diff_line_number(),
+        );
+
+        // Check for click on line number area
+        if line_num_response.clicked() {
+            let shift = ui.input(|i| i.modifiers.shift);
+            clicked_shift = Some(shift);
+        }
+
+        ui.add_space(8.0);
+
+        // Content area - render with LayoutJob for syntax highlighting
+        ui.label(layout_job);
+    });
+
+    // Draw full-width background behind the line
+    let rect = egui::Rect::from_min_size(
+        response.response.rect.min,
+        egui::vec2(available_width, response.response.rect.height()),
+    );
+    let bg_painter = ui.painter().clone().with_layer_id(egui::LayerId::new(
+        egui::Order::Background,
+        egui::Id::new("diff_line_bg"),
+    ));
+    if let Some(bg) = bg_color {
+        bg_painter.rect_filled(rect, 0.0, bg);
+    }
+
+    // Draw selection overlay on top of diff background
+    if is_selected {
+        bg_painter.rect_filled(rect, 0.0, accent.gamma_multiply(0.12));
+    }
+
+    match clicked_shift {
+        Some(shift) => DiffLineAction::Click(shift),
+        None => DiffLineAction::None,
+    }
+}
+
+/// Renders a header line (file header or hunk header) spanning full width in split view.
+fn render_split_header_line_styled(
+    ui: &mut egui::Ui,
+    line: &DiffLine,
+    available_width: f32,
+    theme: AppTheme,
+) {
+    if line.kind == DiffLineKind::HunkHeader {
+        let header_height = typography::SM + 12.0;
+        let (rect, _) = ui.allocate_exact_size(
+            egui::vec2(available_width, header_height),
+            egui::Sense::hover(),
+        );
+
+        // Background
+        ui.painter().rect_filled(rect, 0.0, theme.diff_hunk_bg());
+
+        // Top/bottom separator lines
+        ui.painter().hline(
+            rect.x_range(),
+            rect.top(),
+            egui::Stroke::new(1.0, theme.diff_hunk_text().gamma_multiply(0.2)),
+        );
+        ui.painter().hline(
+            rect.x_range(),
+            rect.bottom(),
+            egui::Stroke::new(1.0, theme.diff_hunk_text().gamma_multiply(0.2)),
+        );
+
+        // Display text
+        let hidden_text = line
+            .hidden_lines
+            .map(|n| format!("··· {n} lines hidden ···"))
+            .unwrap_or_else(|| "···".to_string());
+        let context_text = line.hunk_context.as_deref().unwrap_or("");
+
+        let center_y = rect.center().y;
+        let hidden_galley = ui.painter().layout_no_wrap(
+            hidden_text,
+            typography::proportional(typography::XS),
+            theme.diff_hunk_text().gamma_multiply(0.7),
+        );
+        let text_x = rect.left() + 16.0;
+        ui.painter().galley(
+            egui::pos2(text_x, center_y - hidden_galley.size().y / 2.0),
+            hidden_galley.clone(),
+            theme.diff_hunk_text().gamma_multiply(0.7),
+        );
+
+        if !context_text.is_empty() {
+            let ctx_x = text_x + hidden_galley.size().x + 12.0;
+            ui.painter().text(
+                egui::pos2(ctx_x, center_y),
+                egui::Align2::LEFT_CENTER,
+                context_text,
+                typography::monospace(typography::XS),
+                theme.syntax_function().gamma_multiply(0.8),
+            );
+        }
+    } else {
+        // File header - keep original style
+        let line_height = typography::SM + 6.0;
+        let (line_rect, _) = ui.allocate_exact_size(
+            egui::vec2(available_width, line_height),
+            egui::Sense::hover(),
+        );
+        ui.painter()
+            .rect_filled(line_rect, 0.0, theme.diff_file_header_bg());
+        ui.painter().text(
+            line_rect.left_center() + egui::vec2(8.0, 0.0),
+            egui::Align2::LEFT_CENTER,
+            &line.content,
+            typography::monospace(typography::SM),
+            theme.diff_file_header(),
+        );
+    }
+}
+
+/// Renders a single line in the split view with syntax highlighting.
+fn render_split_line_with_syntax(
+    ui: &mut egui::Ui,
+    line: Option<&DiffLine>,
+    line_num_width: usize,
+    is_left: bool,
+    side_width: f32,
+    theme: AppTheme,
+    highlight: Option<&SyntaxHighlightData>,
+) {
+    ui.set_max_width(side_width);
+    let line_height = typography::SM + 6.0;
+
+    let Some(line) = line else {
+        // Empty placeholder line
+        let (rect, _) =
+            ui.allocate_exact_size(egui::vec2(side_width, line_height), egui::Sense::hover());
+        ui.painter()
+            .rect_filled(rect, 0.0, theme.diff_line_number_bg().gamma_multiply(0.5));
+        return;
+    };
+
+    let (text_color, bg_color, gutter_color) = diff_line_colors(line.kind, theme);
+
+    let gutter_width = 3.0;
+    let line_num_area_width = (line_num_width + 1) as f32 * 8.0;
+    let content_max_width = (side_width - gutter_width - line_num_area_width - 12.0).max(50.0);
+
+    let (line_rect, _) =
+        ui.allocate_exact_size(egui::vec2(side_width, line_height), egui::Sense::hover());
+
+    if let Some(bg) = bg_color {
+        ui.painter().rect_filled(line_rect, 0.0, bg);
+    }
+
+    let mut cursor_x = line_rect.left();
+
+    // Gutter stripe
+    if let Some(gc) = gutter_color {
+        let gutter_rect = egui::Rect::from_min_size(
+            egui::pos2(cursor_x, line_rect.top()),
+            egui::vec2(gutter_width, line_height),
+        );
+        ui.painter().rect_filled(gutter_rect, 0.0, gc);
+    }
+    cursor_x += gutter_width + 2.0;
+
+    // Line number
+    let line_num_rect = egui::Rect::from_min_size(
+        egui::pos2(cursor_x, line_rect.top()),
+        egui::vec2(line_num_area_width, line_height),
+    );
+    ui.painter()
+        .rect_filled(line_num_rect, 0.0, theme.diff_line_number_bg());
+
+    let line_num = if is_left {
+        line.old_line_num
+    } else {
+        line.new_line_num
+    };
+    let line_num_str = line_num
+        .map(|n| format!("{n:>line_num_width$}"))
+        .unwrap_or_else(|| " ".repeat(line_num_width));
+
+    ui.painter().text(
+        line_num_rect.left_center() + egui::vec2(2.0, 0.0),
+        egui::Align2::LEFT_CENTER,
+        line_num_str,
+        typography::monospace(typography::SM),
+        theme.diff_line_number(),
+    );
+    cursor_x += line_num_area_width + 4.0;
+
+    // Content with syntax highlighting
+    let content = if line.content.is_empty() {
+        " ".to_string()
+    } else {
+        // Truncate to fit
+        let char_width = 7.0;
+        let max_chars = (content_max_width / char_width) as usize;
+        let char_count = line.content.chars().count();
+        if char_count > max_chars && max_chars > 3 {
+            let truncate_at = max_chars.saturating_sub(1);
+            let truncated: String = line.content.chars().take(truncate_at).collect();
+            format!("{truncated}…")
+        } else {
+            line.content.clone()
+        }
+    };
+
+    // Get syntax spans using reconstructed line numbers
+    let syntax_spans = if let Some(hl) = highlight {
+        let recon_num = if is_left {
+            line.old_recon_num
+        } else {
+            line.new_recon_num
+        };
+        recon_num
+            .map(|n| hl.get_line_spans(n, theme))
+            .unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+
+    if syntax_spans.is_empty() {
+        // No syntax highlighting - use painter.text() as before
+        ui.painter().text(
+            egui::pos2(cursor_x, line_rect.center().y),
+            egui::Align2::LEFT_CENTER,
+            content,
+            typography::monospace(typography::SM),
+            text_color,
+        );
+    } else {
+        // Build LayoutJob with syntax colors
+        let word_bg = diff_word_bg(line.kind, theme);
+        let job = build_diff_line_layout_job_sm(
+            &content,
+            &line.word_highlights,
+            text_color,
+            word_bg,
+            &syntax_spans,
+            &[], // search highlights not yet supported in split view
+        );
+        let galley = ui.fonts_mut(|f| f.layout_job(job));
+        ui.painter().galley(
+            egui::pos2(cursor_x, line_rect.center().y - galley.size().y / 2.0),
+            galley,
+            text_color,
+        );
+    }
+}
+
+/// Gets syntax color spans for a diff line, choosing the appropriate highlight data.
+///
+/// Uses `old_recon_num`/`new_recon_num` on the line to look up the correct position
+/// in the reconstructed file's syntax data.
+fn get_syntax_spans_for_line(
+    line: &DiffLine,
+    old_highlight: Option<&SyntaxHighlightData>,
+    new_highlight: Option<&SyntaxHighlightData>,
+    theme: AppTheme,
+) -> Vec<(usize, usize, Color32)> {
+    match line.kind {
+        DiffLineKind::Deletion => {
+            if let (Some(hl), Some(n)) = (old_highlight, line.old_recon_num) {
+                hl.get_line_spans(n, theme)
+            } else {
+                Vec::new()
+            }
+        }
+        DiffLineKind::Addition => {
+            if let (Some(hl), Some(n)) = (new_highlight, line.new_recon_num) {
+                hl.get_line_spans(n, theme)
+            } else {
+                Vec::new()
+            }
+        }
+        DiffLineKind::Context => {
+            // Prefer new highlight data for context lines
+            if let (Some(hl), Some(n)) = (new_highlight, line.new_recon_num) {
+                hl.get_line_spans(n, theme)
+            } else if let (Some(hl), Some(n)) = (old_highlight, line.old_recon_num) {
+                hl.get_line_spans(n, theme)
+            } else {
+                Vec::new()
+            }
+        }
+        _ => Vec::new(),
+    }
+}
+
+/// Builds a `LayoutJob` for a diff line that composites syntax colors with word-level highlights.
+///
+/// Uses `typography::MD` font size (for unified view).
+fn build_diff_line_layout_job(
+    content: &str,
+    word_highlights: &[(usize, usize)],
+    base_text_color: Color32,
+    word_bg: Option<Color32>,
+    syntax_spans: &[(usize, usize, Color32)],
+    search_highlights: &[(usize, usize, bool)],
+) -> LayoutJob {
+    build_diff_line_layout_job_inner(
+        content,
+        word_highlights,
+        base_text_color,
+        word_bg,
+        syntax_spans,
+        search_highlights,
+        typography::MD,
+    )
+}
+
+/// Builds a `LayoutJob` for a diff line using `typography::SM` font size (for split view).
+fn build_diff_line_layout_job_sm(
+    content: &str,
+    word_highlights: &[(usize, usize)],
+    base_text_color: Color32,
+    word_bg: Option<Color32>,
+    syntax_spans: &[(usize, usize, Color32)],
+    search_highlights: &[(usize, usize, bool)],
+) -> LayoutJob {
+    build_diff_line_layout_job_inner(
+        content,
+        word_highlights,
+        base_text_color,
+        word_bg,
+        syntax_spans,
+        search_highlights,
+        typography::SM,
+    )
+}
+
+/// Inner implementation for building a composite LayoutJob with syntax + word highlighting.
+///
+/// Uses a sweep-line approach: collects all span boundary points, sorts them,
+/// then iterates through segments. O(s log s) where s = total spans, instead of O(n * s).
+fn build_diff_line_layout_job_inner(
+    content: &str,
+    word_highlights: &[(usize, usize)],
+    base_text_color: Color32,
+    word_bg: Option<Color32>,
+    syntax_spans: &[(usize, usize, Color32)],
+    search_highlights: &[(usize, usize, bool)],
+    font_size: f32,
+) -> LayoutJob {
+    let mut job = LayoutJob::default();
+    let font_id = typography::monospace(font_size);
+
+    if content.is_empty() {
+        job.append(" ", 0.0, TextFormat::simple(font_id, base_text_color));
+        return job;
+    }
+
+    let len = content.len();
+
+    // Collect all boundary points where formatting changes
+    let mut boundaries: Vec<usize> = Vec::with_capacity(
+        2 + syntax_spans.len() * 2 + word_highlights.len() * 2 + search_highlights.len() * 2,
+    );
+    boundaries.push(0);
+    boundaries.push(len);
+    for &(start, end, _) in syntax_spans {
+        if start < len {
+            boundaries.push(start);
+        }
+        if end <= len {
+            boundaries.push(end);
+        }
+    }
+    for &(start, end) in word_highlights {
+        if start < len {
+            boundaries.push(start);
+        }
+        if end <= len {
+            boundaries.push(end);
+        }
+    }
+    for &(start, end, _) in search_highlights {
+        if start < len {
+            boundaries.push(start);
+        }
+        if end <= len {
+            boundaries.push(end);
+        }
+    }
+    boundaries.sort_unstable();
+    boundaries.dedup();
+
+    // Snap boundaries to valid UTF-8 char boundaries
+    for b in &mut boundaries {
+        while *b < len && !content.is_char_boundary(*b) {
+            *b += 1;
+        }
+    }
+    boundaries.dedup();
+
+    // Iterate through segments between boundaries
+    for pair in boundaries.windows(2) {
+        let seg_start = pair[0];
+        let seg_end = pair[1];
+        if seg_start >= seg_end || seg_start >= len {
+            continue;
+        }
+        let seg_end = seg_end.min(len);
+
+        let Some(text) = content.get(seg_start..seg_end) else {
+            continue;
+        };
+
+        // Determine syntax color at this segment (first matching span)
+        let text_color = syntax_spans
+            .iter()
+            .find(|&&(s, e, _)| seg_start >= s && seg_start < e)
+            .map(|&(_, _, c)| c)
+            .unwrap_or(base_text_color);
+
+        // Determine if this segment is inside a word highlight
+        let in_word_highlight = word_highlights
+            .iter()
+            .any(|&(s, e)| seg_start >= s && seg_start < e);
+
+        // Determine if this segment is inside a search highlight
+        let search_match = search_highlights
+            .iter()
+            .find(|&&(s, e, _)| seg_start >= s && seg_start < e);
+
+        // Search highlights take priority over word highlights for background
+        let bg = if let Some(&(_, _, is_current)) = search_match {
+            if is_current {
+                // Current match: bright orange background
+                Some(Color32::from_rgba_premultiplied(230, 160, 0, 180))
+            } else {
+                // Other matches: dimmer yellow background
+                Some(Color32::from_rgba_premultiplied(180, 140, 0, 100))
+            }
+        } else if in_word_highlight {
+            word_bg
+        } else {
+            None
+        };
+
+        // For search highlights, use dark text for contrast
+        let final_text_color = if search_match.is_some() {
+            Color32::from_rgb(30, 30, 30)
+        } else {
+            text_color
+        };
+
+        let mut format = TextFormat::simple(font_id.clone(), final_text_color);
+        if let Some(bg_color) = bg {
+            format.background = bg_color;
+        }
+        job.append(text, 0.0, format);
+    }
+
+    if job.is_empty() {
+        job.append(" ", 0.0, TextFormat::simple(font_id, base_text_color));
+    }
+
+    job
 }
 
 /// Parses a unified diff into per-file sections with word-level highlighting.
@@ -1348,6 +2289,9 @@ fn parse_diff_into_files(diff: &str) -> Vec<FileDiff> {
     // Track line numbers
     let mut old_line_num: usize = 0;
     let mut new_line_num: usize = 0;
+
+    // Track previous hunk end for computing hidden lines
+    let mut prev_old_end: Option<usize> = None;
 
     // Collect consecutive add/delete pairs for word-level diff
     let mut pending_deletions: Vec<(String, usize)> = Vec::new(); // (content, index in lines)
@@ -1368,6 +2312,9 @@ fn parse_diff_into_files(diff: &str) -> Vec<FileDiff> {
                 files.push(file);
             }
 
+            // Reset hunk tracking for new file
+            prev_old_end = None;
+
             // Extract path from "diff --git a/path b/path"
             let path = raw_line
                 .strip_prefix("diff --git a/")
@@ -1383,9 +2330,19 @@ fn parse_diff_into_files(diff: &str) -> Vec<FileDiff> {
                     old_line_num: None,
                     new_line_num: None,
                     word_highlights: Vec::new(),
+                    hidden_lines: None,
+                    hunk_context: None,
+                    old_recon_num: None,
+                    new_recon_num: None,
+                    hunk_old_start: None,
+                    hunk_new_start: None,
                 }],
                 additions: 0,
                 deletions: 0,
+                old_highlight: None,
+                new_highlight: None,
+                old_file_lines: None,
+                new_file_lines: None,
             });
             continue;
         }
@@ -1400,9 +2357,35 @@ fn parse_diff_into_files(diff: &str) -> Vec<FileDiff> {
                 pending_additions.clear();
 
                 // Parse @@ -old_start,old_count +new_start,new_count @@
+                let mut hidden_lines = None;
+                let mut hunk_context = None;
+
                 if let Some((old_start, new_start)) = parse_hunk_header(raw_line) {
+                    // Compute hidden lines (gap between previous hunk end and this start)
+                    if let Some(prev_end) = prev_old_end {
+                        if old_start > prev_end {
+                            hidden_lines = Some(old_start - prev_end);
+                        }
+                    } else if old_start > 1 {
+                        // First hunk - lines before it are hidden
+                        hidden_lines = Some(old_start.saturating_sub(1));
+                    }
+
                     old_line_num = old_start;
                     new_line_num = new_start;
+                }
+
+                // Extract function context (text after second @@)
+                if let Some(after_marker) = raw_line.splitn(3, "@@").nth(2) {
+                    let ctx = after_marker.trim();
+                    if !ctx.is_empty() {
+                        hunk_context = Some(ctx.to_string());
+                    }
+                }
+
+                // Parse old count to track where this hunk ends
+                if let Some(old_count) = parse_hunk_old_count(raw_line) {
+                    prev_old_end = Some(old_line_num + old_count);
                 }
 
                 file.lines.push(DiffLine {
@@ -1411,6 +2394,12 @@ fn parse_diff_into_files(diff: &str) -> Vec<FileDiff> {
                     old_line_num: None,
                     new_line_num: None,
                     word_highlights: Vec::new(),
+                    hidden_lines,
+                    hunk_context,
+                    old_recon_num: None,
+                    new_recon_num: None,
+                    hunk_old_start: Some(old_line_num),
+                    hunk_new_start: Some(new_line_num),
                 });
                 continue;
             }
@@ -1457,6 +2446,12 @@ fn parse_diff_into_files(diff: &str) -> Vec<FileDiff> {
                 old_line_num: old_num,
                 new_line_num: new_num,
                 word_highlights: Vec::new(),
+                hidden_lines: None,
+                hunk_context: None,
+                old_recon_num: None,
+                new_recon_num: None,
+                hunk_old_start: None,
+                hunk_new_start: None,
             });
 
             // Track consecutive additions and deletions for word-level diff
@@ -1632,75 +2627,159 @@ fn classify_diff_line(line: &str) -> DiffLineKind {
     }
 }
 
-/// Builds paired lines for split (side-by-side) view.
+/// Builds paired lines for split (side-by-side) view using references (zero-copy).
 ///
-/// Returns a vector of (left_line, right_line) pairs where:
+/// Returns a vector of (left_line, right_line) reference pairs where:
 /// - Context lines appear on both sides
 /// - Deletions appear on the left only
 /// - Additions appear on the right only
 /// - Paired deletions/additions are aligned on the same row
 /// - Headers span both sides
-fn build_split_view_lines(lines: &[DiffLine]) -> Vec<(Option<DiffLine>, Option<DiffLine>)> {
-    let mut result: Vec<(Option<DiffLine>, Option<DiffLine>)> = Vec::new();
+fn build_split_view_lines(lines: &[DiffLine]) -> Vec<(Option<&DiffLine>, Option<&DiffLine>)> {
+    let mut result: Vec<(Option<&DiffLine>, Option<&DiffLine>)> = Vec::new();
 
     // Collect consecutive deletions and additions for pairing
-    let mut pending_deletions: Vec<DiffLine> = Vec::new();
-    let mut pending_additions: Vec<DiffLine> = Vec::new();
+    let mut pending_deletions: Vec<&DiffLine> = Vec::new();
+    let mut pending_additions: Vec<&DiffLine> = Vec::new();
 
     for line in lines {
         match line.kind {
             DiffLineKind::Context => {
-                // Flush any pending changes first
-                flush_pending_changes(&mut result, &mut pending_deletions, &mut pending_additions);
-                // Context lines appear on both sides
-                result.push((Some(line.clone()), Some(line.clone())));
+                flush_pending_refs(&mut result, &mut pending_deletions, &mut pending_additions);
+                result.push((Some(line), Some(line)));
             }
             DiffLineKind::Deletion => {
-                // Collect deletions to pair with additions
-                pending_deletions.push(line.clone());
+                pending_deletions.push(line);
             }
             DiffLineKind::Addition => {
-                // Collect additions to pair with deletions
-                pending_additions.push(line.clone());
+                pending_additions.push(line);
             }
             DiffLineKind::HunkHeader | DiffLineKind::FileHeader => {
-                // Flush any pending changes first
-                flush_pending_changes(&mut result, &mut pending_deletions, &mut pending_additions);
-                // Headers appear on both sides
-                result.push((Some(line.clone()), Some(line.clone())));
+                flush_pending_refs(&mut result, &mut pending_deletions, &mut pending_additions);
+                result.push((Some(line), Some(line)));
             }
         }
     }
 
-    // Flush any remaining pending changes
-    flush_pending_changes(&mut result, &mut pending_deletions, &mut pending_additions);
-
+    flush_pending_refs(&mut result, &mut pending_deletions, &mut pending_additions);
     result
 }
 
-/// Flushes pending deletions and additions into paired rows.
-fn flush_pending_changes(
-    result: &mut Vec<(Option<DiffLine>, Option<DiffLine>)>,
-    deletions: &mut Vec<DiffLine>,
-    additions: &mut Vec<DiffLine>,
+/// Flushes pending deletions and additions into paired rows (reference version).
+fn flush_pending_refs<'a>(
+    result: &mut Vec<(Option<&'a DiffLine>, Option<&'a DiffLine>)>,
+    deletions: &mut Vec<&'a DiffLine>,
+    additions: &mut Vec<&'a DiffLine>,
 ) {
-    // Pair up deletions with additions where possible
     let pairs = deletions.len().min(additions.len());
 
     for i in 0..pairs {
-        result.push((Some(deletions[i].clone()), Some(additions[i].clone())));
+        result.push((Some(deletions[i]), Some(additions[i])));
     }
 
-    // Add any remaining unpaired deletions (left side only)
     for deletion in deletions.iter().skip(pairs) {
-        result.push((Some(deletion.clone()), None));
+        result.push((Some(deletion), None));
     }
 
-    // Add any remaining unpaired additions (right side only)
     for addition in additions.iter().skip(pairs) {
-        result.push((None, Some(addition.clone())));
+        result.push((None, Some(addition)));
     }
 
     deletions.clear();
     additions.clear();
+}
+
+/// Parses the old line count from a hunk header.
+/// Format: @@ -old_start,old_count +new_start,new_count @@
+fn parse_hunk_old_count(line: &str) -> Option<usize> {
+    let content = line.strip_prefix("@@")?.trim_start();
+    let content = content.split("@@").next()?.trim();
+    let old_part = content.split_whitespace().next()?.strip_prefix('-')?;
+    old_part.split(',').nth(1)?.parse().ok()
+}
+
+/// Reconstructs the old and new file contents from diff lines.
+///
+/// The old file is built from Context + Deletion lines.
+/// The new file is built from Context + Addition lines.
+///
+/// Also sets `old_recon_num` / `new_recon_num` on each `DiffLine` so syntax
+/// highlight lookups can use the correct line number in the reconstructed content.
+fn reconstruct_file_contents(file: &mut FileDiff) -> (String, String) {
+    let mut old_content = String::new();
+    let mut new_content = String::new();
+    let mut old_line_num: usize = 0;
+    let mut new_line_num: usize = 0;
+
+    for line in &mut file.lines {
+        match line.kind {
+            DiffLineKind::Context => {
+                old_content.push_str(&line.content);
+                old_content.push('\n');
+                old_line_num += 1;
+                new_content.push_str(&line.content);
+                new_content.push('\n');
+                new_line_num += 1;
+                line.old_recon_num = Some(old_line_num);
+                line.new_recon_num = Some(new_line_num);
+            }
+            DiffLineKind::Deletion => {
+                old_content.push_str(&line.content);
+                old_content.push('\n');
+                old_line_num += 1;
+                line.old_recon_num = Some(old_line_num);
+            }
+            DiffLineKind::Addition => {
+                new_content.push_str(&line.content);
+                new_content.push('\n');
+                new_line_num += 1;
+                line.new_recon_num = Some(new_line_num);
+            }
+            _ => {}
+        }
+    }
+
+    (old_content, new_content)
+}
+
+/// Load a file's content at a specific git revision.
+/// Returns each line as a separate string, or `None` if the file doesn't exist at that revision.
+#[cfg(not(target_arch = "wasm32"))]
+fn load_file_at_commit(
+    repo_root: &std::path::Path,
+    commit: &str,
+    file_path: &str,
+) -> Option<Vec<String>> {
+    let output = std::process::Command::new("git")
+        .args(["show", &format!("{commit}:{file_path}")])
+        .current_dir(repo_root)
+        .output()
+        .ok()?;
+    if output.status.success() {
+        Some(
+            String::from_utf8_lossy(&output.stdout)
+                .lines()
+                .map(String::from)
+                .collect(),
+        )
+    } else {
+        None
+    }
+}
+
+/// Maps a file path to a language identifier for tree-sitter.
+fn language_from_path(path: &str) -> &str {
+    let ext = std::path::Path::new(path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("");
+    match ext {
+        "rs" => "rust",
+        "go" => "go",
+        "py" => "python",
+        "js" | "jsx" => "javascript",
+        "ts" | "tsx" => "typescript",
+        "toml" => "toml",
+        other => other,
+    }
 }

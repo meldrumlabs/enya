@@ -146,6 +146,14 @@ impl SyntaxHighlightData {
                 tree_sitter_javascript::INJECTIONS_QUERY,
                 tree_sitter_javascript::LOCALS_QUERY,
             ),
+            #[cfg(feature = "all-languages")]
+            "toml" => HighlightConfiguration::new(
+                tree_sitter_toml_ng::LANGUAGE.into(),
+                "toml",
+                tree_sitter_toml_ng::HIGHLIGHTS_QUERY,
+                "",
+                "",
+            ),
             // Default to Rust for unknown languages (better than no highlighting)
             _ => HighlightConfiguration::new(
                 tree_sitter_rust::LANGUAGE.into(),
@@ -301,6 +309,53 @@ impl SyntaxHighlightData {
         }
 
         job
+    }
+
+    /// Get the syntax color spans for a single line (line_num is 1-indexed).
+    ///
+    /// Returns `(start, end, color)` tuples relative to the line content.
+    /// Useful for compositing syntax colors with other overlays (e.g. diff highlights).
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn get_line_spans(&self, line_num: usize, theme: AppTheme) -> Vec<(usize, usize, Color32)> {
+        if self.spans.is_empty() || self.line_offsets.is_empty() {
+            return Vec::new();
+        }
+
+        let line_idx = line_num.saturating_sub(1);
+        let line_start = self.line_offsets.get(line_idx).copied().unwrap_or(0);
+        let line_end = self
+            .line_offsets
+            .get(line_idx + 1)
+            .copied()
+            .unwrap_or(self.source_content.len());
+
+        let mut line_spans = Vec::new();
+        for span in &self.spans {
+            if span.range.end <= line_start || span.range.start >= line_end {
+                continue;
+            }
+            let span_start = span.range.start.saturating_sub(line_start);
+            let span_end = span.range.end.saturating_sub(line_start);
+            if span_start < span_end {
+                line_spans.push((
+                    span_start,
+                    span_end,
+                    highlight_color(span.highlight_idx, theme),
+                ));
+            }
+        }
+        line_spans.sort_by_key(|(start, _, _)| *start);
+        line_spans
+    }
+
+    /// WASM stub - no syntax data available.
+    #[cfg(target_arch = "wasm32")]
+    pub fn get_line_spans(
+        &self,
+        _line_num: usize,
+        _theme: AppTheme,
+    ) -> Vec<(usize, usize, Color32)> {
+        Vec::new()
     }
 
     /// Fallback when tree-sitter is not available - no syntax highlighting, just plain text.
