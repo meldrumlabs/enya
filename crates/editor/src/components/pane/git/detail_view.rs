@@ -2,7 +2,7 @@
 
 use egui::RichText;
 
-use crate::github_api::{ReviewEvent, relative_time};
+use crate::git::api::{ReviewEvent, relative_time};
 use crate::ui::theme::AppTheme;
 use crate::ui::typography;
 

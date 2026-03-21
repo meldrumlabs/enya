@@ -11,7 +11,7 @@ use crate::components::overlay::style_picker::StyleTab;
 use crate::components::util::file_opener::{FileOpenerAction, FileOpenerPopup, FileOpenerResult};
 use crate::components::util::{AiProvider, ProviderManifest};
 use crate::components::widget::time_range::TimeRangePreset;
-use crate::github_auth::AuthState;
+use crate::git::auth::AuthState;
 use crate::ui::ActiveThemeColors;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::ui::icons::APP_GHOSTTY;

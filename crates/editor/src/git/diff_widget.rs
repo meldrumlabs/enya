@@ -2,7 +2,7 @@
 
 use egui::RichText;
 
-use super::diff_rendering::{DiffLine, DiffLineKind, FileDiff};
+use super::diff::{DiffLine, DiffLineKind, FileDiff};
 use crate::ui::theme::AppTheme;
 use crate::ui::typography;
 

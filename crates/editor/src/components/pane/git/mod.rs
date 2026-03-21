@@ -13,12 +13,12 @@ use std::sync::Arc;
 use parking_lot::Mutex;
 
 use crate::AsyncRuntime;
-use crate::components::util::diff_rendering::FileDiff;
 use crate::components::util::file_opener::FileOpenerPopup;
 use crate::components::util::next_id_usize;
-use crate::github_api::{
+use crate::git::api::{
     self, CheckRun, DraftComment, IssueComment, PrComment, PrFile, PullRequest, ReviewEvent,
 };
+use crate::git::diff::FileDiff;
 use crate::ui::theme::AppTheme;
 
 /// The current view state of the PR review pane.
@@ -287,11 +287,9 @@ impl PrReviewPane {
 
             self.async_runtime.spawn(async move {
                 let result = async {
-                    let pr = github_api::get_pull(&client, &token, &owner, &repo, number).await?;
-                    let files =
-                        github_api::get_pull_files(&client, &token, &owner, &repo, number).await?;
-                    let diff =
-                        github_api::get_pull_diff(&client, &token, &owner, &repo, number).await?;
+                    let pr = api::get_pull(&client, &token, &owner, &repo, number).await?;
+                    let files = api::get_pull_files(&client, &token, &owner, &repo, number).await?;
+                    let diff = api::get_pull_diff(&client, &token, &owner, &repo, number).await?;
                     Ok((pr, files, diff))
                 }
                 .await;
@@ -320,7 +318,7 @@ impl PrReviewPane {
         let pending = Arc::clone(&self.pending_list);
 
         self.async_runtime.spawn(async move {
-            let result = github_api::list_open_pulls(&client, &token, &owner, &repo).await;
+            let result = api::list_open_pulls(&client, &token, &owner, &repo).await;
             *pending.lock() = Some(result);
         });
     }
@@ -340,9 +338,9 @@ impl PrReviewPane {
         self.async_runtime.spawn(async move {
             let result = async {
                 let review_comments =
-                    github_api::get_review_comments(&client, &token, &owner, &repo, number).await?;
+                    api::get_review_comments(&client, &token, &owner, &repo, number).await?;
                 let issue_comments =
-                    github_api::get_issue_comments(&client, &token, &owner, &repo, number).await?;
+                    api::get_issue_comments(&client, &token, &owner, &repo, number).await?;
                 Ok((review_comments, issue_comments))
             }
             .await;
@@ -375,8 +373,7 @@ impl PrReviewPane {
         let pending = Arc::clone(&self.pending_checks);
 
         self.async_runtime.spawn(async move {
-            let result =
-                github_api::get_check_runs(&client, &token, &owner, &repo, &head_sha).await;
+            let result = api::get_check_runs(&client, &token, &owner, &repo, &head_sha).await;
             *pending.lock() = Some(result);
         });
     }
@@ -408,21 +405,16 @@ impl PrReviewPane {
 
             self.async_runtime.spawn(async move {
                 let result = async {
-                    let pr = github_api::get_pull(&client, &token, &owner, &repo, number).await?;
-                    let files =
-                        github_api::get_pull_files(&client, &token, &owner, &repo, number).await?;
-                    let diff =
-                        github_api::get_pull_diff(&client, &token, &owner, &repo, number).await?;
-                    let file_diffs =
-                        crate::components::util::diff_rendering::parse_diff_into_files(&diff);
+                    let pr = api::get_pull(&client, &token, &owner, &repo, number).await?;
+                    let files = api::get_pull_files(&client, &token, &owner, &repo, number).await?;
+                    let diff = api::get_pull_diff(&client, &token, &owner, &repo, number).await?;
+                    let file_diffs = crate::git::diff::parse_diff_into_files(&diff);
                     let review_comments =
-                        github_api::get_review_comments(&client, &token, &owner, &repo, number)
-                            .await?;
+                        api::get_review_comments(&client, &token, &owner, &repo, number).await?;
                     let issue_comments =
-                        github_api::get_issue_comments(&client, &token, &owner, &repo, number)
-                            .await?;
+                        api::get_issue_comments(&client, &token, &owner, &repo, number).await?;
                     let check_runs = if !pr.head.sha.is_empty() {
-                        github_api::get_check_runs(&client, &token, &owner, &repo, &pr.head.sha)
+                        api::get_check_runs(&client, &token, &owner, &repo, &pr.head.sha)
                             .await
                             .unwrap_or_default()
                     } else {
@@ -470,7 +462,7 @@ impl PrReviewPane {
         let pending = Arc::clone(&self.pending_submit);
 
         self.async_runtime.spawn(async move {
-            let result = github_api::submit_review(
+            let result = api::submit_review(
                 &client, &token, &owner, &repo, number, event, body, comments,
             )
             .await;
@@ -525,8 +517,7 @@ impl PrReviewPane {
             self.detail_loading = false;
             match result {
                 Ok((pr, files, diff)) => {
-                    self.file_diffs =
-                        crate::components::util::diff_rendering::parse_diff_into_files(&diff);
+                    self.file_diffs = crate::git::diff::parse_diff_into_files(&diff);
                     let pr_number = pr.number;
                     let head_sha_empty = pr.head.sha.is_empty();
                     self.current_pr = Some(pr);

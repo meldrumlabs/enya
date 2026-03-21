@@ -2,8 +2,8 @@
 
 use egui::RichText;
 
-use crate::components::util::diff_rendering::{DiffLineKind, build_split_view_lines};
-use crate::components::util::diff_widget;
+use crate::git::diff::{DiffLineKind, build_split_view_lines};
+use crate::git::diff_widget;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::ui::icons::APP_GHOSTTY;
 use crate::ui::typography;
@@ -133,7 +133,7 @@ impl PrReviewPane {
     fn render_unified_diff(
         &mut self,
         ui: &mut egui::Ui,
-        file_diff: &crate::components::util::diff_rendering::FileDiff,
+        file_diff: &crate::git::diff::FileDiff,
         line_num_width: usize,
     ) {
         let theme = self.theme;
@@ -170,7 +170,7 @@ impl PrReviewPane {
     fn render_split_diff(
         &mut self,
         ui: &mut egui::Ui,
-        file_diff: &crate::components::util::diff_rendering::FileDiff,
+        file_diff: &crate::git::diff::FileDiff,
         line_num_width: usize,
     ) {
         let theme = self.theme;
@@ -334,7 +334,7 @@ impl PrReviewPane {
                         );
                         ui.add_space(4.0);
                         ui.label(
-                            RichText::new(crate::github_api::relative_time(&comment.created_at))
+                            RichText::new(crate::git::api::relative_time(&comment.created_at))
                                 .color(theme.text_secondary())
                                 .font(typography::proportional(typography::XS)),
                         );

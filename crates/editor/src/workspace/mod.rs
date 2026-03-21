@@ -638,7 +638,7 @@ impl Workspace {
                 self.git_credential_fetched = true;
                 let pending = std::sync::Arc::clone(&self.pending_git_credential);
                 self.async_runtime.spawn(async move {
-                    let result = crate::github_auth::git_credential_fill().await;
+                    let result = crate::git::auth::git_credential_fill().await;
                     *pending.lock() = Some(result);
                 });
             }
@@ -2008,7 +2008,7 @@ impl Workspace {
                     self.codebase_manager
                         .status()
                         .url()
-                        .and_then(crate::github_api::parse_owner_repo)
+                        .and_then(crate::git::api::parse_owner_repo)
                 });
 
                 if let Some((owner, repo)) = owner_repo {

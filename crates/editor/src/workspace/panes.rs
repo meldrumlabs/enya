@@ -1011,7 +1011,7 @@ impl Workspace {
                     #[cfg(not(target_arch = "wasm32"))]
                     {
                         if let Some(url) = self.codebase_manager.status().url() {
-                            if let Some((owner, repo)) = crate::github_api::parse_owner_repo(url) {
+                            if let Some((owner, repo)) = crate::git::api::parse_owner_repo(url) {
                                 let token = self
                                     .git_credential_token
                                     .clone()
@@ -1031,8 +1031,7 @@ impl Workspace {
                         #[cfg(not(target_arch = "wasm32"))]
                         {
                             if let Some(url) = self.codebase_manager.status().url() {
-                                if let Some((owner, repo)) =
-                                    crate::github_api::parse_owner_repo(url)
+                                if let Some((owner, repo)) = crate::git::api::parse_owner_repo(url)
                                 {
                                     let token = self.github_token.clone();
                                     self.add_pr_review_pane(&owner, &repo, token);
@@ -1052,7 +1051,7 @@ impl Workspace {
                     }
                 }
                 AgentCommand::SubmitPrReview { event, body } => {
-                    use crate::github_api::ReviewEvent;
+                    use crate::git::api::ReviewEvent;
                     let review_event = match event.to_lowercase().as_str() {
                         "approve" => Some(ReviewEvent::Approve),
                         "request_changes" => Some(ReviewEvent::RequestChanges),
