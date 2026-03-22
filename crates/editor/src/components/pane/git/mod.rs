@@ -19,7 +19,9 @@ use crate::git::api::{
     self, CheckRun, DraftComment, IssueComment, PrComment, PrFile, PullRequest, ReviewEvent,
 };
 use crate::git::diff::FileDiff;
+use crate::git::diff_renderer::{DiffKeyAction, DiffRenderer};
 use crate::ui::theme::AppTheme;
+use crate::ui::typography;
 
 /// The current view state of the PR review pane.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -105,7 +107,8 @@ pub struct PrReviewPane {
     pending_detail: Arc<Mutex<Option<PrDetailResult>>>,
     pending_comments: Arc<Mutex<Option<PrCommentsResult>>>,
     pending_checks: Arc<Mutex<Option<PrChecksResult>>>,
-    split_view: bool,
+    /// Shared diff renderer with search, selection, hunk navigation.
+    diff_renderer: DiffRenderer,
 
     // ── Review draft ──
     pub(crate) draft_comments: Vec<DraftComment>,
@@ -142,10 +145,6 @@ pub struct PrReviewPane {
     // ── Focus ──
     /// Whether this pane is the focused tile in the workspace.
     focused: bool,
-
-    // ── Diff scroll ──
-    /// Pending vertical scroll delta for the diff area (set by j/k keys).
-    diff_scroll_delta: f32,
 
     // ── Preload cache ──
     /// Cached preloaded PR data, keyed by PR number.
@@ -189,7 +188,7 @@ impl PrReviewPane {
             pending_detail: Arc::new(Mutex::new(None)),
             pending_comments: Arc::new(Mutex::new(None)),
             pending_checks: Arc::new(Mutex::new(None)),
-            split_view: false,
+            diff_renderer: DiffRenderer::new("pr_diff", typography::SM),
             draft_comments: Vec::new(),
             draft_body: String::new(),
             commenting_line: None,
@@ -207,7 +206,6 @@ impl PrReviewPane {
             pending_refresh: false,
             pending_go_back: false,
             focused: false,
-            diff_scroll_delta: 0.0,
             preload_cache: FxHashMap::default(),
             pending_preloads: Vec::new(),
             preload_started: false,
@@ -695,41 +693,34 @@ impl PrReviewPane {
                         self.pending_go_back = true;
                     }
 
-                    // j / Down — scroll diff down
+                    // Delegate standard diff keys to renderer
+                    let action = self.diff_renderer.handle_keyboard(input);
+                    match action {
+                        DiffKeyAction::NextFile => {
+                            let max = self.pr_files.len().saturating_sub(1);
+                            self.selected_file_index = (self.selected_file_index + 1).min(max);
+                            self.diff_renderer.reset_for_file_change();
+                        }
+                        DiffKeyAction::PrevFile => {
+                            self.selected_file_index = self.selected_file_index.saturating_sub(1);
+                            self.diff_renderer.reset_for_file_change();
+                        }
+                        DiffKeyAction::OpenFile => {
+                            self.pending_open_file_opener = true;
+                        }
+                        DiffKeyAction::CopySelected => {
+                            // Copy selected text if any
+                        }
+                        DiffKeyAction::None => {}
+                    }
+
+                    // Arrow keys for diff scrolling (supplement vim keys)
                     let scroll_amount = 60.0;
-                    if input.consume_key(egui::Modifiers::NONE, egui::Key::J)
-                        || input.consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown)
-                    {
-                        self.diff_scroll_delta += scroll_amount;
+                    if input.consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown) {
+                        self.diff_renderer.scroll_down(scroll_amount);
                     }
-
-                    // k / Up — scroll diff up
-                    if input.consume_key(egui::Modifiers::NONE, egui::Key::K)
-                        || input.consume_key(egui::Modifiers::NONE, egui::Key::ArrowUp)
-                    {
-                        self.diff_scroll_delta -= scroll_amount;
-                    }
-
-                    // s — toggle split/stacked view
-                    if input.consume_key(egui::Modifiers::NONE, egui::Key::S) {
-                        self.split_view = !self.split_view;
-                    }
-
-                    // o — open current file in external editor
-                    if input.consume_key(egui::Modifiers::NONE, egui::Key::O) {
-                        self.pending_open_file_opener = true;
-                    }
-
-                    // n — next file
-                    if input.consume_key(egui::Modifiers::NONE, egui::Key::N) {
-                        let max = self.pr_files.len().saturating_sub(1);
-                        self.selected_file_index = (self.selected_file_index + 1).min(max);
-                        self.diff_scroll_delta = 0.0;
-                    }
-                    // p — previous file
-                    if input.consume_key(egui::Modifiers::NONE, egui::Key::P) {
-                        self.selected_file_index = self.selected_file_index.saturating_sub(1);
-                        self.diff_scroll_delta = 0.0;
+                    if input.consume_key(egui::Modifiers::NONE, egui::Key::ArrowUp) {
+                        self.diff_renderer.scroll_up(scroll_amount);
                     }
 
                     // 1/2/3 — switch tabs
@@ -773,7 +764,7 @@ impl crate::components::Component for PrReviewPane {
             self.review_comments.clear();
             self.issue_comments.clear();
             self.check_runs.clear();
-            self.diff_scroll_delta = 0.0;
+            self.diff_renderer.reset_for_file_change();
         }
 
         // Auto-fetch PR list on first render if we have a token

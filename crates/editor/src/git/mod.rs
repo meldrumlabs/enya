@@ -3,4 +3,5 @@
 pub mod api;
 pub mod auth;
 pub mod diff;
+pub mod diff_renderer;
 pub mod diff_widget;

@@ -4,6 +4,10 @@ All notable changes to the Enya editor will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- **Shared DiffRenderer**: Unified diff rendering between the overlay and PR review pane into a shared `DiffRenderer` struct. The PR pane now gains search (`/`/`⌘F`), hunk jumping (`{`/`}`), line selection (click line numbers), context expansion (click hunk headers), and `⌘C` copy — features previously only available in the commit diff overlay. The overlay shed ~1200 lines of code.
+
 ### Added
 
 - **Syntax-highlighted diffs**: Diff viewer now shows language-aware syntax colors (keywords, strings, types, etc.) layered under diff backgrounds using tree-sitter, with WASM fallback to flat colors.

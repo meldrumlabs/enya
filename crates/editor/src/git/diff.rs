@@ -13,6 +13,85 @@ pub struct FileDiff {
     pub additions: usize,
     /// Number of deletions.
     pub deletions: usize,
+    /// Syntax highlight data for the old (deleted) side of the file.
+    pub old_highlight: Option<crate::components::util::syntax_highlight::SyntaxHighlightData>,
+    /// Syntax highlight data for the new (added) side of the file.
+    pub new_highlight: Option<crate::components::util::syntax_highlight::SyntaxHighlightData>,
+    /// Full old file content lines (for context expansion, loaded lazily).
+    pub old_file_lines: Option<Vec<String>>,
+    /// Full new file content lines (for context expansion, loaded lazily).
+    pub new_file_lines: Option<Vec<String>>,
+}
+
+impl FileDiff {
+    /// Compute syntax highlighting for old and new sides by reconstructing file content
+    /// from the diff lines. Also assigns `old_recon_num` / `new_recon_num` for each line.
+    pub fn compute_syntax_highlights(&mut self) {
+        let lang = language_from_path(&self.path);
+
+        // Reconstruct old and new file content, tracking reconstruction line numbers
+        let mut old_lines: Vec<&str> = Vec::new();
+        let mut new_lines: Vec<&str> = Vec::new();
+        let mut old_counter: usize = 0;
+        let mut new_counter: usize = 0;
+
+        for line in &mut self.lines {
+            match line.kind {
+                DiffLineKind::Context => {
+                    old_counter += 1;
+                    new_counter += 1;
+                    line.old_recon_num = Some(old_counter);
+                    line.new_recon_num = Some(new_counter);
+                    old_lines.push(&line.content);
+                    new_lines.push(&line.content);
+                }
+                DiffLineKind::Deletion => {
+                    old_counter += 1;
+                    line.old_recon_num = Some(old_counter);
+                    old_lines.push(&line.content);
+                }
+                DiffLineKind::Addition => {
+                    new_counter += 1;
+                    line.new_recon_num = Some(new_counter);
+                    new_lines.push(&line.content);
+                }
+                DiffLineKind::HunkHeader | DiffLineKind::FileHeader => {}
+            }
+        }
+
+        let old_content = old_lines.join("\n");
+        let new_content = new_lines.join("\n");
+
+        if !old_content.is_empty() {
+            self.old_highlight = Some(
+                crate::components::util::syntax_highlight::SyntaxHighlightData::new(
+                    &old_content,
+                    lang,
+                ),
+            );
+        }
+        if !new_content.is_empty() {
+            self.new_highlight = Some(
+                crate::components::util::syntax_highlight::SyntaxHighlightData::new(
+                    &new_content,
+                    lang,
+                ),
+            );
+        }
+    }
+}
+
+/// Map file path extension to a tree-sitter language name.
+pub fn language_from_path(path: &str) -> &'static str {
+    match path.rsplit('.').next().unwrap_or("") {
+        "rs" => "rust",
+        "go" => "go",
+        "py" => "python",
+        "js" | "jsx" | "mjs" | "cjs" => "javascript",
+        "ts" | "tsx" | "mts" | "cts" => "typescript",
+        "toml" => "toml",
+        _ => "rust", // fallback — tree-sitter will gracefully handle mismatched grammar
+    }
 }
 
 /// A single line in a diff with word-level change information.
@@ -28,6 +107,18 @@ pub struct DiffLine {
     pub new_line_num: Option<usize>,
     /// Word-level changes within this line (start, end byte indices).
     pub word_highlights: Vec<(usize, usize)>,
+    /// Line number in the reconstructed old file (1-indexed, for syntax highlighting).
+    pub old_recon_num: Option<usize>,
+    /// Line number in the reconstructed new file (1-indexed, for syntax highlighting).
+    pub new_recon_num: Option<usize>,
+    /// Number of hidden lines (for hunk headers only).
+    pub hidden_lines: Option<usize>,
+    /// Function/method context from hunk header (e.g. "fn foo()").
+    pub hunk_context: Option<String>,
+    /// Old-side start line from hunk header (for context expansion).
+    pub hunk_old_start: Option<usize>,
+    /// New-side start line from hunk header (for context expansion).
+    pub hunk_new_start: Option<usize>,
 }
 
 /// The type of diff line.
@@ -71,12 +162,22 @@ pub fn parse_diff_into_files(diff: &str) -> Vec<FileDiff> {
                 .to_string();
             current_file = Some(FileDiff {
                 path,
+                old_highlight: None,
+                new_highlight: None,
+                old_file_lines: None,
+                new_file_lines: None,
                 lines: vec![DiffLine {
                     content: raw_line.to_string(),
                     kind: DiffLineKind::FileHeader,
                     old_line_num: None,
                     new_line_num: None,
                     word_highlights: Vec::new(),
+                    old_recon_num: None,
+                    new_recon_num: None,
+                    hidden_lines: None,
+                    hunk_context: None,
+                    hunk_old_start: None,
+                    hunk_new_start: None,
                 }],
                 additions: 0,
                 deletions: 0,
@@ -93,12 +194,35 @@ pub fn parse_diff_into_files(diff: &str) -> Vec<FileDiff> {
                     old_line_num = old_start;
                     new_line_num = new_start;
                 }
+                // Extract function context from hunk header (text after @@ ... @@)
+                let hunk_context = raw_line
+                    .find("@@ ")
+                    .and_then(|start| {
+                        let after_first = &raw_line[start + 3..];
+                        after_first.find("@@").map(|end| {
+                            let ctx = after_first[end + 2..].trim();
+                            if ctx.is_empty() {
+                                None
+                            } else {
+                                Some(ctx.to_string())
+                            }
+                        })
+                    })
+                    .flatten();
+
+                let (hunk_old_start, hunk_new_start) = parse_hunk_header(raw_line).unzip();
                 file.lines.push(DiffLine {
                     content: raw_line.to_string(),
                     kind: DiffLineKind::HunkHeader,
                     old_line_num: None,
                     new_line_num: None,
                     word_highlights: Vec::new(),
+                    old_recon_num: None,
+                    new_recon_num: None,
+                    hidden_lines: None,
+                    hunk_context,
+                    hunk_old_start,
+                    hunk_new_start,
                 });
                 continue;
             }
@@ -142,6 +266,12 @@ pub fn parse_diff_into_files(diff: &str) -> Vec<FileDiff> {
                 old_line_num: old_num,
                 new_line_num: new_num,
                 word_highlights: Vec::new(),
+                old_recon_num: None,
+                new_recon_num: None,
+                hidden_lines: None,
+                hunk_context: None,
+                hunk_old_start: None,
+                hunk_new_start: None,
             });
 
             match kind {
@@ -166,6 +296,12 @@ pub fn parse_diff_into_files(diff: &str) -> Vec<FileDiff> {
     if let Some(mut file) = current_file {
         compute_word_highlights(&mut file, &pending_deletions, &pending_additions);
         files.push(file);
+    }
+
+    // Compute hidden line counts for hunk headers and syntax highlighting
+    for file in &mut files {
+        compute_hidden_lines(file);
+        file.compute_syntax_highlights();
     }
 
     files
@@ -244,7 +380,7 @@ fn merge_adjacent_highlights(mut highlights: Vec<(usize, usize)>) -> Vec<(usize,
 }
 
 /// Parses a hunk header to extract starting line numbers.
-fn parse_hunk_header(line: &str) -> Option<(usize, usize)> {
+pub fn parse_hunk_header(line: &str) -> Option<(usize, usize)> {
     let content = line.strip_prefix("@@")?.trim_start();
     let content = content.split("@@").next()?.trim();
     let mut parts = content.split_whitespace();
@@ -273,6 +409,31 @@ fn classify_diff_line(line: &str) -> DiffLineKind {
         DiffLineKind::Deletion
     } else {
         DiffLineKind::Context
+    }
+}
+
+/// Compute the number of hidden lines for each hunk header.
+///
+/// The hidden count is the gap between the end of the previous hunk
+/// and the start of this hunk (lines not shown in the diff).
+fn compute_hidden_lines(file: &mut FileDiff) {
+    let mut prev_old_end: Option<usize> = None;
+
+    for line in &mut file.lines {
+        if line.kind == DiffLineKind::HunkHeader {
+            if let Some((old_start, _)) = parse_hunk_header(&line.content) {
+                if let Some(prev_end) = prev_old_end {
+                    let hidden = old_start.saturating_sub(prev_end + 1);
+                    if hidden > 0 {
+                        line.hidden_lines = Some(hidden);
+                    }
+                }
+            }
+        }
+        // Track the last old line number we've seen
+        if let Some(n) = line.old_line_num {
+            prev_old_end = Some(n);
+        }
     }
 }
 
@@ -322,4 +483,98 @@ fn flush_pending_changes(
     }
     deletions.clear();
     additions.clear();
+}
+
+/// Builds paired lines for split view using references (zero-copy).
+pub fn build_split_view_lines_ref(
+    lines: &[DiffLine],
+) -> Vec<(Option<&DiffLine>, Option<&DiffLine>)> {
+    let mut result: Vec<(Option<&DiffLine>, Option<&DiffLine>)> = Vec::new();
+    let mut pending_deletions: Vec<&DiffLine> = Vec::new();
+    let mut pending_additions: Vec<&DiffLine> = Vec::new();
+
+    for line in lines {
+        match line.kind {
+            DiffLineKind::Context => {
+                flush_pending_refs(&mut result, &mut pending_deletions, &mut pending_additions);
+                result.push((Some(line), Some(line)));
+            }
+            DiffLineKind::Deletion => {
+                pending_deletions.push(line);
+            }
+            DiffLineKind::Addition => {
+                pending_additions.push(line);
+            }
+            DiffLineKind::HunkHeader | DiffLineKind::FileHeader => {
+                flush_pending_refs(&mut result, &mut pending_deletions, &mut pending_additions);
+                result.push((Some(line), Some(line)));
+            }
+        }
+    }
+    flush_pending_refs(&mut result, &mut pending_deletions, &mut pending_additions);
+    result
+}
+
+/// Flushes pending deletions and additions into paired rows (reference version).
+fn flush_pending_refs<'a>(
+    result: &mut Vec<(Option<&'a DiffLine>, Option<&'a DiffLine>)>,
+    deletions: &mut Vec<&'a DiffLine>,
+    additions: &mut Vec<&'a DiffLine>,
+) {
+    let pairs = deletions.len().min(additions.len());
+    for i in 0..pairs {
+        result.push((Some(deletions[i]), Some(additions[i])));
+    }
+    for deletion in deletions.iter().skip(pairs) {
+        result.push((Some(deletion), None));
+    }
+    for addition in additions.iter().skip(pairs) {
+        result.push((None, Some(addition)));
+    }
+    deletions.clear();
+    additions.clear();
+}
+
+/// Parse the old-side line count from a hunk header (e.g. `@@ -10,5 +20,7 @@` → `5`).
+pub fn parse_hunk_old_count(line: &str) -> Option<usize> {
+    let content = line.strip_prefix("@@")?.trim_start();
+    let content = content.split("@@").next()?.trim();
+    let old_part = content.split_whitespace().next()?.strip_prefix('-')?;
+    old_part.split(',').nth(1)?.parse().ok()
+}
+
+/// Load a file at a specific git commit using `git show`.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn load_file_at_commit(
+    repo_root: &std::path::Path,
+    commit: &str,
+    file_path: &str,
+) -> Option<Vec<String>> {
+    let output = std::process::Command::new("git")
+        .args(["show", &format!("{commit}:{file_path}")])
+        .current_dir(repo_root)
+        .output()
+        .ok()?;
+    if output.status.success() {
+        Some(
+            String::from_utf8_lossy(&output.stdout)
+                .lines()
+                .map(String::from)
+                .collect(),
+        )
+    } else {
+        None
+    }
+}
+
+/// Get the word-level diff background color for a line kind.
+pub fn diff_word_bg(
+    kind: DiffLineKind,
+    theme: crate::ui::theme::AppTheme,
+) -> Option<egui::Color32> {
+    match kind {
+        DiffLineKind::Addition => Some(theme.diff_added_word_bg()),
+        DiffLineKind::Deletion => Some(theme.diff_removed_word_bg()),
+        _ => None,
+    }
 }
