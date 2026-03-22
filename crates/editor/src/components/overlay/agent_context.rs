@@ -26,6 +26,22 @@ pub struct EditorContext {
     /// Project-specific context loaded from ENYA.md
     #[serde(skip_serializing_if = "Option::is_none")]
     pub project_context: Option<String>,
+    /// PR review context (if a PR is currently open)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pr_review: Option<PrReviewContext>,
+}
+
+/// Context about the currently open PR review.
+#[derive(Debug, Clone, Serialize)]
+pub struct PrReviewContext {
+    /// PR number
+    pub pr_number: u32,
+    /// PR title
+    pub pr_title: String,
+    /// Number of draft comments
+    pub draft_comment_count: usize,
+    /// Changed files in the PR
+    pub changed_files: Vec<String>,
 }
 
 /// Connection context
@@ -115,6 +131,12 @@ impl EditorContext {
     /// Set the project-specific context (loaded from ENYA.md).
     pub fn with_project_context(mut self, context: String) -> Self {
         self.project_context = Some(context);
+        self
+    }
+
+    /// Set PR review context.
+    pub fn with_pr_review(mut self, pr_review: PrReviewContext) -> Self {
+        self.pr_review = Some(pr_review);
         self
     }
 
@@ -208,6 +230,20 @@ impl EditorContext {
             parts.push("\n".to_string());
         }
 
+        // PR Review Context
+        if let Some(ref pr) = self.pr_review {
+            parts.push("\n## Active PR Review\n".to_string());
+            parts.push(format!("- PR #{}: {}\n", pr.pr_number, pr.pr_title));
+            parts.push(format!("- Draft comments: {}\n", pr.draft_comment_count));
+            if !pr.changed_files.is_empty() {
+                parts.push("- Changed files:\n".to_string());
+                for file in &pr.changed_files {
+                    parts.push(format!("  - {file}\n"));
+                }
+            }
+            parts.push("\nYou can use `add_pr_comment` to add review comments and `submit_pr_review` to submit.\n".to_string());
+        }
+
         // Commands
         parts.push("\n## Available Commands\n".to_string());
         parts.push(
@@ -295,6 +331,26 @@ impl EditorContext {
                 .to_string(),
         );
         parts.push("  - Required: `workspace` (workspace name)\n".to_string());
+        parts.push(
+            "- `open_pr_review`: Open the PR review pane for the current repository\n".to_string(),
+        );
+        parts.push("- `review_pr`: Navigate to a specific PR in the review pane\n".to_string());
+        parts.push("  - Required: `number` (PR number)\n".to_string());
+        parts.push(
+            "  - Optional: `focus` (focus area like \"security\", \"performance\")\n".to_string(),
+        );
+        parts
+            .push("- `add_pr_comment`: Add a draft review comment on the current PR\n".to_string());
+        parts.push(
+            "  - Required: `path` (file path), `line` (line number), `body` (comment text)\n"
+                .to_string(),
+        );
+        parts.push("- `submit_pr_review`: Submit the current PR review\n".to_string());
+        parts.push(
+            "  - Required: `event` (\"approve\", \"request_changes\", or \"comment\")\n"
+                .to_string(),
+        );
+        parts.push("  - Optional: `body` (review summary)\n".to_string());
         parts.push("\n## REMINDER: No Shell Commands\n".to_string());
         parts.push(
             "You MUST output enya-command blocks instead of using bash/grep/find/cat.\n"
@@ -517,6 +573,33 @@ pub enum AgentCommand {
         /// Workspace name to load
         workspace: String,
     },
+    /// Open the PR review pane
+    OpenPrReview,
+    /// Open a specific PR for review
+    ReviewPr {
+        /// PR number to review
+        number: u32,
+        /// Optional focus areas (e.g., "security", "performance")
+        #[serde(default)]
+        focus: Option<String>,
+    },
+    /// Add a draft review comment on the current PR
+    AddPrComment {
+        /// File path relative to repo root
+        path: String,
+        /// Line number in the new version
+        line: usize,
+        /// Comment body
+        body: String,
+    },
+    /// Submit the current PR review
+    SubmitPrReview {
+        /// Review event: "approve", "request_changes", "comment"
+        event: String,
+        /// Optional review summary body
+        #[serde(default)]
+        body: Option<String>,
+    },
 }
 
 impl AgentCommand {
@@ -697,6 +780,16 @@ impl AgentCommand {
             }
             AgentCommand::LoadWorkspace { workspace } => {
                 format!("Loading workspace '{workspace}'")
+            }
+            AgentCommand::OpenPrReview => "Opening PR review pane".to_string(),
+            AgentCommand::ReviewPr { number, .. } => {
+                format!("Opening PR #{number} for review")
+            }
+            AgentCommand::AddPrComment { path, line, .. } => {
+                format!("Adding review comment on {path}:{line}")
+            }
+            AgentCommand::SubmitPrReview { event, .. } => {
+                format!("Submitting PR review ({event})")
             }
         }
     }

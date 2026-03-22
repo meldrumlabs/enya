@@ -301,6 +301,16 @@ pub struct Workspace {
     last_refresh: Option<crate::util::Instant>,
     /// Pending workspace load (set by agent command, consumed in show())
     pending_load_workspace: Option<String>,
+    /// Cached GitHub access token (set each frame from app_state)
+    github_token: Option<String>,
+    /// Token from `git credential fill` for PR review (native only).
+    /// Preferred over the OAuth token since it has org repo access.
+    #[cfg(not(target_arch = "wasm32"))]
+    git_credential_token: Option<String>,
+    #[cfg(not(target_arch = "wasm32"))]
+    pending_git_credential: std::sync::Arc<parking_lot::Mutex<Option<Result<String, String>>>>,
+    #[cfg(not(target_arch = "wasm32"))]
+    git_credential_fetched: bool,
     /// Native app promo overlay (WASM only)
     #[cfg(target_arch = "wasm32")]
     native_promo_overlay: NativePromoOverlay,
@@ -372,6 +382,10 @@ pub struct Workspace {
     tracing_client: Option<std::sync::Arc<dyn enya_client::tracing::TracingClient + Send + Sync>>,
     /// Manager for in-flight trace fetch/search requests.
     trace_manager: enya_client::tracing::TraceManager,
+
+    // ==================== Async Runtime ====================
+    /// Async runtime for spawning background tasks (Clone is cheap — wraps Arc).
+    async_runtime: AsyncRuntime,
 }
 
 impl Workspace {
@@ -461,6 +475,13 @@ impl Workspace {
             pending_refresh_plugins: false,
             last_refresh: None,
             pending_load_workspace: None,
+            github_token: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            git_credential_token: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            pending_git_credential: std::sync::Arc::new(parking_lot::Mutex::new(None)),
+            #[cfg(not(target_arch = "wasm32"))]
+            git_credential_fetched: false,
             #[cfg(target_arch = "wasm32")]
             native_promo_overlay: NativePromoOverlay::new(),
             #[cfg(target_arch = "wasm32")]
@@ -494,6 +515,8 @@ impl Workspace {
             // Tracing backend
             tracing_client: None,
             trace_manager: enya_client::tracing::TraceManager::new(),
+            // Async runtime
+            async_runtime,
         };
 
         // Eagerly warm up the agent subprocess at app startup so the first
@@ -597,6 +620,65 @@ impl Workspace {
         self.render_theme = self.effective_theme(app_state);
 
         self.behavior.set_theme(self.theme());
+
+        // Pass GitHub token to any PR review panes.
+        // On native, prefer token from `git credential fill` (has org repo access)
+        // and fall back to the OAuth token from settings.
+        let oauth_token = app_state
+            .settings
+            .github_credentials
+            .as_ref()
+            .map(|c| c.access_token.clone());
+        self.github_token = oauth_token.clone();
+
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            // Kick off git credential fetch once
+            if !self.git_credential_fetched {
+                self.git_credential_fetched = true;
+                let pending = std::sync::Arc::clone(&self.pending_git_credential);
+                self.async_runtime.spawn(async move {
+                    let result = crate::git::auth::git_credential_fill().await;
+                    *pending.lock() = Some(result);
+                });
+            }
+            // Poll for completion
+            if let Some(result) = self.pending_git_credential.lock().take() {
+                match result {
+                    Ok(token) => {
+                        log::info!("Git credential token acquired for PR review");
+                        self.git_credential_token = Some(token);
+                    }
+                    Err(e) => {
+                        log::debug!("git credential fill: {e}");
+                    }
+                }
+            }
+        }
+
+        #[cfg(not(target_arch = "wasm32"))]
+        let pr_token = self.git_credential_token.clone().or(oauth_token);
+        #[cfg(target_arch = "wasm32")]
+        let pr_token = oauth_token;
+
+        let focused_tile = self.behavior.focused_tile();
+        for tile_id in self.get_pane_tile_ids() {
+            if let Some(egui_tiles::Tile::Pane(pane)) = self.viewport_tree.tiles.get_mut(tile_id) {
+                if let Some(pr_pane) = pane
+                    .as_any_mut()
+                    .downcast_mut::<crate::components::PrReviewPane>()
+                {
+                    pr_pane.set_token(pr_token.clone());
+                    pr_pane.set_focused(focused_tile == Some(tile_id));
+                    #[cfg(not(target_arch = "wasm32"))]
+                    pr_pane.set_repo_root(
+                        self.codebase_manager
+                            .index()
+                            .map(|idx| idx.repo_path.clone()),
+                    );
+                }
+            }
+        }
 
         // Update visual effects (focus pulse detection, cleanup)
         self.behavior.update_focus_effects();
@@ -1914,6 +1996,35 @@ impl Workspace {
             CommandResult::TakeScreenshot(path) => WorkspaceAction::TakeScreenshot(path),
             CommandResult::ShareWorkspace => WorkspaceAction::ShareWorkspace,
             CommandResult::UploadSnapshot(title) => WorkspaceAction::UploadSnapshot(title),
+            CommandResult::OpenPrReview(repo_arg) => {
+                // Try explicit owner/repo arg first, then fall back to git remote
+                let owner_repo = repo_arg.as_deref().and_then(|arg| {
+                    arg.split_once('/')
+                        .map(|(o, r)| (o.to_string(), r.to_string()))
+                });
+
+                #[cfg(not(target_arch = "wasm32"))]
+                let owner_repo = owner_repo.or_else(|| {
+                    self.codebase_manager
+                        .status()
+                        .url()
+                        .and_then(crate::git::api::parse_owner_repo)
+                });
+
+                if let Some((owner, repo)) = owner_repo {
+                    #[cfg(not(target_arch = "wasm32"))]
+                    let token = self
+                        .git_credential_token
+                        .clone()
+                        .or(self.github_token.clone());
+                    #[cfg(target_arch = "wasm32")]
+                    let token = self.github_token.clone();
+                    self.add_pr_review_pane(&owner, &repo, token);
+                } else {
+                    log::warn!("No repo specified and no git remote available for PR review");
+                }
+                WorkspaceAction::None
+            }
             CommandResult::OpenLogs => {
                 // Use a default time range of the last hour for the logs pane
                 let now_ns = crate::util::now_unix_secs() * 1_000_000_000;
@@ -3288,6 +3399,35 @@ impl Workspace {
             }
         };
 
+        // Add PR review context if a PR is open
+        let context = {
+            let mut pr_ctx = None;
+            for tile_id in self.get_pane_tile_ids() {
+                if let Some(egui_tiles::Tile::Pane(pane)) = self.viewport_tree.tiles.get(tile_id) {
+                    if let Some(pr_pane) = pane
+                        .as_any()
+                        .downcast_ref::<crate::components::PrReviewPane>()
+                    {
+                        if let Some(number) = pr_pane.current_pr_number() {
+                            pr_ctx =
+                                Some(crate::components::overlay::agent_context::PrReviewContext {
+                                    pr_number: number,
+                                    pr_title: pr_pane.name(),
+                                    draft_comment_count: pr_pane.draft_comments.len(),
+                                    changed_files: pr_pane.changed_file_paths(),
+                                });
+                            break;
+                        }
+                    }
+                }
+            }
+            if let Some(pr) = pr_ctx {
+                context.with_pr_review(pr)
+            } else {
+                context
+            }
+        };
+
         // Update the agent panel's context
         self.agent_panel.set_context(context);
     }
@@ -3389,6 +3529,35 @@ impl Workspace {
                 .and_then(|idx| load_project_context(&idx.repo_path));
             if let Some(pc) = project_ctx {
                 context.with_project_context(pc)
+            } else {
+                context
+            }
+        };
+
+        // Add PR review context if a PR is open
+        let context = {
+            let mut pr_ctx = None;
+            for tile_id in self.get_pane_tile_ids() {
+                if let Some(egui_tiles::Tile::Pane(pane)) = self.viewport_tree.tiles.get(tile_id) {
+                    if let Some(pr_pane) = pane
+                        .as_any()
+                        .downcast_ref::<crate::components::PrReviewPane>()
+                    {
+                        if let Some(number) = pr_pane.current_pr_number() {
+                            pr_ctx =
+                                Some(crate::components::overlay::agent_context::PrReviewContext {
+                                    pr_number: number,
+                                    pr_title: pr_pane.name(),
+                                    draft_comment_count: pr_pane.draft_comments.len(),
+                                    changed_files: pr_pane.changed_file_paths(),
+                                });
+                            break;
+                        }
+                    }
+                }
+            }
+            if let Some(pr) = pr_ctx {
+                context.with_pr_review(pr)
             } else {
                 context
             }

@@ -1,6 +1,7 @@
 //! Pane components - tile content types that implement the Component trait.
 
 pub mod annotation;
+pub mod git;
 pub mod inline_content;
 pub mod logs_pane;
 pub mod pane_info;
@@ -14,6 +15,7 @@ pub mod tracing;
 pub mod tracing_pane;
 pub mod visualization;
 
+pub use git::{PrReviewPane, PrReviewPaneAction};
 pub use inline_content::{
     InlineChart, InlineContent, InlineDiff, InlineDiffFile, InlineDiffLine, InlineDiffLineKind,
     InlineSearchResults, InlineSource, InlineTable, InlineTableColumn, SearchResultItem,

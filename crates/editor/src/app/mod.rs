@@ -30,7 +30,7 @@ use crate::components::{
 #[cfg(not(target_arch = "wasm32"))]
 use crate::components::{UpdateBanner, UpdateBannerAction};
 use crate::connection::ConnectionManager;
-use crate::github_auth::GitHubAuthManager;
+use crate::git::auth::GitHubAuthManager;
 use crate::plugin::{EditorPluginHost, PluginContextRef, PluginRegistry, PluginSharedStateRef};
 use crate::ui::theme::AppTheme;
 use crate::ui::welcome_screen::welcome_section_ui;

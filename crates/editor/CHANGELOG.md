@@ -4,6 +4,13 @@ All notable changes to the Enya editor will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- **Shared DiffRenderer**: Unified diff rendering between the overlay and PR review pane into a shared `DiffRenderer` struct. The PR pane now gains search (`/`/`⌘F`), hunk jumping (`{`/`}`), line selection (click line numbers), context expansion (click hunk headers), and `⌘C` copy — features previously only available in the commit diff overlay. The overlay shed ~1200 lines of code.
+- **Threaded inline review comments**: Review comments now appear as threaded conversations directly in the Files tab diff, similar to GitHub. Comments on the same line are grouped into threads with avatar placeholders, reply buttons, and collapsible "show N more replies" for long threads. The Conversation tab now shows only PR-level discussion.
+- **"+" comment button on hover**: Hovering over a diff line shows a "+" icon in the gutter. Clicking it opens the comment input inline at that line.
+- **Per-file comment count badges**: The file sidebar shows comment counts next to each file with review or draft comments.
+
 ### Added
 
 - **Syntax-highlighted diffs**: Diff viewer now shows language-aware syntax colors (keywords, strings, types, etc.) layered under diff backgrounds using tree-sitter, with WASM fallback to flat colors.
@@ -14,6 +21,20 @@ All notable changes to the Enya editor will be documented in this file.
 - **Expand context on demand**: Click hunk separators to reveal up to 20 additional lines of surrounding context from the full file. Expands incrementally with each click.
 - **TOML syntax highlighting**: Added tree-sitter TOML grammar for syntax-highlighted TOML diffs.
 - **All language grammars enabled by default**: Syntax highlighting for Rust, Go, Python, JavaScript/TypeScript, and TOML now ships out of the box.
+- **`:review` command**: Open the PR review pane from the command palette with `:review` (aliases: `:pr`, `:pulls`). Accepts an optional `owner/repo` argument, falls back to the current workspace repo.
+- **Git credential auth for PR review**: PR review pane now reads GitHub tokens from `git credential fill` (picks up `gh` CLI, macOS Keychain, Git Credential Manager), enabling access to org repos without extra OAuth grants. Falls back to the existing OAuth token.
+- **PR Review pane**: New `PrReviewPane` component for reviewing GitHub pull requests directly in Enya. Features include:
+  - List open PRs with status dots, author, draft badges, and relative timestamps
+  - Detail view with Files, Conversation, and Checks tabs
+  - Per-file unified and split diff rendering with word-level highlights
+  - Inline commenting with draft accumulation and batch submission
+  - Review bar with Approve, Request Changes, and Comment actions
+  - Full AI agent integration via `open_pr_review`, `review_pr`, `add_pr_comment`, and `submit_pr_review` commands
+  - Workspace serialization/deserialization support (`visualization: "pr_review"`)
+  - WASM-compatible GitHub API client with proxy support
+  - Vim-style keyboard navigation: j/k to move, Enter/l to open, Escape/h to go back, 1/2/3 to switch tabs, r to refresh, g/G to jump
+  - Focus-aware key handling — pane only captures keys when focused, Escape drills out naturally
+  - Preloads data for top 10 PRs in the background for instant navigation
 
 ### Fixed
 

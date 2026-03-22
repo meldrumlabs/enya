@@ -647,6 +647,64 @@ async fn fetch_avatar(client: &reqwest::Client, avatar_url: &str) -> Result<Vec<
         .map_err(|e| format!("Avatar read failed: {e}"))
 }
 
+// ── Git credential helper ───────────────────────────────────────────────
+
+/// Read a GitHub token from the system's git credential helper.
+///
+/// Runs `git credential fill` which queries configured credential helpers
+/// (gh CLI, macOS Keychain, Git Credential Manager, etc.). This is useful
+/// for accessing org repos where the OAuth App token may lack permissions.
+#[cfg(not(target_arch = "wasm32"))]
+pub async fn git_credential_fill() -> Result<String, String> {
+    use std::time::Duration;
+    use tokio::io::AsyncWriteExt;
+
+    let mut child = tokio::process::Command::new("git")
+        .args(["credential", "fill"])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("Failed to run git credential fill: {e}"))?;
+
+    if let Some(mut stdin) = child.stdin.take() {
+        stdin
+            .write_all(b"protocol=https\nhost=github.com\n\n")
+            .await
+            .map_err(|e| format!("Failed to write to git credential fill: {e}"))?;
+    }
+
+    // Timeout to avoid hanging if the credential helper prompts interactively
+    let output = tokio::time::timeout(Duration::from_secs(5), child.wait_with_output())
+        .await
+        .map_err(|_| {
+            "git credential fill timed out. Run `gh auth login` to set up credentials.".to_string()
+        })?
+        .map_err(|e| format!("git credential fill failed: {e}"))?;
+
+    if !output.status.success() {
+        return Err(
+            "No GitHub credentials found. Run `gh auth login` to set up credentials.".to_string(),
+        );
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    parse_credential_output(&stdout)
+}
+
+/// Parse the `password=...` field from `git credential fill` output.
+#[cfg(not(target_arch = "wasm32"))]
+fn parse_credential_output(output: &str) -> Result<String, String> {
+    for line in output.lines() {
+        if let Some(password) = line.strip_prefix("password=") {
+            if !password.is_empty() {
+                return Ok(password.to_string());
+            }
+        }
+    }
+    Err("No GitHub credentials found. Run `gh auth login` to set up credentials.".to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -700,6 +758,20 @@ mod tests {
     fn test_parse_callback_params_missing_code() {
         let request = "GET /callback?state=xyz789 HTTP/1.1\r\n";
         assert!(parse_callback_params(request).is_err());
+    }
+
+    #[test]
+    fn test_parse_credential_output() {
+        let output =
+            "protocol=https\nhost=github.com\nusername=x-access-token\npassword=gho_abc123\n";
+        let token = parse_credential_output(output).unwrap();
+        assert_eq!(token, "gho_abc123");
+    }
+
+    #[test]
+    fn test_parse_credential_output_no_password() {
+        let output = "protocol=https\nhost=github.com\n";
+        assert!(parse_credential_output(output).is_err());
     }
 
     #[test]

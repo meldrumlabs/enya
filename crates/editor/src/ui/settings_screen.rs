@@ -126,7 +126,7 @@ pub struct AppSettings {
     pub dismissed_update_version: Option<String>,
     /// GitHub authentication credentials (optional)
     #[serde(default)]
-    pub github_credentials: Option<crate::github_auth::GitHubCredentials>,
+    pub github_credentials: Option<crate::git::auth::GitHubCredentials>,
     /// Default workspace to open on startup (None = last used)
     #[serde(default)]
     pub default_workspace: Option<String>,

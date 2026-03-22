@@ -48,8 +48,8 @@ pub mod util;
 /// Workspace runtime (pane layout) and configuration (serialization).
 pub mod workspace;
 
-/// GitHub authentication via the Authorization Code flow.
-pub mod github_auth;
+/// Git and GitHub integration: API client, authentication, and diff utilities.
+pub mod git;
 
 /// Platform-specific integrations (macOS vibrancy, URL schemes, etc.)
 #[cfg(target_os = "macos")]

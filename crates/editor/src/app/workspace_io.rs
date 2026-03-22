@@ -144,6 +144,14 @@ impl EnyaApp {
     pub(super) fn load_workspace(&mut self, name: &str, project: Option<&str>) {
         use crate::workspace::WorkspaceConfig;
 
+        // Skip reload if this workspace is already loaded — prevents losing
+        // in-memory state (e.g. PR review pane) when the sidebar previews
+        // the same workspace via j/k navigation.
+        if self.workspace.loaded_name() == Some(name) && self.workspace.loaded_project() == project
+        {
+            return;
+        }
+
         #[cfg(not(target_arch = "wasm32"))]
         {
             let project_name = match project {
