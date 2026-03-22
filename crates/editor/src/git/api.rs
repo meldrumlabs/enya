@@ -429,6 +429,51 @@ pub async fn submit_review(
     Ok(())
 }
 
+/// Post a single review comment on a pull request (immediately visible, not batched).
+#[allow(clippy::too_many_arguments)]
+pub async fn create_review_comment(
+    client: &reqwest::Client,
+    token: &str,
+    owner: &str,
+    repo: &str,
+    number: u32,
+    commit_id: &str,
+    path: &str,
+    line: usize,
+    body: &str,
+) -> Result<PrComment, String> {
+    let url = format!(
+        "{}/repos/{owner}/{repo}/pulls/{number}/comments",
+        github_api_base()
+    );
+
+    let payload = serde_json::json!({
+        "body": body,
+        "commit_id": commit_id,
+        "path": path,
+        "line": line,
+        "side": "RIGHT",
+    });
+
+    let resp = client
+        .post(&url)
+        .headers(api_headers(token))
+        .json(&payload)
+        .send()
+        .await
+        .map_err(|e| format!("Request failed: {e}"))?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let text = resp.text().await.unwrap_or_default();
+        return Err(format!("GitHub API error {status}: {text}"));
+    }
+
+    resp.json::<PrComment>()
+        .await
+        .map_err(|e| format!("Parse failed: {e}"))
+}
+
 // ── Relative time ───────────────────────────────────────────────────────
 
 /// Format an ISO 8601 timestamp as a human-readable relative time string.

@@ -30,6 +30,8 @@ pub enum DiffKeyAction {
     CopySelected,
     /// Caller should open the file in an external app.
     OpenFile,
+    /// Caller should open the comment input on the selected line.
+    CommentOnSelected,
 }
 
 /// Stateful diff renderer with search, selection, hunk navigation, and context expansion.
@@ -155,6 +157,24 @@ impl DiffRenderer {
         self.selected_lines
     }
 
+    pub fn font_size(&self) -> f32 {
+        self.font_size
+    }
+
+    /// Line height used for unified diff rendering (font_size + vertical padding).
+    pub fn line_height(&self) -> f32 {
+        self.font_size + 6.0
+    }
+
+    pub fn scroll_offset_y(&self) -> f32 {
+        self.scroll_offset_y
+    }
+
+    /// Approximate line index at the current scroll position.
+    pub fn current_line_approx(&self) -> usize {
+        (self.scroll_offset_y / self.line_height()) as usize
+    }
+
     pub fn scroll_down(&mut self, amount: f32) {
         self.scroll_offset_y += amount;
     }
@@ -164,7 +184,7 @@ impl DiffRenderer {
     }
 
     /// Start a smooth scroll animation to `target_y`.
-    fn animate_scroll_to(&mut self, target_y: f32) {
+    pub fn animate_scroll_to(&mut self, target_y: f32) {
         self.scroll_anim_from = self.scroll_offset_y;
         self.scroll_anim_to = target_y.max(0.0);
         self.scroll_anim_start = Some(Instant::now());
@@ -287,7 +307,7 @@ impl DiffRenderer {
         };
 
         // Estimate Y position for the matched line
-        let line_height = self.font_size + 6.0;
+        let line_height = self.line_height();
         // We don't have the file data here, so estimate from line_idx
         let estimated_y = line_idx as f32 * line_height;
         let target = (estimated_y - 100.0).max(0.0);
@@ -591,6 +611,11 @@ impl DiffRenderer {
                 return DiffKeyAction::OpenFile;
             }
 
+            // c — comment on selected line
+            if input.consume_key(egui::Modifiers::NONE, Key::C) {
+                return DiffKeyAction::CommentOnSelected;
+            }
+
             // n / p — file navigation
             if input.consume_key(egui::Modifiers::NONE, Key::N) {
                 return DiffKeyAction::NextFile;
@@ -617,8 +642,7 @@ impl DiffRenderer {
             // G (Shift+g) — jump to bottom of file
             if input.consume_key(egui::Modifiers::SHIFT, Key::G) {
                 self.g_pending = false;
-                let line_height = self.font_size + 6.0;
-                let target = (self.last_total_lines as f32 * line_height).max(0.0);
+                let target = (self.last_total_lines as f32 * self.line_height()).max(0.0);
                 self.animate_scroll_to(target);
             }
 
@@ -666,8 +690,7 @@ impl DiffRenderer {
     /// Apply scroll position to reach the current search match.
     fn apply_match_scroll(&mut self) {
         if let Some(&(_, line_idx, _, _)) = self.search_matches.get(self.current_match_index) {
-            let line_height = self.font_size + 6.0;
-            let estimated_y = line_idx as f32 * line_height;
+            let estimated_y = line_idx as f32 * self.line_height();
             self.animate_scroll_to((estimated_y - 100.0).max(0.0));
         }
     }
@@ -728,7 +751,7 @@ impl DiffRenderer {
         mut line_callback: LineCallback<'_>,
     ) {
         let line_num_width = diff_widget::max_line_num_width(file_diff);
-        let line_height = self.font_size + 6.0;
+        let line_height = self.line_height();
         let hunk_header_height = typography::SM + 12.0;
 
         // Pre-compute hunk offsets (skip FileHeader lines since they're not rendered)
@@ -854,6 +877,14 @@ impl DiffRenderer {
 
         let paired_lines = diff::build_split_view_lines_ref(&file_diff.lines);
 
+        // Pre-compute pointer → index map to avoid O(n) scans per row
+        let line_index_map: rustc_hash::FxHashMap<*const DiffLine, usize> = file_diff
+            .lines
+            .iter()
+            .enumerate()
+            .map(|(i, l)| (l as *const DiffLine, i))
+            .collect();
+
         // Pre-compute hunk offsets (skip FileHeader lines since they're not rendered)
         if self.hunk_offsets.is_empty() {
             let header_row_height = typography::SM + 4.0;
@@ -944,7 +975,7 @@ impl DiffRenderer {
                             render_split_header(ui, line, available_width, theme);
                         }
                     } else {
-                        ui.horizontal(|ui| {
+                        let row_response = ui.horizontal(|ui| {
                             ui.set_max_width(available_width);
 
                             // Left side
@@ -995,14 +1026,53 @@ impl DiffRenderer {
                             );
                         });
 
+                        // "+" comment button on hover for split view rows
+                        if let Some(line) = right.or(*left) {
+                            if line.kind != DiffLineKind::FileHeader
+                                && line.kind != DiffLineKind::HunkHeader
+                            {
+                                let row_rect = row_response.response.rect;
+                                if ui.rect_contains_pointer(row_rect) {
+                                    // Show "+" icon at the left edge of the right pane gutter
+                                    let icon_size = 14.0;
+                                    let icon_rect = egui::Rect::from_min_size(
+                                        egui::pos2(
+                                            row_rect.left() + 2.0,
+                                            row_rect.center().y - icon_size / 2.0,
+                                        ),
+                                        egui::vec2(icon_size, icon_size),
+                                    );
+                                    ui.painter().text(
+                                        icon_rect.center(),
+                                        egui::Align2::CENTER_CENTER,
+                                        "+",
+                                        typography::proportional(typography::XS),
+                                        theme.accent_primary(),
+                                    );
+
+                                    // Detect click on the "+" area
+                                    if ui.input(|i| i.pointer.primary_clicked()) {
+                                        if let Some(click_pos) =
+                                            ui.input(|i| i.pointer.interact_pos())
+                                        {
+                                            if icon_rect.expand(4.0).contains(click_pos) {
+                                                if let Some(&idx) =
+                                                    line_index_map.get(&(line as *const DiffLine))
+                                                {
+                                                    self.pending_comment_line =
+                                                        Some((_current_file_index, idx));
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
                         // Per-line callback — use the right-side line (or left if right is None)
                         if let Some(ref mut cb) = line_callback {
                             if let Some(line) = right.or(*left) {
-                                // Find line index in the original file_diff.lines
-                                // Use pointer comparison since we have references
-                                if let Some(idx) =
-                                    file_diff.lines.iter().position(|l| std::ptr::eq(l, line))
-                                {
+                                if let Some(&idx) = line_index_map.get(&(line as *const DiffLine)) {
                                     cb(ui, idx, line);
                                 }
                             }

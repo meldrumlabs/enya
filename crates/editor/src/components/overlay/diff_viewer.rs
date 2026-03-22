@@ -211,6 +211,9 @@ impl DiffViewerOverlay {
                     DiffKeyAction::OpenFile => {
                         self.pending_open_file_opener = true;
                     }
+                    DiffKeyAction::CommentOnSelected => {
+                        // Not supported in the overlay diff viewer
+                    }
                     DiffKeyAction::None => {}
                 }
             });

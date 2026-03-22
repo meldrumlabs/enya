@@ -40,6 +40,13 @@ pub(crate) enum DetailTab {
     Checks,
 }
 
+/// Direction for `]` / `[` bracket prefix keys.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BracketDir {
+    Next,
+    Prev,
+}
+
 /// Actions that the workspace needs to handle for the PR review pane.
 #[derive(Debug, Clone)]
 pub enum PrReviewPaneAction {
@@ -56,6 +63,7 @@ type PrDetailResult = Result<(PullRequest, Vec<PrFile>, String), String>;
 type PrCommentsResult = Result<(Vec<PrComment>, Vec<IssueComment>), String>;
 type PrChecksResult = Result<Vec<CheckRun>, String>;
 type PrSubmitResult = Result<(), String>;
+type SingleCommentResult = Result<PrComment, String>;
 
 /// All preloaded data for a single PR.
 struct PreloadedPr {
@@ -100,6 +108,8 @@ pub struct PrReviewPane {
     pr_files: Vec<PrFile>,
     file_diffs: Vec<FileDiff>,
     review_comments: Vec<PrComment>,
+    /// Cached comment threads, rebuilt when `review_comments` changes.
+    cached_threads: Vec<crate::git::api::CommentThread>,
     issue_comments: Vec<IssueComment>,
     check_runs: Vec<CheckRun>,
     selected_file_index: usize,
@@ -124,6 +134,7 @@ pub struct PrReviewPane {
     submit_error: Option<String>,
     submit_success: Option<String>,
     pending_submit: Arc<Mutex<Option<PrSubmitResult>>>,
+    pending_single_comment: Arc<Mutex<Option<SingleCommentResult>>>,
 
     // ── File tree ──
     /// Collapsed directory paths in the file tree panel.
@@ -149,6 +160,8 @@ pub struct PrReviewPane {
     pending_refresh: bool,
     /// Whether to go back to list view (set by keyboard).
     pending_go_back: bool,
+    /// Pending `]` or `[` prefix for two-key sequences like `]c` / `[c`.
+    bracket_pending: Option<BracketDir>,
 
     // ── Focus ──
     /// Whether this pane is the focused tile in the workspace.
@@ -188,6 +201,7 @@ impl PrReviewPane {
             pr_files: Vec::new(),
             file_diffs: Vec::new(),
             review_comments: Vec::new(),
+            cached_threads: Vec::new(),
             issue_comments: Vec::new(),
             check_runs: Vec::new(),
             selected_file_index: 0,
@@ -207,6 +221,7 @@ impl PrReviewPane {
             submit_error: None,
             submit_success: None,
             pending_submit: Arc::new(Mutex::new(None)),
+            pending_single_comment: Arc::new(Mutex::new(None)),
             collapsed_dirs: rustc_hash::FxHashSet::default(),
             file_opener: FileOpenerPopup::new(),
             repo_root: None,
@@ -216,6 +231,7 @@ impl PrReviewPane {
             pending_open_pr: None,
             pending_refresh: false,
             pending_go_back: false,
+            bracket_pending: None,
             focused: false,
             preload_cache: FxHashMap::default(),
             pending_preloads: Vec::new(),
@@ -264,6 +280,86 @@ impl PrReviewPane {
             side: "RIGHT".to_string(),
             body,
         });
+    }
+
+    /// Rebuild the cached comment threads from `review_comments`.
+    fn rebuild_thread_cache(&mut self) {
+        self.cached_threads = crate::git::api::group_into_threads(&self.review_comments);
+    }
+
+    /// Post a single inline comment directly to the GitHub API (not batched into a review).
+    pub(crate) fn post_single_comment(&mut self, path: String, line: usize, body: String) {
+        let Some(token) = &self.token else { return };
+        let Some(pr) = &self.current_pr else { return };
+
+        self.submit_error = None;
+
+        let client = self.http_client.clone();
+        let token = token.clone();
+        let owner = self.owner.clone();
+        let repo = self.repo.clone();
+        let number = pr.number;
+        let commit_id = pr.head.sha.clone();
+        let pending = Arc::clone(&self.pending_single_comment);
+
+        self.async_runtime.spawn(async move {
+            let result = api::create_review_comment(
+                &client, &token, &owner, &repo, number, &commit_id, &path, line, &body,
+            )
+            .await;
+            *pending.lock() = Some(result);
+        });
+    }
+
+    /// Jump to the next or previous comment thread in the current file's diff.
+    fn jump_to_comment_thread(&mut self, dir: BracketDir) {
+        let Some(file_diff) = self.file_diffs.get(self.selected_file_index) else {
+            return;
+        };
+
+        // Use cached threads
+        let threads = &self.cached_threads;
+        let file_path = &file_diff.path;
+
+        let mut comment_line_indices: Vec<usize> = Vec::new();
+        for (line_idx, line) in file_diff.lines.iter().enumerate() {
+            if let Some(new_line) = line.new_line_num {
+                let has_thread = threads
+                    .iter()
+                    .any(|t| t.path == *file_path && t.line == new_line);
+                let has_draft = self
+                    .draft_comments
+                    .iter()
+                    .any(|c| c.path == *file_path && c.line == new_line);
+                if has_thread || has_draft {
+                    comment_line_indices.push(line_idx);
+                }
+            }
+        }
+
+        if comment_line_indices.is_empty() {
+            return;
+        }
+
+        // Find the current scroll position and determine which thread to jump to
+        let current_line = self.diff_renderer.current_line_approx();
+
+        let target_idx = match dir {
+            BracketDir::Next => comment_line_indices
+                .iter()
+                .find(|&&idx| idx > current_line + 2)
+                .or(comment_line_indices.first()),
+            BracketDir::Prev => comment_line_indices
+                .iter()
+                .rev()
+                .find(|&&idx| idx + 2 < current_line)
+                .or(comment_line_indices.last()),
+        };
+
+        if let Some(&target_line_idx) = target_idx {
+            let target_y = target_line_idx as f32 * self.diff_renderer.line_height();
+            self.diff_renderer.animate_scroll_to(target_y);
+        }
     }
 
     /// Navigate to a specific PR by number. Uses preloaded data if available.
@@ -546,10 +642,12 @@ impl PrReviewPane {
         }
 
         // Poll comments
-        if let Some(result) = self.pending_comments.lock().take() {
+        let comments_result = self.pending_comments.lock().take();
+        if let Some(result) = comments_result {
             match result {
                 Ok((review_comments, issue_comments)) => {
                     self.review_comments = review_comments;
+                    self.rebuild_thread_cache();
                     self.issue_comments = issue_comments;
                 }
                 Err(e) => {
@@ -590,6 +688,21 @@ impl PrReviewPane {
                 }
             }
         }
+
+        // Poll single comment post
+        let single_comment_result = self.pending_single_comment.lock().take();
+        if let Some(result) = single_comment_result {
+            match result {
+                Ok(comment) => {
+                    // Append the new comment and rebuild thread cache
+                    self.review_comments.push(comment);
+                    self.rebuild_thread_cache();
+                }
+                Err(e) => {
+                    self.submit_error = Some(e);
+                }
+            }
+        }
     }
 }
 
@@ -617,6 +730,27 @@ impl PrReviewPane {
                 } else if self.commenting_line.is_some() {
                     self.commenting_line = None;
                     self.comment_input.clear();
+                }
+            }
+            // Cmd+Enter (or Ctrl+Enter) — submit comment while typing
+            if self.commenting_line.is_some() {
+                let cmd_enter =
+                    ctx.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::Enter));
+                if cmd_enter && !self.comment_input.is_empty() {
+                    if let Some((file_idx, line_idx)) = self.commenting_line {
+                        // Resolve the new_line_num for this diff line and post directly
+                        if let Some(file_diff) = self.file_diffs.get(file_idx) {
+                            if let Some(line) = file_diff.lines.get(line_idx) {
+                                if let Some(new_line) = line.new_line_num {
+                                    let path = file_diff.path.clone();
+                                    let body = self.comment_input.clone();
+                                    self.post_single_comment(path, new_line, body);
+                                }
+                            }
+                        }
+                        self.comment_input.clear();
+                        self.commenting_line = None;
+                    }
                 }
             }
             // Enter in filter mode closes the bar but keeps the query
@@ -726,6 +860,17 @@ impl PrReviewPane {
                         DiffKeyAction::CopySelected => {
                             // Copy selected text if any
                         }
+                        DiffKeyAction::CommentOnSelected => {
+                            // Open comment input on the selected line, or the line
+                            // at the center of the viewport if nothing is selected
+                            let idx = if let Some((start, _)) = self.diff_renderer.selected_lines()
+                            {
+                                start
+                            } else {
+                                self.diff_renderer.current_line_approx()
+                            };
+                            self.commenting_line = Some((self.selected_file_index, idx));
+                        }
                         DiffKeyAction::None => {}
                     }
 
@@ -736,6 +881,39 @@ impl PrReviewPane {
                     }
                     if input.consume_key(egui::Modifiers::NONE, egui::Key::ArrowUp) {
                         self.diff_renderer.scroll_up(scroll_amount);
+                    }
+
+                    // ] / [ — bracket prefix for two-key sequences
+                    if input.consume_key(egui::Modifiers::NONE, egui::Key::CloseBracket)
+                        && !input.modifiers.shift
+                    {
+                        self.bracket_pending = Some(BracketDir::Next);
+                    }
+                    if input.consume_key(egui::Modifiers::NONE, egui::Key::OpenBracket)
+                        && !input.modifiers.shift
+                    {
+                        self.bracket_pending = Some(BracketDir::Prev);
+                    }
+
+                    // ]c / [c — jump to next/prev comment thread
+                    if let Some(dir) = self.bracket_pending {
+                        if input.consume_key(egui::Modifiers::NONE, egui::Key::C) {
+                            self.bracket_pending = None;
+                            self.jump_to_comment_thread(dir);
+                        } else if input.events.iter().any(|e| {
+                            matches!(
+                                e,
+                                egui::Event::Key {
+                                    pressed: true,
+                                    key,
+                                    ..
+                                } if *key != egui::Key::OpenBracket
+                                    && *key != egui::Key::CloseBracket
+                            )
+                        }) {
+                            // Any other key cancels the bracket prefix
+                            self.bracket_pending = None;
+                        }
                     }
 
                     // 1/2/3 — switch tabs
@@ -777,6 +955,7 @@ impl crate::components::Component for PrReviewPane {
             self.pr_files.clear();
             self.file_diffs.clear();
             self.review_comments.clear();
+            self.cached_threads.clear();
             self.issue_comments.clear();
             self.check_runs.clear();
             self.collapsed_threads.clear();

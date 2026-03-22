@@ -138,9 +138,9 @@ impl PrReviewPane {
         let file_diff = self.file_diffs[self.selected_file_index].clone();
         let file_idx = self.selected_file_index;
 
-        // Pre-compute comment threads for this file
-        let threads = crate::git::api::group_into_threads(&self.review_comments);
-        let file_threads: Vec<_> = threads
+        // Filter cached threads for this file
+        let file_threads: Vec<_> = self
+            .cached_threads
             .iter()
             .filter(|t| t.path == file_diff.path)
             .collect();
@@ -181,9 +181,9 @@ impl PrReviewPane {
             }),
         );
 
-        // Process deferred comment actions
+        // Process deferred comment actions — post directly to GitHub API
         if let Some((path, line, body)) = pending_add_comment {
-            self.add_draft_comment(path, line, body);
+            self.post_single_comment(path, line, body);
             self.comment_input.clear();
             self.commenting_line = None;
         }
@@ -450,6 +450,13 @@ fn render_inline_comments(
                             if cancel_btn.clicked() {
                                 *clear_commenting = true;
                             }
+
+                            // Keyboard shortcut hint
+                            ui.label(
+                                RichText::new("\u{2318}\u{23CE} submit \u{2022} Esc cancel")
+                                    .color(theme.text_secondary().gamma_multiply(0.5))
+                                    .font(typography::proportional(typography::XS)),
+                            );
                         });
                     });
             } else if thread.is_some() {
