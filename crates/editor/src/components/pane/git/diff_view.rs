@@ -138,13 +138,21 @@ impl PrReviewPane {
         let file_diff = self.file_diffs[self.selected_file_index].clone();
         let file_idx = self.selected_file_index;
 
+        // Pre-compute comment threads for this file
+        let threads = crate::git::api::group_into_threads(&self.review_comments);
+        let file_threads: Vec<_> = threads
+            .iter()
+            .filter(|t| t.path == file_diff.path)
+            .collect();
+
         // Extract fields needed by the inline comment callback to avoid borrowing all of self
-        let review_comments = &self.review_comments;
         let draft_comments = &self.draft_comments;
         let commenting_line = self.commenting_line;
         let comment_input = &mut self.comment_input;
+        let collapsed_threads = &mut self.collapsed_threads;
         let mut pending_add_comment: Option<(String, usize, String)> = None;
         let mut clear_commenting = false;
+        let mut pending_start_reply: Option<(usize, usize)> = None;
 
         self.diff_renderer.render_diff(
             ui,
@@ -160,12 +168,14 @@ impl PrReviewPane {
                         line_idx,
                         file_idx,
                         theme,
-                        review_comments,
+                        &file_threads,
                         draft_comments,
                         commenting_line,
                         comment_input,
+                        collapsed_threads,
                         &mut pending_add_comment,
                         &mut clear_commenting,
+                        &mut pending_start_reply,
                     );
                 }
             }),
@@ -182,6 +192,16 @@ impl PrReviewPane {
             self.commenting_line = None;
         }
 
+        // Process "+" comment button clicks
+        if let Some((_file_idx, line_idx)) = self.diff_renderer.take_pending_comment() {
+            self.commenting_line = Some((file_idx, line_idx));
+        }
+
+        // Process reply button clicks
+        if let Some((fi, li)) = pending_start_reply {
+            self.commenting_line = Some((fi, li));
+        }
+
         // Process hunk expansion
         #[cfg(not(target_arch = "wasm32"))]
         if let Some(hunk_idx) = self.diff_renderer.take_pending_expand() {
@@ -192,7 +212,7 @@ impl PrReviewPane {
     }
 }
 
-/// Render inline comments for a specific line (standalone function for borrow splitting).
+/// Render threaded inline comments for a specific line (standalone function for borrow splitting).
 #[allow(clippy::too_many_arguments)]
 fn render_inline_comments(
     ui: &mut egui::Ui,
@@ -201,162 +221,320 @@ fn render_inline_comments(
     line_idx: usize,
     file_idx: usize,
     theme: AppTheme,
-    review_comments: &[crate::git::api::PrComment],
+    file_threads: &[&crate::git::api::CommentThread],
     draft_comments: &[crate::git::api::DraftComment],
     commenting_line: Option<(usize, usize)>,
     comment_input: &mut String,
+    collapsed_threads: &mut rustc_hash::FxHashSet<(String, usize)>,
     pending_add_comment: &mut Option<(String, usize, String)>,
     clear_commenting: &mut bool,
+    pending_start_reply: &mut Option<(usize, usize)>,
 ) {
-    // Show existing review comments for this line
-    let comments_for_line: Vec<_> = review_comments
+    // Find thread for this line
+    let thread = file_threads.iter().find(|t| t.line == line_num);
+
+    // Find draft comments for this line
+    let drafts: Vec<_> = draft_comments
         .iter()
-        .filter(|c| c.path.as_deref() == Some(file_path) && c.line == Some(line_num))
+        .filter(|c| c.path == file_path && c.line == line_num)
         .collect();
 
-    for comment in &comments_for_line {
-        ui.add_space(2.0);
-        egui::Frame::new()
-            .fill(theme.bg_elevated())
-            .stroke(egui::Stroke::new(1.0, theme.border_subtle()))
-            .corner_radius(4.0)
-            .inner_margin(egui::Margin::same(8))
-            .outer_margin(egui::Margin {
-                left: 40,
-                right: 8,
-                top: 0,
-                bottom: 0,
-            })
-            .show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    ui.label(
-                        RichText::new(&comment.user.login)
-                            .color(theme.text_primary())
-                            .font(typography::proportional(typography::XS))
-                            .strong(),
-                    );
-                    ui.add_space(4.0);
-                    ui.label(
-                        RichText::new(crate::git::api::relative_time(&comment.created_at))
-                            .color(theme.text_secondary())
-                            .font(typography::proportional(typography::XS)),
-                    );
-                });
-                ui.add_space(2.0);
-                ui.label(
-                    RichText::new(&comment.body)
-                        .color(theme.text_primary().gamma_multiply(0.9))
-                        .font(typography::proportional(typography::XS)),
-                );
-            });
-        ui.add_space(2.0);
+    let is_commenting = commenting_line == Some((file_idx, line_idx));
+    let has_content = thread.is_some() || !drafts.is_empty() || is_commenting;
+
+    if !has_content {
+        return;
     }
 
-    // Show draft comments for this line
-    let draft_indices: Vec<usize> = draft_comments
-        .iter()
-        .enumerate()
-        .filter(|(_, c)| c.path == file_path && c.line == line_num)
-        .map(|(i, _)| i)
-        .collect();
+    let thread_key = (file_path.to_string(), line_num);
+    let accent = theme.accent_primary();
 
-    for &idx in &draft_indices {
-        let draft = &draft_comments[idx];
-        ui.add_space(2.0);
-        egui::Frame::new()
-            .fill(theme.accent_primary().gamma_multiply(0.08))
-            .stroke(egui::Stroke::new(
-                1.0,
-                theme.accent_primary().gamma_multiply(0.3),
-            ))
-            .corner_radius(4.0)
-            .inner_margin(egui::Margin::same(8))
-            .outer_margin(egui::Margin {
-                left: 40,
-                right: 8,
-                top: 0,
-                bottom: 0,
-            })
-            .show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    ui.label(
-                        RichText::new("Draft")
-                            .color(theme.accent_primary())
-                            .font(typography::proportional(typography::XS))
-                            .strong(),
-                    );
-                });
-                ui.add_space(2.0);
-                ui.label(
-                    RichText::new(&draft.body)
-                        .color(theme.text_primary().gamma_multiply(0.9))
-                        .font(typography::proportional(typography::XS)),
-                );
-            });
-        ui.add_space(2.0);
-    }
+    ui.add_space(2.0);
 
-    // Comment input (if this line is being commented on)
-    if commenting_line == Some((file_idx, line_idx)) {
-        ui.add_space(2.0);
-        egui::Frame::new()
-            .fill(theme.bg_elevated())
-            .stroke(egui::Stroke::new(
-                1.0,
-                theme.accent_primary().gamma_multiply(0.4),
-            ))
-            .corner_radius(4.0)
-            .inner_margin(egui::Margin::same(8))
-            .outer_margin(egui::Margin {
-                left: 40,
-                right: 8,
-                top: 0,
-                bottom: 0,
-            })
-            .show(ui, |ui| {
-                let response = ui.add(
-                    egui::TextEdit::multiline(comment_input)
-                        .hint_text("Add a comment...")
-                        .desired_rows(2)
-                        .desired_width(ui.available_width())
-                        .font(typography::proportional(typography::SM)),
-                );
+    // Single thread card with left accent border
+    egui::Frame::new()
+        .fill(theme.bg_elevated())
+        .stroke(egui::Stroke::new(1.0, theme.border_subtle()))
+        .corner_radius(4.0)
+        .inner_margin(egui::Margin::same(0))
+        .outer_margin(egui::Margin {
+            left: 40,
+            right: 8,
+            top: 0,
+            bottom: 0,
+        })
+        .show(ui, |ui| {
+            // Left accent border via painter
+            let card_rect = ui.max_rect();
+            ui.painter().rect_filled(
+                egui::Rect::from_min_size(
+                    card_rect.left_top(),
+                    egui::vec2(3.0, card_rect.height().max(1.0)),
+                ),
+                egui::CornerRadius {
+                    nw: 4,
+                    sw: 4,
+                    ..Default::default()
+                },
+                accent.gamma_multiply(0.5),
+            );
 
-                // Focus the text input
-                if response.gained_focus() || comment_input.is_empty() {
-                    response.request_focus();
-                }
+            ui.add_space(4.0);
 
-                ui.add_space(4.0);
-                ui.horizontal(|ui| {
-                    let submit_btn = ui.add(
-                        egui::Button::new(
-                            RichText::new("Add comment")
-                                .size(typography::XS)
-                                .color(theme.text_primary()),
-                        )
-                        .fill(theme.accent_primary().gamma_multiply(0.2))
-                        .corner_radius(3.0),
-                    );
-                    if submit_btn.clicked() && !comment_input.is_empty() {
-                        *pending_add_comment =
-                            Some((file_path.to_string(), line_num, comment_input.clone()));
+            // Render review comments in thread
+            if let Some(thread) = thread {
+                let comments = &thread.comments;
+                let is_collapsed = collapsed_threads.contains(&thread_key);
+                let collapse_threshold = 3;
+                let should_collapse = comments.len() > collapse_threshold;
+
+                let visible_comments = if should_collapse && is_collapsed {
+                    &comments[..1]
+                } else {
+                    comments
+                };
+
+                for (i, comment) in visible_comments.iter().enumerate() {
+                    if i > 0 {
+                        // Subtle divider between comments
+                        ui.add_space(2.0);
+                        let rect = ui.available_rect_before_wrap();
+                        ui.painter().hline(
+                            (rect.left() + 12.0)..=(rect.right() - 8.0),
+                            rect.top(),
+                            egui::Stroke::new(0.5, theme.border_subtle()),
+                        );
+                        ui.add_space(2.0);
                     }
 
-                    let cancel_btn = ui.add(
+                    render_comment_in_thread(ui, theme, comment);
+                }
+
+                // "Show N more replies" / "Collapse" toggle
+                if should_collapse {
+                    ui.add_space(4.0);
+                    ui.horizontal(|ui| {
+                        ui.add_space(12.0);
+                        let hidden = comments.len() - 1;
+                        let label = if is_collapsed {
+                            format!("Show {hidden} more replies")
+                        } else {
+                            "Collapse".to_string()
+                        };
+                        let btn = ui.add(
+                            egui::Button::new(
+                                RichText::new(label).size(typography::XS).color(accent),
+                            )
+                            .fill(egui::Color32::TRANSPARENT)
+                            .stroke(egui::Stroke::NONE),
+                        );
+                        if btn.clicked() {
+                            if is_collapsed {
+                                collapsed_threads.remove(&thread_key);
+                            } else {
+                                collapsed_threads.insert(thread_key.clone());
+                            }
+                        }
+                    });
+                }
+            }
+
+            // Draft comments appended at bottom of thread with accent tint
+            for draft in &drafts {
+                if thread.is_some() {
+                    // Divider before draft
+                    ui.add_space(2.0);
+                    let rect = ui.available_rect_before_wrap();
+                    ui.painter().hline(
+                        (rect.left() + 12.0)..=(rect.right() - 8.0),
+                        rect.top(),
+                        egui::Stroke::new(0.5, accent.gamma_multiply(0.3)),
+                    );
+                    ui.add_space(2.0);
+                }
+
+                // Draft comment with accent tint background
+                egui::Frame::new()
+                    .fill(accent.gamma_multiply(0.05))
+                    .inner_margin(egui::Margin {
+                        left: 12,
+                        right: 8,
+                        top: 6,
+                        bottom: 6,
+                    })
+                    .show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            ui.label(
+                                RichText::new("Draft")
+                                    .color(accent)
+                                    .font(typography::proportional(typography::XS))
+                                    .strong(),
+                            );
+                        });
+                        ui.add_space(2.0);
+                        ui.label(
+                            RichText::new(&draft.body)
+                                .color(theme.text_primary().gamma_multiply(0.9))
+                                .font(typography::proportional(typography::XS)),
+                        );
+                    });
+            }
+
+            // Reply / New comment input
+            if is_commenting {
+                if thread.is_some() || !drafts.is_empty() {
+                    ui.add_space(2.0);
+                    let rect = ui.available_rect_before_wrap();
+                    ui.painter().hline(
+                        (rect.left() + 12.0)..=(rect.right() - 8.0),
+                        rect.top(),
+                        egui::Stroke::new(0.5, accent.gamma_multiply(0.3)),
+                    );
+                    ui.add_space(2.0);
+                }
+
+                egui::Frame::new()
+                    .inner_margin(egui::Margin {
+                        left: 12,
+                        right: 8,
+                        top: 6,
+                        bottom: 8,
+                    })
+                    .show(ui, |ui| {
+                        let response = ui.add(
+                            egui::TextEdit::multiline(comment_input)
+                                .hint_text(if thread.is_some() {
+                                    "Reply..."
+                                } else {
+                                    "Add a comment..."
+                                })
+                                .desired_rows(2)
+                                .desired_width(ui.available_width())
+                                .font(typography::proportional(typography::SM)),
+                        );
+
+                        if response.gained_focus() || comment_input.is_empty() {
+                            response.request_focus();
+                        }
+
+                        ui.add_space(4.0);
+                        ui.horizontal(|ui| {
+                            let submit_label = if thread.is_some() {
+                                "Reply"
+                            } else {
+                                "Add comment"
+                            };
+                            let submit_btn = ui.add(
+                                egui::Button::new(
+                                    RichText::new(submit_label)
+                                        .size(typography::XS)
+                                        .color(theme.text_primary()),
+                                )
+                                .fill(accent.gamma_multiply(0.2))
+                                .corner_radius(3.0),
+                            );
+                            if submit_btn.clicked() && !comment_input.is_empty() {
+                                *pending_add_comment =
+                                    Some((file_path.to_string(), line_num, comment_input.clone()));
+                            }
+
+                            let cancel_btn = ui.add(
+                                egui::Button::new(
+                                    RichText::new("Cancel")
+                                        .size(typography::XS)
+                                        .color(theme.text_secondary()),
+                                )
+                                .fill(egui::Color32::TRANSPARENT)
+                                .stroke(egui::Stroke::NONE),
+                            );
+                            if cancel_btn.clicked() {
+                                *clear_commenting = true;
+                            }
+                        });
+                    });
+            } else if thread.is_some() {
+                // Reply button at bottom of thread
+                ui.add_space(2.0);
+                ui.horizontal(|ui| {
+                    ui.add_space(12.0);
+                    let reply_btn = ui.add(
                         egui::Button::new(
-                            RichText::new("Cancel")
-                                .size(typography::XS)
-                                .color(theme.text_secondary()),
+                            RichText::new("Reply").size(typography::XS).color(accent),
                         )
                         .fill(egui::Color32::TRANSPARENT)
                         .stroke(egui::Stroke::NONE),
                     );
-                    if cancel_btn.clicked() {
-                        *clear_commenting = true;
+                    if reply_btn.clicked() {
+                        *pending_start_reply = Some((file_idx, line_idx));
                     }
                 });
+            }
+
+            ui.add_space(4.0);
+        });
+
+    ui.add_space(2.0);
+}
+
+/// Render a single comment within a thread card.
+fn render_comment_in_thread(
+    ui: &mut egui::Ui,
+    theme: AppTheme,
+    comment: &crate::git::api::PrComment,
+) {
+    use crate::git::api::relative_time;
+
+    egui::Frame::new()
+        .inner_margin(egui::Margin {
+            left: 12,
+            right: 8,
+            top: 6,
+            bottom: 6,
+        })
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                // Avatar placeholder — first letter in a circle
+                let letter = comment
+                    .user
+                    .login
+                    .chars()
+                    .next()
+                    .unwrap_or('?')
+                    .to_uppercase()
+                    .to_string();
+                let (avatar_rect, _) =
+                    ui.allocate_exact_size(egui::vec2(16.0, 16.0), egui::Sense::hover());
+                ui.painter().circle_filled(
+                    avatar_rect.center(),
+                    8.0,
+                    theme.accent_primary().gamma_multiply(0.2),
+                );
+                ui.painter().text(
+                    avatar_rect.center(),
+                    egui::Align2::CENTER_CENTER,
+                    &letter,
+                    typography::proportional(8.0),
+                    theme.accent_primary(),
+                );
+
+                ui.label(
+                    RichText::new(&comment.user.login)
+                        .color(theme.text_primary())
+                        .font(typography::proportional(typography::XS))
+                        .strong(),
+                );
+                ui.add_space(4.0);
+                ui.label(
+                    RichText::new(relative_time(&comment.created_at))
+                        .color(theme.text_secondary())
+                        .font(typography::proportional(typography::XS)),
+                );
             });
-        ui.add_space(2.0);
-    }
+            ui.add_space(2.0);
+            crate::components::overlay::markdown_renderer::render_markdown(
+                ui,
+                &comment.body,
+                theme,
+            );
+        });
 }

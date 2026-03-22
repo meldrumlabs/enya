@@ -89,6 +89,8 @@ pub struct PrReviewPane {
     // ── List view state ──
     pull_requests: Vec<PullRequest>,
     selected_pr_index: usize,
+    /// Whether to scroll the list to the selected PR (set on keyboard nav, cleared after render).
+    list_scroll_to_selected: bool,
     list_loading: bool,
     list_error: Option<String>,
     pending_list: Arc<Mutex<Option<PrListResult>>>,
@@ -116,6 +118,8 @@ pub struct PrReviewPane {
     /// (file_index, line_number) of the line being commented on.
     commenting_line: Option<(usize, usize)>,
     comment_input: String,
+    /// Tracks which comment threads are collapsed, keyed by (file_path, line_number).
+    collapsed_threads: rustc_hash::FxHashSet<(String, usize)>,
     submitting_review: bool,
     submit_error: Option<String>,
     submit_success: Option<String>,
@@ -172,6 +176,7 @@ impl PrReviewPane {
             view: PrReviewView::List,
             pull_requests: Vec::new(),
             selected_pr_index: 0,
+            list_scroll_to_selected: false,
             list_loading: false,
             list_error: None,
             pending_list: Arc::new(Mutex::new(None)),
@@ -193,6 +198,7 @@ impl PrReviewPane {
             draft_body: String::new(),
             commenting_line: None,
             comment_input: String::new(),
+            collapsed_threads: rustc_hash::FxHashSet::default(),
             submitting_review: false,
             submit_error: None,
             submit_success: None,
@@ -653,9 +659,11 @@ impl PrReviewPane {
                         if down {
                             self.selected_pr_index =
                                 (self.selected_pr_index + 1).min(count.saturating_sub(1));
+                            self.list_scroll_to_selected = true;
                         }
                         if up {
                             self.selected_pr_index = self.selected_pr_index.saturating_sub(1);
+                            self.list_scroll_to_selected = true;
                         }
                         if open {
                             if let Some(&pr_idx) = filtered.get(self.selected_pr_index) {
@@ -666,9 +674,11 @@ impl PrReviewPane {
                         }
                         if jump_bottom {
                             self.selected_pr_index = count.saturating_sub(1);
+                            self.list_scroll_to_selected = true;
                         }
                         if jump_top {
                             self.selected_pr_index = 0;
+                            self.list_scroll_to_selected = true;
                         }
                     }
                     if refresh {
@@ -764,6 +774,7 @@ impl crate::components::Component for PrReviewPane {
             self.review_comments.clear();
             self.issue_comments.clear();
             self.check_runs.clear();
+            self.collapsed_threads.clear();
             self.diff_renderer.reset_for_file_change();
         }
 

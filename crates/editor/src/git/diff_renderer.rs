@@ -8,6 +8,7 @@ use super::diff_widget;
 use crate::components::util::syntax_highlight::SyntaxHighlightData;
 use crate::ui::theme::AppTheme;
 use crate::ui::typography;
+use crate::util::Instant;
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -40,6 +41,11 @@ pub struct DiffRenderer {
     scroll_offset_x: f32,
     scroll_offset_y: f32,
 
+    // ── Scroll animation ──
+    scroll_anim_start: Option<Instant>,
+    scroll_anim_from: f32,
+    scroll_anim_to: f32,
+
     // ── Hunk navigation ──
     hunk_offsets: Vec<f32>,
     current_hunk_index: usize,
@@ -58,6 +64,8 @@ pub struct DiffRenderer {
     // ── Deferred actions ──
     /// Hunk line index that was clicked for expansion (caller must process with &mut FileDiff).
     pending_expand_hunk: Option<usize>,
+    /// Line that was clicked for commenting: (file_index, line_index).
+    pending_comment_line: Option<(usize, usize)>,
 
     // ── Identity ──
     id_salt: String,
@@ -75,6 +83,7 @@ enum LineAction {
     None,
     Click(bool), // shift_held
     ExpandHunk,
+    Comment,
 }
 
 // ---------------------------------------------------------------------------
@@ -88,6 +97,9 @@ impl DiffRenderer {
             split_view: false,
             scroll_offset_x: 0.0,
             scroll_offset_y: 0.0,
+            scroll_anim_start: None,
+            scroll_anim_from: 0.0,
+            scroll_anim_to: 0.0,
             hunk_offsets: Vec::new(),
             current_hunk_index: 0,
             selected_lines: None,
@@ -97,6 +109,7 @@ impl DiffRenderer {
             search_matches: Vec::new(),
             current_match_index: 0,
             pending_expand_hunk: None,
+            pending_comment_line: None,
             id_salt: id_salt.to_string(),
             font_size,
         }
@@ -105,6 +118,11 @@ impl DiffRenderer {
     /// Take the pending hunk expansion index (if any). Caller processes with `&mut FileDiff`.
     pub fn take_pending_expand(&mut self) -> Option<usize> {
         self.pending_expand_hunk.take()
+    }
+
+    /// Take the pending comment line (if any). Returns (file_index, line_index).
+    pub fn take_pending_comment(&mut self) -> Option<(usize, usize)> {
+        self.pending_comment_line.take()
     }
 
     pub fn split_view(&self) -> bool {
@@ -135,15 +153,48 @@ impl DiffRenderer {
         self.scroll_offset_y = (self.scroll_offset_y - amount).max(0.0);
     }
 
+    /// Start a smooth scroll animation to `target_y`.
+    fn animate_scroll_to(&mut self, target_y: f32) {
+        self.scroll_anim_from = self.scroll_offset_y;
+        self.scroll_anim_to = target_y.max(0.0);
+        self.scroll_anim_start = Some(Instant::now());
+    }
+
+    /// Tick the scroll animation. Returns true if still animating (caller should repaint).
+    fn tick_scroll_animation(&mut self) -> bool {
+        let Some(start) = self.scroll_anim_start else {
+            return false;
+        };
+        const DURATION: f32 = 0.2; // seconds
+        let elapsed = start.elapsed().as_secs_f32();
+        let t = (elapsed / DURATION).min(1.0);
+        let eased = ease_out_cubic(t);
+        self.scroll_offset_y =
+            self.scroll_anim_from + (self.scroll_anim_to - self.scroll_anim_from) * eased;
+        if t >= 1.0 {
+            self.scroll_offset_y = self.scroll_anim_to;
+            self.scroll_anim_start = None;
+            false
+        } else {
+            true
+        }
+    }
+
     /// Reset state when switching to a different file.
     pub fn reset_for_file_change(&mut self) {
         self.scroll_offset_x = 0.0;
         self.scroll_offset_y = 0.0;
+        self.scroll_anim_start = None;
         self.hunk_offsets.clear();
         self.current_hunk_index = 0;
         self.selected_lines = None;
         self.selection_anchor = None;
     }
+}
+
+/// Cubic ease-out for smooth deceleration.
+fn ease_out_cubic(t: f32) -> f32 {
+    1.0 - (1.0 - t.clamp(0.0, 1.0)).powi(3)
 }
 
 // ---------------------------------------------------------------------------
@@ -229,7 +280,14 @@ impl DiffRenderer {
         let line_height = self.font_size + 6.0;
         // We don't have the file data here, so estimate from line_idx
         let estimated_y = line_idx as f32 * line_height;
-        self.scroll_offset_y = (estimated_y - 100.0).max(0.0);
+        let target = (estimated_y - 100.0).max(0.0);
+        if file_changed.is_some() {
+            // Instant scroll on file change
+            self.scroll_offset_y = target;
+            self.scroll_anim_start = None;
+        } else {
+            self.animate_scroll_to(target);
+        }
 
         file_changed
     }
@@ -453,22 +511,24 @@ impl DiffRenderer {
     pub fn jump_next_hunk(&mut self) {
         if self.current_hunk_index + 1 < self.hunk_offsets.len() {
             self.current_hunk_index += 1;
-            self.scroll_offset_y = self
+            let target = self
                 .hunk_offsets
                 .get(self.current_hunk_index)
                 .copied()
                 .unwrap_or(0.0);
+            self.animate_scroll_to(target);
         }
     }
 
     pub fn jump_prev_hunk(&mut self) {
         if self.current_hunk_index > 0 {
             self.current_hunk_index -= 1;
-            self.scroll_offset_y = self
+            let target = self
                 .hunk_offsets
                 .get(self.current_hunk_index)
                 .copied()
                 .unwrap_or(0.0);
+            self.animate_scroll_to(target);
         }
     }
 }
@@ -569,7 +629,7 @@ impl DiffRenderer {
         if let Some(&(_, line_idx, _, _)) = self.search_matches.get(self.current_match_index) {
             let line_height = self.font_size + 6.0;
             let estimated_y = line_idx as f32 * line_height;
-            self.scroll_offset_y = (estimated_y - 100.0).max(0.0);
+            self.animate_scroll_to((estimated_y - 100.0).max(0.0));
         }
     }
 }
@@ -591,6 +651,11 @@ impl DiffRenderer {
         theme: AppTheme,
         line_callback: LineCallback<'_>,
     ) {
+        // Tick scroll animation
+        if self.tick_scroll_animation() {
+            ui.ctx().request_repaint();
+        }
+
         if file_diff.lines.is_empty() {
             ui.add_space(24.0);
             ui.vertical_centered(|ui| {
@@ -624,10 +689,13 @@ impl DiffRenderer {
         let line_height = self.font_size + 6.0;
         let hunk_header_height = typography::SM + 12.0;
 
-        // Pre-compute hunk offsets
+        // Pre-compute hunk offsets (skip FileHeader lines since they're not rendered)
         if self.hunk_offsets.is_empty() {
             let mut y = 4.0;
             for line in &file_diff.lines {
+                if line.kind == DiffLineKind::FileHeader {
+                    continue;
+                }
                 if line.kind == DiffLineKind::HunkHeader {
                     self.hunk_offsets.push(y);
                 }
@@ -650,6 +718,7 @@ impl DiffRenderer {
 
         let mut clicked_line: Option<(usize, bool)> = None;
         let mut expand_hunk_idx: Option<usize> = None;
+        let mut comment_line_idx: Option<usize> = None;
 
         egui::ScrollArea::both()
             .id_salt(format!("{}_unified", self.id_salt))
@@ -660,6 +729,11 @@ impl DiffRenderer {
                 ui.style_mut().spacing.item_spacing.y = 0.0;
 
                 for (line_idx, line) in file_diff.lines.iter().enumerate() {
+                    // Skip file headers — the caller renders the file path in its own header
+                    if line.kind == DiffLineKind::FileHeader {
+                        continue;
+                    }
+
                     // Search highlights for this line
                     let line_search_highlights: Vec<(usize, usize, bool)> =
                         if search_query.is_empty() {
@@ -690,6 +764,7 @@ impl DiffRenderer {
                     match action {
                         LineAction::Click(shift) => clicked_line = Some((line_idx, shift)),
                         LineAction::ExpandHunk => expand_hunk_idx = Some(line_idx),
+                        LineAction::Comment => comment_line_idx = Some(line_idx),
                         LineAction::None => {}
                     }
 
@@ -710,6 +785,11 @@ impl DiffRenderer {
         // Store hunk expansion for caller to process with &mut FileDiff
         if expand_hunk_idx.is_some() {
             self.pending_expand_hunk = expand_hunk_idx;
+        }
+
+        // Store comment request for caller to process
+        if let Some(line_idx) = comment_line_idx {
+            self.pending_comment_line = Some((current_file_index, line_idx));
         }
     }
 
@@ -732,21 +812,24 @@ impl DiffRenderer {
 
         let paired_lines = diff::build_split_view_lines_ref(&file_diff.lines);
 
-        // Pre-compute hunk offsets
+        // Pre-compute hunk offsets (skip FileHeader lines since they're not rendered)
         if self.hunk_offsets.is_empty() {
             let header_row_height = typography::SM + 4.0;
             let mut y = header_row_height + 4.0;
             for (left, _) in &paired_lines {
+                let is_file_header = left
+                    .as_ref()
+                    .is_some_and(|l| l.kind == DiffLineKind::FileHeader);
+                if is_file_header {
+                    continue;
+                }
                 let is_hunk = left
                     .as_ref()
                     .is_some_and(|l| l.kind == DiffLineKind::HunkHeader);
                 if is_hunk {
                     self.hunk_offsets.push(y);
                 }
-                let is_header = left.as_ref().is_some_and(|l| {
-                    matches!(l.kind, DiffLineKind::HunkHeader | DiffLineKind::FileHeader)
-                });
-                y += if is_header {
+                y += if is_hunk {
                     hunk_header_height
                 } else {
                     split_line_height
@@ -802,9 +885,17 @@ impl DiffRenderer {
                 ui.style_mut().spacing.item_spacing.y = 0.0;
 
                 for (left, right) in &paired_lines {
-                    let is_header = left.as_ref().is_some_and(|l| {
-                        matches!(l.kind, DiffLineKind::HunkHeader | DiffLineKind::FileHeader)
-                    });
+                    // Skip file headers — the caller renders the file path in its own header
+                    let is_file_header = left
+                        .as_ref()
+                        .is_some_and(|l| l.kind == DiffLineKind::FileHeader);
+                    if is_file_header {
+                        continue;
+                    }
+
+                    let is_header = left
+                        .as_ref()
+                        .is_some_and(|l| l.kind == DiffLineKind::HunkHeader);
 
                     if is_header {
                         if let Some(line) = left.as_ref() {
@@ -1041,12 +1132,27 @@ fn render_unified_line(
 
     let mut cursor_x = line_rect.left();
 
-    // Gutter stripe
-    if let Some(gc) = gutter_color {
-        let gutter_rect = egui::Rect::from_min_size(
-            egui::pos2(cursor_x, line_rect.top()),
-            egui::vec2(gutter_width, line_height),
+    // Gutter stripe — shows "+" comment icon on hover
+    let gutter_rect = egui::Rect::from_min_size(
+        egui::pos2(cursor_x, line_rect.top()),
+        egui::vec2(gutter_width, line_height),
+    );
+    if line_response.hovered() && line.kind != DiffLineKind::FileHeader {
+        // Show "+" icon for commenting
+        let plus_rect = egui::Rect::from_min_size(
+            egui::pos2(cursor_x - 1.0, line_rect.top()),
+            egui::vec2(gutter_width + 6.0, line_height),
         );
+        ui.painter()
+            .rect_filled(plus_rect, 2.0, accent.gamma_multiply(0.2));
+        ui.painter().text(
+            plus_rect.center(),
+            egui::Align2::CENTER_CENTER,
+            "+",
+            typography::monospace(typography::XS),
+            accent,
+        );
+    } else if let Some(gc) = gutter_color {
         ui.painter().rect_filled(gutter_rect, 0.0, gc);
     }
     cursor_x += gutter_width + 4.0;
@@ -1105,8 +1211,15 @@ fn render_unified_line(
         base_text_color,
     );
 
-    // Handle click on the line for selection
+    // Handle click — gutter area triggers comment, line number area triggers selection
     if line_response.clicked() {
+        if let Some(pos) = line_response.interact_pointer_pos() {
+            let click_x = pos.x - line_rect.left();
+            if click_x < gutter_width + 4.0 {
+                // Clicked on gutter area → comment
+                return LineAction::Comment;
+            }
+        }
         let shift = ui.input(|i| i.modifiers.shift);
         clicked_shift = Some(shift);
     }

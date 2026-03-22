@@ -421,6 +421,11 @@ impl PrReviewPane {
                         );
                     }
 
+                    // Auto-scroll to keep selected row visible when navigating via keyboard
+                    if is_selected && self.list_scroll_to_selected {
+                        response.scroll_to_me(Some(egui::Align::Center));
+                    }
+
                     // Handle click — open PR detail
                     if response.clicked() {
                         self.selected_pr_index = display_idx;
@@ -428,6 +433,9 @@ impl PrReviewPane {
                     }
                 }
             });
+
+        // Clear scroll flag after rendering
+        self.list_scroll_to_selected = false;
 
         // Open PR outside the iterator borrow
         if let Some(number) = clicked_pr_number {

@@ -77,6 +77,59 @@ pub struct PrComment {
     pub path: Option<String>,
     #[serde(default)]
     pub line: Option<usize>,
+    #[serde(default)]
+    pub in_reply_to_id: Option<u64>,
+}
+
+/// A thread of review comments on a specific file and line.
+#[derive(Debug, Clone)]
+pub struct CommentThread {
+    pub path: String,
+    pub line: usize,
+    pub comments: Vec<PrComment>,
+}
+
+/// Group review comments into threads by (path, line), chaining `in_reply_to_id` replies.
+pub fn group_into_threads(comments: &[PrComment]) -> Vec<CommentThread> {
+    use rustc_hash::FxHashMap;
+
+    // Map comment id → (path, line) for reply chain resolution
+    let mut id_to_location: FxHashMap<u64, (String, usize)> = FxHashMap::default();
+    for c in comments {
+        if let (Some(path), Some(line)) = (&c.path, c.line) {
+            id_to_location.insert(c.id, (path.clone(), line));
+        }
+    }
+
+    // Group comments by (path, line), resolving replies via parent location
+    let mut threads: FxHashMap<(String, usize), Vec<PrComment>> = FxHashMap::default();
+    for c in comments {
+        let location = if let Some(parent_id) = c.in_reply_to_id {
+            // Reply: use parent's location
+            id_to_location.get(&parent_id).cloned()
+        } else {
+            None
+        };
+        let location =
+            location.or_else(|| c.path.as_ref().zip(c.line).map(|(p, l)| (p.clone(), l)));
+        if let Some((path, line)) = location {
+            threads.entry((path, line)).or_default().push(c.clone());
+        }
+    }
+
+    let mut result: Vec<CommentThread> = threads
+        .into_iter()
+        .map(|((path, line), mut comments)| {
+            comments.sort_by(|a, b| a.created_at.cmp(&b.created_at));
+            CommentThread {
+                path,
+                line,
+                comments,
+            }
+        })
+        .collect();
+    result.sort_by(|a, b| a.path.cmp(&b.path).then(a.line.cmp(&b.line)));
+    result
 }
 
 #[derive(Debug, Clone, Deserialize)]

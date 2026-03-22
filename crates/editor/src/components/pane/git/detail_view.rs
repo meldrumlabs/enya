@@ -459,6 +459,18 @@ impl PrReviewPane {
                         name_color,
                     );
 
+                    // Comment count badge
+                    let comment_count = self
+                        .review_comments
+                        .iter()
+                        .filter(|c| c.path.as_deref() == Some(&file.filename))
+                        .count()
+                        + self
+                            .draft_comments
+                            .iter()
+                            .filter(|c| c.path == file.filename)
+                            .count();
+
                     // Stats on right
                     let stats_x = content_rect.right() - 4.0;
                     let mut right_x = stats_x;
@@ -500,6 +512,27 @@ impl PrReviewPane {
                         );
                     }
 
+                    // Comment count badge
+                    if comment_count > 0 {
+                        right_x -= 6.0;
+                        let badge_text =
+                            format!("{} {comment_count}", egui_nerdfonts::regular::COMMENT_TEXT);
+                        let badge_galley = ui.painter().layout_no_wrap(
+                            badge_text,
+                            typography::proportional(typography::XS),
+                            theme.accent_primary(),
+                        );
+                        right_x -= badge_galley.size().x;
+                        ui.painter().galley(
+                            egui::pos2(
+                                right_x,
+                                content_rect.center().y - badge_galley.size().y / 2.0,
+                            ),
+                            badge_galley,
+                            theme.accent_primary(),
+                        );
+                    }
+
                     if response.clicked() {
                         self.selected_file_index = i;
                     }
@@ -510,79 +543,52 @@ impl PrReviewPane {
             });
     }
 
-    /// Render the Conversation tab.
+    /// Render the Conversation tab — PR body + issue-level discussion only.
+    /// Review comments are shown inline in the Files tab.
     fn show_conversation_tab(&self, ui: &mut egui::Ui, theme: AppTheme) {
-        if self.issue_comments.is_empty() && self.review_comments.is_empty() {
+        let has_pr_body = self
+            .current_pr
+            .as_ref()
+            .and_then(|pr| pr.body.as_deref())
+            .is_some_and(|b| !b.is_empty());
+
+        if !has_pr_body && self.issue_comments.is_empty() {
             ui.add_space(40.0);
             ui.vertical_centered(|ui| {
                 ui.label(
-                    RichText::new("No comments yet")
+                    RichText::new("No discussion yet")
                         .color(theme.text_secondary())
                         .font(typography::proportional(typography::MD)),
                 );
+                if !self.review_comments.is_empty() {
+                    ui.add_space(8.0);
+                    ui.label(
+                        RichText::new(format!(
+                            "{} review comments are shown inline in the Files tab",
+                            self.review_comments.len()
+                        ))
+                        .color(theme.text_secondary())
+                        .font(typography::proportional(typography::XS)),
+                    );
+                }
             });
             return;
         }
 
-        // Show PR description first
-        if let Some(pr) = &self.current_pr {
-            if let Some(body) = &pr.body {
-                if !body.is_empty() {
-                    egui::ScrollArea::vertical()
-                        .id_salt("pr_conversation")
-                        .auto_shrink([false, false])
-                        .show(ui, |ui| {
-                            // PR description
-                            render_comment(ui, theme, &pr.user.login, &pr.created_at, body);
-
-                            // Issue comments
-                            for comment in &self.issue_comments {
-                                render_comment(
-                                    ui,
-                                    theme,
-                                    &comment.user.login,
-                                    &comment.created_at,
-                                    &comment.body,
-                                );
-                            }
-
-                            // Review comments (inline)
-                            for comment in &self.review_comments {
-                                if let Some(path) = &comment.path {
-                                    ui.add_space(8.0);
-                                    ui.horizontal(|ui| {
-                                        ui.add_space(16.0);
-                                        ui.label(
-                                            RichText::new(format!(
-                                                "{} {}:{}",
-                                                egui_nerdfonts::regular::FILE_CODE,
-                                                path,
-                                                comment.line.unwrap_or(0)
-                                            ))
-                                            .color(theme.text_secondary())
-                                            .font(typography::monospace(typography::XS)),
-                                        );
-                                    });
-                                }
-                                render_comment(
-                                    ui,
-                                    theme,
-                                    &comment.user.login,
-                                    &comment.created_at,
-                                    &comment.body,
-                                );
-                            }
-                        });
-                    return;
-                }
-            }
-        }
-
-        // If no PR body, just show comments
         egui::ScrollArea::vertical()
             .id_salt("pr_conversation")
             .auto_shrink([false, false])
             .show(ui, |ui| {
+                // PR description
+                if let Some(pr) = &self.current_pr {
+                    if let Some(body) = &pr.body {
+                        if !body.is_empty() {
+                            render_comment(ui, theme, &pr.user.login, &pr.created_at, body);
+                        }
+                    }
+                }
+
+                // Issue comments (PR-level discussion)
                 for comment in &self.issue_comments {
                     render_comment(
                         ui,
@@ -592,14 +598,22 @@ impl PrReviewPane {
                         &comment.body,
                     );
                 }
-                for comment in &self.review_comments {
-                    render_comment(
-                        ui,
-                        theme,
-                        &comment.user.login,
-                        &comment.created_at,
-                        &comment.body,
-                    );
+
+                // Hint about inline comments
+                if !self.review_comments.is_empty() {
+                    ui.add_space(12.0);
+                    ui.horizontal(|ui| {
+                        ui.add_space(16.0);
+                        ui.label(
+                            RichText::new(format!(
+                                "{} {} review comments shown inline in Files tab",
+                                egui_nerdfonts::regular::COMMENT_TEXT,
+                                self.review_comments.len()
+                            ))
+                            .color(theme.text_secondary())
+                            .font(typography::proportional(typography::XS)),
+                        );
+                    });
                 }
             });
     }
@@ -770,11 +784,7 @@ fn render_comment(ui: &mut egui::Ui, theme: AppTheme, author: &str, timestamp: &
             });
             ui.add_space(6.0);
 
-            // Body
-            ui.label(
-                RichText::new(body)
-                    .color(theme.text_primary().gamma_multiply(0.9))
-                    .font(typography::proportional(typography::SM)),
-            );
+            // Body (rendered as markdown)
+            crate::components::overlay::markdown_renderer::render_markdown(ui, body, theme);
         });
 }

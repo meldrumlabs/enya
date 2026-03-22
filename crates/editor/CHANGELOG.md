@@ -7,6 +7,9 @@ All notable changes to the Enya editor will be documented in this file.
 ### Changed
 
 - **Shared DiffRenderer**: Unified diff rendering between the overlay and PR review pane into a shared `DiffRenderer` struct. The PR pane now gains search (`/`/`⌘F`), hunk jumping (`{`/`}`), line selection (click line numbers), context expansion (click hunk headers), and `⌘C` copy — features previously only available in the commit diff overlay. The overlay shed ~1200 lines of code.
+- **Threaded inline review comments**: Review comments now appear as threaded conversations directly in the Files tab diff, similar to GitHub. Comments on the same line are grouped into threads with avatar placeholders, reply buttons, and collapsible "show N more replies" for long threads. The Conversation tab now shows only PR-level discussion.
+- **"+" comment button on hover**: Hovering over a diff line shows a "+" icon in the gutter. Clicking it opens the comment input inline at that line.
+- **Per-file comment count badges**: The file sidebar shows comment counts next to each file with review or draft comments.
 
 ### Added
 
