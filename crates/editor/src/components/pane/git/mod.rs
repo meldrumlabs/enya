@@ -765,18 +765,11 @@ impl PrReviewPane {
         }
 
         ctx.input_mut(|input| {
-            // Always consume keys that would conflict with workspace navigation
-            // when this pane is focused, to prevent accidental pane close/navigate.
-            // x (workspace: close pane) — never pass through when focused.
-            input.consume_key(egui::Modifiers::NONE, egui::Key::X);
-            // u (workspace: undo) — never pass through when focused.
-            input.consume_key(egui::Modifiers::NONE, egui::Key::U);
-
             match self.view {
                 PrReviewView::List => {
                     // In list view: j/k navigate, Enter/l open PR.
-                    // Escape and h are NOT consumed — they pass through to the
-                    // workspace so it can unfocus or navigate to another pane.
+                    // Escape, h, and x are NOT consumed — they pass through to the
+                    // workspace so it can unfocus, navigate, or close the pane.
                     let filtered = self.filtered_pr_indices();
                     let count = filtered.len();
 
@@ -832,6 +825,10 @@ impl PrReviewPane {
                     }
                 }
                 PrReviewView::Detail => {
+                    // Consume x/u in detail view to prevent accidental pane close
+                    input.consume_key(egui::Modifiers::NONE, egui::Key::X);
+                    input.consume_key(egui::Modifiers::NONE, egui::Key::U);
+
                     // In detail view: Escape/h/Backspace go back to list (consumed).
                     // Once in list, next Escape passes through to workspace.
                     if input.consume_key(egui::Modifiers::NONE, egui::Key::Escape)
