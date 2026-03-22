@@ -67,6 +67,14 @@ pub struct DiffRenderer {
     /// Line that was clicked for commenting: (file_index, line_index).
     pending_comment_line: Option<(usize, usize)>,
 
+    // ── Vim g prefix ──
+    /// True when `g` was pressed, waiting for a second key (e.g. `g` again for `gg`).
+    g_pending: bool,
+
+    // ── Content metrics ──
+    /// Total line count from last render, used for `G` (jump to bottom).
+    last_total_lines: usize,
+
     // ── Identity ──
     id_salt: String,
 
@@ -110,6 +118,8 @@ impl DiffRenderer {
             current_match_index: 0,
             pending_expand_hunk: None,
             pending_comment_line: None,
+            g_pending: false,
+            last_total_lines: 0,
             id_salt: id_salt.to_string(),
             font_size,
         }
@@ -604,19 +614,48 @@ impl DiffRenderer {
                 self.jump_next_hunk();
             }
 
+            // G (Shift+g) — jump to bottom of file
+            if input.consume_key(egui::Modifiers::SHIFT, Key::G) {
+                self.g_pending = false;
+                let line_height = self.font_size + 6.0;
+                let target = (self.last_total_lines as f32 * line_height).max(0.0);
+                self.animate_scroll_to(target);
+            }
+
+            // g — first press sets pending, second press (gg) jumps to top
+            if input.consume_key(egui::Modifiers::NONE, Key::G) {
+                if self.g_pending {
+                    self.g_pending = false;
+                    self.animate_scroll_to(0.0);
+                } else {
+                    self.g_pending = true;
+                }
+            } else if self.g_pending
+                && input.events.iter().any(
+                    |e| matches!(e, egui::Event::Key { pressed: true, key, .. } if *key != Key::G),
+                )
+            {
+                // Any other key cancels the g prefix
+                self.g_pending = false;
+            }
+
             // j/k/h/l — vim scroll
             let scroll_step = 40.0;
             let h_scroll_step = 50.0;
             if input.consume_key(egui::Modifiers::NONE, Key::J) {
+                self.g_pending = false;
                 self.scroll_offset_y += scroll_step;
             }
             if input.consume_key(egui::Modifiers::NONE, Key::K) {
+                self.g_pending = false;
                 self.scroll_offset_y = (self.scroll_offset_y - scroll_step).max(0.0);
             }
             if input.consume_key(egui::Modifiers::NONE, Key::H) {
+                self.g_pending = false;
                 self.scroll_offset_x = (self.scroll_offset_x - h_scroll_step).max(0.0);
             }
             if input.consume_key(egui::Modifiers::NONE, Key::L) {
+                self.g_pending = false;
                 self.scroll_offset_x += h_scroll_step;
             }
         }
@@ -655,6 +694,9 @@ impl DiffRenderer {
         if self.tick_scroll_animation() {
             ui.ctx().request_repaint();
         }
+
+        // Track total lines for gg/G navigation
+        self.last_total_lines = file_diff.lines.len();
 
         if file_diff.lines.is_empty() {
             ui.add_space(24.0);

@@ -399,11 +399,11 @@ impl PrReviewPane {
                 let view_mode = if self.diff_renderer.split_view() { "split" } else { "stacked" };
                 let hint = if self.file_diffs.len() > 1 {
                     format!(
-                        "o open \u{2022} s {view_mode} \u{2022} n/p files \u{2022} j/k scroll \u{2022} 1/2/3 tabs \u{2022} Esc back"
+                        "o open \u{2022} s {view_mode} \u{2022} n/p files \u{2022} j/k scroll \u{2022} gg/G top/bottom \u{2022} 1/2/3 tabs \u{2022} Esc back"
                     )
                 } else {
                     format!(
-                        "o open \u{2022} s {view_mode} \u{2022} j/k scroll \u{2022} 1/2/3 tabs \u{2022} Esc back"
+                        "o open \u{2022} s {view_mode} \u{2022} j/k scroll \u{2022} gg/G top/bottom \u{2022} 1/2/3 tabs \u{2022} Esc back"
                     )
                 };
                 ui.label(
