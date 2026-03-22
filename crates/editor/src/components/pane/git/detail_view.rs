@@ -1,12 +1,118 @@
 //! PR detail view — shows file list, conversation, and checks tabs.
 
 use egui::RichText;
+use rustc_hash::FxHashSet;
 
-use crate::git::api::{ReviewEvent, relative_time};
+use crate::git::api::{DraftComment, PrComment, PrFile, ReviewEvent, relative_time};
 use crate::ui::theme::AppTheme;
 use crate::ui::typography;
 
 use super::{DetailTab, PrReviewPane, PrReviewView};
+
+/// A row in the flattened file tree.
+enum FileTreeRow {
+    Directory {
+        path: String,
+        name: String,
+        depth: usize,
+        collapsed: bool,
+        file_count: usize,
+    },
+    File {
+        file_index: usize,
+        name: String,
+        depth: usize,
+        comment_count: usize,
+    },
+}
+
+/// Build a flattened list of tree rows from PR files, respecting collapsed directories.
+fn build_file_tree_rows(
+    pr_files: &[PrFile],
+    collapsed_dirs: &FxHashSet<String>,
+    review_comments: &[PrComment],
+    draft_comments: &[DraftComment],
+) -> Vec<FileTreeRow> {
+    // Collect unique directory prefixes and count files per directory
+    let mut dir_files: Vec<(Vec<&str>, usize)> = Vec::new();
+    for (i, file) in pr_files.iter().enumerate() {
+        let parts: Vec<&str> = file.filename.split('/').collect();
+        dir_files.push((parts, i));
+    }
+
+    // Sort by path for grouping
+    dir_files.sort_by(|a, b| a.0.cmp(&b.0));
+
+    // Track which directory prefixes we've emitted
+    let mut emitted_dirs: FxHashSet<String> = FxHashSet::default();
+    let mut rows = Vec::new();
+
+    for (parts, file_index) in &dir_files {
+        let file_name = parts.last().copied().unwrap_or("");
+        let dir_parts = &parts[..parts.len() - 1];
+
+        // Emit directory rows for each prefix we haven't seen yet
+        let mut skip_file = false;
+        for depth in 0..dir_parts.len() {
+            let dir_path = dir_parts[..=depth].join("/");
+            if emitted_dirs.contains(&dir_path) {
+                // Check if this dir is collapsed — if so, skip children
+                if collapsed_dirs.contains(&dir_path) {
+                    skip_file = true;
+                    break;
+                }
+                continue;
+            }
+            emitted_dirs.insert(dir_path.clone());
+
+            let is_collapsed = collapsed_dirs.contains(&dir_path);
+
+            // Count files under this directory prefix
+            let prefix_with_slash = format!("{dir_path}/");
+            let file_count = pr_files
+                .iter()
+                .filter(|f| f.filename.starts_with(&prefix_with_slash))
+                .count();
+
+            rows.push(FileTreeRow::Directory {
+                path: dir_path,
+                name: dir_parts[depth].to_string(),
+                depth,
+                collapsed: is_collapsed,
+                file_count,
+            });
+
+            if is_collapsed {
+                skip_file = true;
+                break;
+            }
+        }
+
+        if skip_file {
+            continue;
+        }
+
+        // Count comments for this file
+        let filename = &pr_files[*file_index].filename;
+        let review_count = review_comments
+            .iter()
+            .filter(|c| c.path.as_deref() == Some(filename.as_str()))
+            .count();
+        let draft_count = draft_comments
+            .iter()
+            .filter(|c| c.path == *filename)
+            .count();
+
+        rows.push(FileTreeRow::File {
+            file_index: *file_index,
+            name: file_name.to_string(),
+            depth: dir_parts.len(),
+            comment_count: review_count + draft_count,
+        });
+    }
+
+    rows
+}
 
 impl PrReviewPane {
     /// Render the PR detail view.
@@ -318,12 +424,12 @@ impl PrReviewPane {
         let diff_width = (ui.available_width() - file_panel_width - 12.0).max(200.0);
 
         ui.horizontal(|ui| {
-            // Diff content area
+            // File panel (left)
             ui.allocate_ui_with_layout(
-                egui::vec2(diff_width, available_height),
+                egui::vec2(file_panel_width, available_height),
                 egui::Layout::top_down(egui::Align::LEFT),
                 |ui| {
-                    self.show_diff_view(ui);
+                    self.show_file_panel(ui, theme);
                 },
             );
 
@@ -335,12 +441,12 @@ impl PrReviewPane {
                 egui::Stroke::new(1.0, theme.border_subtle()),
             );
 
-            // File panel
+            // Diff content area (right)
             ui.allocate_ui_with_layout(
-                egui::vec2(file_panel_width, available_height),
+                egui::vec2(diff_width, available_height),
                 egui::Layout::top_down(egui::Align::LEFT),
                 |ui| {
-                    self.show_file_panel(ui, theme);
+                    self.show_diff_view(ui);
                 },
             );
         });
@@ -357,17 +463,32 @@ impl PrReviewPane {
                     .font(typography::proportional(typography::SM))
                     .strong(),
             );
+            ui.add_space(4.0);
+            ui.label(
+                RichText::new(format!("{}", self.pr_files.len()))
+                    .color(theme.text_secondary())
+                    .font(typography::proportional(typography::XS)),
+            );
         });
         ui.add_space(6.0);
+
+        // Build flattened tree rows from file paths
+        let tree_rows = build_file_tree_rows(
+            &self.pr_files,
+            &self.collapsed_dirs,
+            &self.review_comments,
+            &self.draft_comments,
+        );
+
+        let mut toggle_dir: Option<String> = None;
+        let mut clicked_file: Option<usize> = None;
 
         egui::ScrollArea::vertical()
             .id_salt("pr_file_panel")
             .auto_shrink([false, false])
             .show(ui, |ui| {
-                for (i, file) in self.pr_files.iter().enumerate() {
-                    let is_selected = i == self.selected_file_index;
-                    let row_height = 28.0;
-
+                for row in &tree_rows {
+                    let row_height = 24.0;
                     let (rect, response) = ui.allocate_exact_size(
                         egui::vec2(ui.available_width(), row_height),
                         egui::Sense::click(),
@@ -375,172 +496,252 @@ impl PrReviewPane {
 
                     let is_hovered = response.hovered();
 
-                    // Background
-                    if is_selected {
-                        ui.painter().rect_filled(
-                            rect,
-                            3.0,
-                            theme.accent_primary().gamma_multiply(0.12),
-                        );
-                        // Left accent bar
-                        let bar_rect =
-                            egui::Rect::from_min_size(rect.min, egui::vec2(3.0, row_height));
-                        ui.painter()
-                            .rect_filled(bar_rect, 2.0, theme.accent_primary());
-                    } else if is_hovered {
-                        ui.painter().rect_filled(
-                            rect,
-                            3.0,
-                            theme.text_primary().gamma_multiply(0.04),
-                        );
+                    match row {
+                        FileTreeRow::Directory {
+                            path,
+                            name,
+                            depth,
+                            collapsed,
+                            file_count,
+                        } => {
+                            if is_hovered {
+                                ui.painter().rect_filled(
+                                    rect,
+                                    3.0,
+                                    theme.text_primary().gamma_multiply(0.04),
+                                );
+                            }
+
+                            let indent = 8.0 + *depth as f32 * 12.0;
+                            let mut cx = rect.left() + indent;
+
+                            // Chevron
+                            let chevron = if *collapsed {
+                                egui_nerdfonts::regular::CHEVRON_RIGHT
+                            } else {
+                                egui_nerdfonts::regular::CHEVRON_DOWN
+                            };
+                            let chev_galley = ui.painter().layout_no_wrap(
+                                chevron.to_string(),
+                                typography::proportional(typography::XS),
+                                theme.text_secondary(),
+                            );
+                            ui.painter().galley(
+                                egui::pos2(cx, rect.center().y - chev_galley.size().y / 2.0),
+                                chev_galley.clone(),
+                                theme.text_secondary(),
+                            );
+                            cx += chev_galley.size().x + 2.0;
+
+                            // Folder icon
+                            let folder_icon = if *collapsed {
+                                egui_nerdfonts::regular::FOLDER
+                            } else {
+                                egui_nerdfonts::regular::FOLDER_OPEN
+                            };
+                            let folder_galley = ui.painter().layout_no_wrap(
+                                folder_icon.to_string(),
+                                typography::proportional(typography::XS),
+                                theme.text_secondary().gamma_multiply(0.8),
+                            );
+                            ui.painter().galley(
+                                egui::pos2(cx, rect.center().y - folder_galley.size().y / 2.0),
+                                folder_galley.clone(),
+                                theme.text_secondary().gamma_multiply(0.8),
+                            );
+                            cx += folder_galley.size().x + 4.0;
+
+                            // Directory name
+                            let dir_galley = ui.painter().layout_no_wrap(
+                                name.clone(),
+                                typography::monospace(typography::XS),
+                                theme.text_primary().gamma_multiply(0.8),
+                            );
+                            ui.painter().galley(
+                                egui::pos2(cx, rect.center().y - dir_galley.size().y / 2.0),
+                                dir_galley,
+                                theme.text_primary().gamma_multiply(0.8),
+                            );
+
+                            // File count on right
+                            let count_text = format!("{file_count}");
+                            let count_galley = ui.painter().layout_no_wrap(
+                                count_text,
+                                typography::proportional(typography::XS),
+                                theme.text_secondary().gamma_multiply(0.5),
+                            );
+                            ui.painter().galley(
+                                egui::pos2(
+                                    rect.right() - 12.0 - count_galley.size().x,
+                                    rect.center().y - count_galley.size().y / 2.0,
+                                ),
+                                count_galley,
+                                theme.text_secondary().gamma_multiply(0.5),
+                            );
+
+                            if response.clicked() {
+                                toggle_dir = Some(path.clone());
+                            }
+                            if is_hovered {
+                                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                            }
+                        }
+                        FileTreeRow::File {
+                            file_index,
+                            name,
+                            depth,
+                            comment_count,
+                        } => {
+                            let is_selected = *file_index == self.selected_file_index;
+                            let file = &self.pr_files[*file_index];
+
+                            // Background
+                            if is_selected {
+                                ui.painter().rect_filled(
+                                    rect,
+                                    3.0,
+                                    theme.accent_primary().gamma_multiply(0.12),
+                                );
+                                let bar_rect = egui::Rect::from_min_size(
+                                    rect.min,
+                                    egui::vec2(3.0, row_height),
+                                );
+                                ui.painter()
+                                    .rect_filled(bar_rect, 2.0, theme.accent_primary());
+                            } else if is_hovered {
+                                ui.painter().rect_filled(
+                                    rect,
+                                    3.0,
+                                    theme.text_primary().gamma_multiply(0.04),
+                                );
+                            }
+
+                            let indent = 8.0 + *depth as f32 * 12.0;
+                            let mut cx = rect.left() + indent;
+
+                            // File status icon
+                            let icon = if file.status == "removed" {
+                                egui_nerdfonts::regular::FILE_MINUS
+                            } else if file.status == "added" {
+                                egui_nerdfonts::regular::FILE_PLUS
+                            } else {
+                                egui_nerdfonts::regular::FILE_EDIT
+                            };
+                            let icon_color = if is_selected {
+                                theme.accent_primary()
+                            } else {
+                                theme.text_secondary()
+                            };
+                            let icon_galley = ui.painter().layout_no_wrap(
+                                icon.to_string(),
+                                typography::proportional(typography::XS),
+                                icon_color,
+                            );
+                            ui.painter().galley(
+                                egui::pos2(cx, rect.center().y - icon_galley.size().y / 2.0),
+                                icon_galley.clone(),
+                                icon_color,
+                            );
+                            cx += icon_galley.size().x + 4.0;
+
+                            // Filename (just the name, no path)
+                            let name_color = if is_selected {
+                                theme.text_primary()
+                            } else {
+                                theme.text_primary().gamma_multiply(0.85)
+                            };
+                            let max_name_width = (rect.right() - 12.0 - cx - 40.0).max(20.0);
+                            let name_galley = ui.painter().layout(
+                                name.clone(),
+                                typography::monospace(typography::XS),
+                                name_color,
+                                max_name_width,
+                            );
+                            ui.painter().galley(
+                                egui::pos2(cx, rect.center().y - name_galley.size().y / 2.0),
+                                name_galley,
+                                name_color,
+                            );
+
+                            // Stats on right
+                            let mut right_x = rect.right() - 12.0;
+
+                            if file.deletions > 0 {
+                                let del_galley = ui.painter().layout_no_wrap(
+                                    format!("-{}", file.deletions),
+                                    typography::monospace(typography::XS),
+                                    theme.diff_removed_gutter(),
+                                );
+                                right_x -= del_galley.size().x;
+                                ui.painter().galley(
+                                    egui::pos2(
+                                        right_x,
+                                        rect.center().y - del_galley.size().y / 2.0,
+                                    ),
+                                    del_galley,
+                                    theme.diff_removed_gutter(),
+                                );
+                                right_x -= 3.0;
+                            }
+
+                            if file.additions > 0 {
+                                let add_galley = ui.painter().layout_no_wrap(
+                                    format!("+{}", file.additions),
+                                    typography::monospace(typography::XS),
+                                    theme.diff_added_gutter(),
+                                );
+                                right_x -= add_galley.size().x;
+                                ui.painter().galley(
+                                    egui::pos2(
+                                        right_x,
+                                        rect.center().y - add_galley.size().y / 2.0,
+                                    ),
+                                    add_galley,
+                                    theme.diff_added_gutter(),
+                                );
+                            }
+
+                            if *comment_count > 0 {
+                                right_x -= 6.0;
+                                let badge_galley = ui.painter().layout_no_wrap(
+                                    format!(
+                                        "{} {comment_count}",
+                                        egui_nerdfonts::regular::COMMENT_TEXT
+                                    ),
+                                    typography::proportional(typography::XS),
+                                    theme.accent_primary(),
+                                );
+                                right_x -= badge_galley.size().x;
+                                ui.painter().galley(
+                                    egui::pos2(
+                                        right_x,
+                                        rect.center().y - badge_galley.size().y / 2.0,
+                                    ),
+                                    badge_galley,
+                                    theme.accent_primary(),
+                                );
+                            }
+                            let _ = right_x;
+
+                            if response.clicked() {
+                                clicked_file = Some(*file_index);
+                            }
+
+                            response.on_hover_text(&file.filename);
+                        }
                     }
-
-                    let content_rect = rect.shrink2(egui::vec2(8.0, 0.0));
-
-                    // File icon
-                    let icon = if file.status == "removed" {
-                        egui_nerdfonts::regular::FILE_MINUS
-                    } else if file.status == "added" {
-                        egui_nerdfonts::regular::FILE_PLUS
-                    } else {
-                        egui_nerdfonts::regular::FILE_EDIT
-                    };
-
-                    let icon_color = if is_selected {
-                        theme.accent_primary()
-                    } else {
-                        theme.text_secondary()
-                    };
-
-                    // Extract just the filename
-                    let filename = std::path::Path::new(&file.filename)
-                        .file_name()
-                        .and_then(|n| n.to_str())
-                        .unwrap_or(&file.filename);
-
-                    let mut cursor_x = content_rect.left() + 4.0;
-
-                    // Icon
-                    let icon_galley = ui.painter().layout_no_wrap(
-                        icon.to_string(),
-                        typography::proportional(typography::XS),
-                        icon_color,
-                    );
-                    ui.painter().galley(
-                        egui::pos2(
-                            cursor_x,
-                            content_rect.center().y - icon_galley.size().y / 2.0,
-                        ),
-                        icon_galley.clone(),
-                        icon_color,
-                    );
-                    cursor_x += icon_galley.size().x + 4.0;
-
-                    // Filename
-                    let name_color = if is_selected {
-                        theme.text_primary()
-                    } else {
-                        theme.text_primary().gamma_multiply(0.85)
-                    };
-                    let max_name_width =
-                        (content_rect.width() - (cursor_x - content_rect.left()) - 40.0).max(20.0);
-                    let name_galley = ui.painter().layout(
-                        filename.to_string(),
-                        typography::monospace(typography::XS),
-                        name_color,
-                        max_name_width,
-                    );
-                    ui.painter().galley(
-                        egui::pos2(
-                            cursor_x,
-                            content_rect.center().y - name_galley.size().y / 2.0,
-                        ),
-                        name_galley,
-                        name_color,
-                    );
-
-                    // Comment count badge
-                    let comment_count = self
-                        .review_comments
-                        .iter()
-                        .filter(|c| c.path.as_deref() == Some(&file.filename))
-                        .count()
-                        + self
-                            .draft_comments
-                            .iter()
-                            .filter(|c| c.path == file.filename)
-                            .count();
-
-                    // Stats on right
-                    let stats_x = content_rect.right() - 4.0;
-                    let mut right_x = stats_x;
-
-                    if file.deletions > 0 {
-                        let del_text = format!("-{}", file.deletions);
-                        let del_galley = ui.painter().layout_no_wrap(
-                            del_text,
-                            typography::monospace(typography::XS),
-                            theme.diff_removed_gutter(),
-                        );
-                        right_x -= del_galley.size().x;
-                        ui.painter().galley(
-                            egui::pos2(
-                                right_x,
-                                content_rect.center().y - del_galley.size().y / 2.0,
-                            ),
-                            del_galley,
-                            theme.diff_removed_gutter(),
-                        );
-                        right_x -= 3.0;
-                    }
-
-                    if file.additions > 0 {
-                        let add_text = format!("+{}", file.additions);
-                        let add_galley = ui.painter().layout_no_wrap(
-                            add_text,
-                            typography::monospace(typography::XS),
-                            theme.diff_added_gutter(),
-                        );
-                        right_x -= add_galley.size().x;
-                        ui.painter().galley(
-                            egui::pos2(
-                                right_x,
-                                content_rect.center().y - add_galley.size().y / 2.0,
-                            ),
-                            add_galley,
-                            theme.diff_added_gutter(),
-                        );
-                    }
-
-                    // Comment count badge
-                    if comment_count > 0 {
-                        right_x -= 6.0;
-                        let badge_text =
-                            format!("{} {comment_count}", egui_nerdfonts::regular::COMMENT_TEXT);
-                        let badge_galley = ui.painter().layout_no_wrap(
-                            badge_text,
-                            typography::proportional(typography::XS),
-                            theme.accent_primary(),
-                        );
-                        right_x -= badge_galley.size().x;
-                        ui.painter().galley(
-                            egui::pos2(
-                                right_x,
-                                content_rect.center().y - badge_galley.size().y / 2.0,
-                            ),
-                            badge_galley,
-                            theme.accent_primary(),
-                        );
-                    }
-
-                    if response.clicked() {
-                        self.selected_file_index = i;
-                    }
-
-                    // Tooltip with full path
-                    response.on_hover_text(&file.filename);
                 }
             });
+
+        // Process deferred actions outside borrow
+        if let Some(dir_path) = toggle_dir {
+            if !self.collapsed_dirs.remove(&dir_path) {
+                self.collapsed_dirs.insert(dir_path);
+            }
+        }
+        if let Some(idx) = clicked_file {
+            self.selected_file_index = idx;
+        }
     }
 
     /// Render the Conversation tab — PR body + issue-level discussion only.

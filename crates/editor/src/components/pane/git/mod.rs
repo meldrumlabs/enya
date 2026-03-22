@@ -125,6 +125,10 @@ pub struct PrReviewPane {
     submit_success: Option<String>,
     pending_submit: Arc<Mutex<Option<PrSubmitResult>>>,
 
+    // ── File tree ──
+    /// Collapsed directory paths in the file tree panel.
+    collapsed_dirs: rustc_hash::FxHashSet<String>,
+
     // ── File opener ──
     file_opener: FileOpenerPopup,
     /// Repo root for constructing full file paths.
@@ -203,6 +207,7 @@ impl PrReviewPane {
             submit_error: None,
             submit_success: None,
             pending_submit: Arc::new(Mutex::new(None)),
+            collapsed_dirs: rustc_hash::FxHashSet::default(),
             file_opener: FileOpenerPopup::new(),
             repo_root: None,
             pending_open_file_opener: false,
@@ -775,6 +780,7 @@ impl crate::components::Component for PrReviewPane {
             self.issue_comments.clear();
             self.check_runs.clear();
             self.collapsed_threads.clear();
+            self.collapsed_dirs.clear();
             self.diff_renderer.reset_for_file_change();
         }
 
