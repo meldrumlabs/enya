@@ -1232,9 +1232,11 @@ fn render_unified_line(
         egui::Sense::click(),
     );
 
-    // Background fill
+    // Background fill — expand rect by 0.5px vertically to cover subpixel gaps
+    // between adjacent lines that cause thin dark lines to appear.
     if let Some(bg) = bg_color {
-        ui.painter().rect_filled(line_rect, 0.0, bg);
+        let bg_rect = line_rect.expand2(egui::vec2(0.0, 0.5));
+        ui.painter().rect_filled(bg_rect, 0.0, bg);
     }
     // Selection overlay
     if is_selected {
@@ -1431,8 +1433,12 @@ fn render_split_line(
     let Some(line) = line else {
         let (rect, _) =
             ui.allocate_exact_size(egui::vec2(side_width, line_height), egui::Sense::hover());
-        ui.painter()
-            .rect_filled(rect, 0.0, theme.diff_line_number_bg().gamma_multiply(0.5));
+        let bg_rect = rect.expand2(egui::vec2(0.0, 0.5));
+        ui.painter().rect_filled(
+            bg_rect,
+            0.0,
+            theme.diff_line_number_bg().gamma_multiply(0.5),
+        );
         return;
     };
 
@@ -1445,8 +1451,10 @@ fn render_split_line(
     let (line_rect, _) =
         ui.allocate_exact_size(egui::vec2(side_width, line_height), egui::Sense::hover());
 
+    // Expand rect by 0.5px vertically to cover subpixel gaps between lines
     if let Some(bg) = bg_color {
-        ui.painter().rect_filled(line_rect, 0.0, bg);
+        let bg_rect = line_rect.expand2(egui::vec2(0.0, 0.5));
+        ui.painter().rect_filled(bg_rect, 0.0, bg);
     }
 
     let mut cursor_x = line_rect.left();
