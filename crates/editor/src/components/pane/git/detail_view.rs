@@ -833,6 +833,11 @@ impl PrReviewPane {
                             }
                             let _ = right_x;
 
+                            // Auto-scroll to keep selected row visible on n/p navigation
+                            if is_selected && self.file_tree_scroll_to_selected {
+                                response.scroll_to_me(Some(egui::Align::Center));
+                            }
+
                             if response.clicked() {
                                 clicked_file = Some(*file_index);
                             }
@@ -842,6 +847,9 @@ impl PrReviewPane {
                     }
                 }
             });
+
+        // Clear scroll flag after rendering
+        self.file_tree_scroll_to_selected = false;
 
         // Process deferred actions outside borrow
         if let Some(dir_path) = toggle_dir {

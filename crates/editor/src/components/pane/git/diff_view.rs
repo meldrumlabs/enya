@@ -181,6 +181,7 @@ impl PrReviewPane {
         let commenting_line = self.commenting_line;
         let comment_input = &mut self.comment_input;
         let collapsed_threads = &mut self.collapsed_threads;
+        let avatar_textures = &self.avatar_textures;
         let mut pending_add_comment: Option<(String, usize, String)> = None;
         let mut clear_commenting = false;
         let mut pending_start_reply: Option<(usize, usize)> = None;
@@ -207,6 +208,7 @@ impl PrReviewPane {
                         &mut pending_add_comment,
                         &mut clear_commenting,
                         &mut pending_start_reply,
+                        avatar_textures,
                     );
                 }
             }),
@@ -260,6 +262,7 @@ fn render_inline_comments(
     pending_add_comment: &mut Option<(String, usize, String)>,
     clear_commenting: &mut bool,
     pending_start_reply: &mut Option<(usize, usize)>,
+    avatar_textures: &rustc_hash::FxHashMap<String, egui::TextureHandle>,
 ) {
     // Find thread for this line
     let thread = file_threads.iter().find(|t| t.line == line_num);
@@ -338,7 +341,7 @@ fn render_inline_comments(
                         ui.add_space(2.0);
                     }
 
-                    render_comment_in_thread(ui, theme, comment);
+                    render_comment_in_thread(ui, theme, comment, avatar_textures);
                 }
 
                 // "Show N more replies" / "Collapse" toggle
@@ -519,6 +522,7 @@ fn render_comment_in_thread(
     ui: &mut egui::Ui,
     theme: AppTheme,
     comment: &crate::git::api::PrComment,
+    avatar_textures: &rustc_hash::FxHashMap<String, egui::TextureHandle>,
 ) {
     use crate::git::api::relative_time;
 
@@ -531,29 +535,61 @@ fn render_comment_in_thread(
         })
         .show(ui, |ui| {
             ui.horizontal(|ui| {
-                // Avatar placeholder — first letter in a circle
-                let letter = comment
-                    .user
-                    .login
-                    .chars()
-                    .next()
-                    .unwrap_or('?')
-                    .to_uppercase()
-                    .to_string();
-                let (avatar_rect, _) =
-                    ui.allocate_exact_size(egui::vec2(16.0, 16.0), egui::Sense::hover());
-                ui.painter().circle_filled(
-                    avatar_rect.center(),
-                    8.0,
-                    theme.accent_primary().gamma_multiply(0.2),
+                let avatar_size = 16.0;
+                let (avatar_rect, _) = ui.allocate_exact_size(
+                    egui::vec2(avatar_size, avatar_size),
+                    egui::Sense::hover(),
                 );
-                ui.painter().text(
-                    avatar_rect.center(),
-                    egui::Align2::CENTER_CENTER,
-                    &letter,
-                    typography::proportional(8.0),
-                    theme.accent_primary(),
-                );
+                let center = avatar_rect.center();
+                let radius = avatar_size / 2.0;
+
+                if let Some(texture) = avatar_textures.get(&comment.user.login) {
+                    // Render circular avatar from texture
+                    let mut mesh = egui::Mesh::with_texture(texture.id());
+                    let segments = 24;
+                    mesh.vertices.push(egui::epaint::Vertex {
+                        pos: center,
+                        uv: egui::pos2(0.5, 0.5),
+                        color: egui::Color32::WHITE,
+                    });
+                    for i in 0..=segments {
+                        let angle = std::f32::consts::TAU * i as f32 / segments as f32;
+                        let (sin, cos) = angle.sin_cos();
+                        mesh.vertices.push(egui::epaint::Vertex {
+                            pos: center + egui::vec2(cos * radius, sin * radius),
+                            uv: egui::pos2(0.5 + cos * 0.5, 0.5 + sin * 0.5),
+                            color: egui::Color32::WHITE,
+                        });
+                        if i > 0 {
+                            mesh.indices.push(0);
+                            mesh.indices.push(i);
+                            mesh.indices.push(i + 1);
+                        }
+                    }
+                    ui.painter().add(egui::Shape::mesh(mesh));
+                } else {
+                    // Fallback — first letter in a circle
+                    let letter = comment
+                        .user
+                        .login
+                        .chars()
+                        .next()
+                        .unwrap_or('?')
+                        .to_uppercase()
+                        .to_string();
+                    ui.painter().circle_filled(
+                        center,
+                        radius,
+                        theme.accent_primary().gamma_multiply(0.2),
+                    );
+                    ui.painter().text(
+                        center,
+                        egui::Align2::CENTER_CENTER,
+                        &letter,
+                        typography::proportional(8.0),
+                        theme.accent_primary(),
+                    );
+                }
 
                 ui.label(
                     RichText::new(&comment.user.login)
