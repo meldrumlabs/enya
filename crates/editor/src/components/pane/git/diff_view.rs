@@ -92,6 +92,37 @@ impl PrReviewPane {
 
                 ui.add_space(4.0);
 
+                // Copy file contents
+                let copy_btn = ui.add(
+                    egui::Button::new(
+                        RichText::new(egui_nerdfonts::regular::COPY)
+                            .size(typography::SM)
+                            .color(theme.text_secondary()),
+                    )
+                    .fill(theme.bg_elevated())
+                    .stroke(egui::Stroke::new(1.0, theme.border_subtle()))
+                    .corner_radius(4.0),
+                );
+                if copy_btn.clicked() {
+                    let contents: String = file_diff
+                        .lines
+                        .iter()
+                        .filter(|l| {
+                            matches!(
+                                l.kind,
+                                crate::git::diff::DiffLineKind::Context
+                                    | crate::git::diff::DiffLineKind::Addition
+                            )
+                        })
+                        .map(|l| l.content.as_str())
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    ui.ctx().copy_text(contents);
+                }
+                copy_btn.on_hover_text("Copy file contents");
+
+                ui.add_space(4.0);
+
                 // Split view toggle
                 let split_label = if self.diff_renderer.split_view() {
                     "Stacked"

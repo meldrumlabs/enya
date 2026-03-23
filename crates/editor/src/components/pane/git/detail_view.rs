@@ -123,6 +123,7 @@ impl PrReviewPane {
         ui.add_space(4.0);
         let mut clicked_event: Option<ReviewEvent> = None;
         let mut go_back = false;
+        let mut approve_btn_anchor = egui::Rect::NOTHING;
         ui.horizontal(|ui| {
             ui.add_space(8.0);
 
@@ -140,13 +141,31 @@ impl PrReviewPane {
                 go_back = true;
             }
 
-            // PR number
+            // PR number + open in GitHub button
             if let Some(pr) = &self.current_pr {
                 ui.label(
                     RichText::new(format!("#{}", pr.number))
                         .color(theme.accent_primary())
                         .font(typography::monospace(typography::SM)),
                 );
+
+                let open_btn = ui.add(
+                    egui::Button::new(
+                        RichText::new(egui_nerdfonts::regular::EXTERNAL_LINK)
+                            .size(typography::SM)
+                            .color(theme.text_secondary()),
+                    )
+                    .fill(egui::Color32::TRANSPARENT)
+                    .stroke(egui::Stroke::NONE),
+                );
+                if open_btn.clicked() {
+                    let url = format!(
+                        "https://github.com/{}/{}/pull/{}",
+                        self.owner, self.repo, pr.number
+                    );
+                    ui.ctx().open_url(egui::OpenUrl::new_tab(&url));
+                }
+                open_btn.on_hover_text("Open in GitHub");
             }
 
             ui.add_space(8.0);
@@ -171,18 +190,24 @@ impl PrReviewPane {
                 let has_content = !self.draft_comments.is_empty() || !self.draft_body.is_empty();
                 let can_submit = self.token.is_some() && !self.submitting_review;
 
-                // Approve (always enabled if signed in)
+                // Approve (toggles popup for optional message)
                 let approve_btn = ui.add_enabled(
                     can_submit,
-                    egui::Button::new(RichText::new("Approve").size(typography::XS).color(
-                        if can_submit {
-                            theme.diff_added_text()
-                        } else {
-                            theme.text_secondary().gamma_multiply(0.5)
-                        },
-                    ))
+                    egui::Button::new(
+                        RichText::new(format!("Approve {}", egui_nerdfonts::regular::CHEVRON_DOWN))
+                            .size(typography::XS)
+                            .color(if can_submit {
+                                theme.diff_added_text()
+                            } else {
+                                theme.text_secondary().gamma_multiply(0.5)
+                            }),
+                    )
                     .fill(if can_submit {
-                        theme.diff_added_bg()
+                        if self.approve_popup_open {
+                            theme.diff_added_bg().gamma_multiply(1.3)
+                        } else {
+                            theme.diff_added_bg()
+                        }
                     } else {
                         theme.bg_elevated()
                     })
@@ -197,8 +222,9 @@ impl PrReviewPane {
                     .corner_radius(4.0),
                 );
                 if approve_btn.clicked() {
-                    clicked_event = Some(ReviewEvent::Approve);
+                    self.approve_popup_open = !self.approve_popup_open;
                 }
+                approve_btn_anchor = approve_btn.rect;
 
                 ui.add_space(4.0);
 
@@ -294,6 +320,85 @@ impl PrReviewPane {
             });
         });
 
+        // Approve popup (floating below the Approve button)
+        if self.approve_popup_open {
+            let popup_id = ui.id().with("approve_popup");
+            let popup_pos = egui::pos2(
+                approve_btn_anchor.right() - 280.0,
+                approve_btn_anchor.bottom() + 4.0,
+            );
+            let area_resp = egui::Area::new(popup_id)
+                .order(egui::Order::Foreground)
+                .fixed_pos(popup_pos)
+                .show(ui.ctx(), |ui| {
+                    egui::Frame::new()
+                        .fill(theme.bg_elevated())
+                        .stroke(egui::Stroke::new(1.0, theme.border_subtle()))
+                        .corner_radius(6.0)
+                        .inner_margin(egui::Margin::same(12))
+                        .show(ui, |ui| {
+                            ui.set_width(260.0);
+                            ui.label(
+                                RichText::new("Approve with message")
+                                    .color(theme.text_primary())
+                                    .font(typography::proportional(typography::SM))
+                                    .strong(),
+                            );
+                            ui.add_space(6.0);
+                            ui.add(
+                                egui::TextEdit::multiline(&mut self.draft_body)
+                                    .hint_text("Leave a comment (optional)")
+                                    .desired_rows(3)
+                                    .desired_width(260.0)
+                                    .font(typography::proportional(typography::SM)),
+                            );
+                            ui.add_space(8.0);
+                            ui.horizontal(|ui| {
+                                let submit_btn = ui.add(
+                                    egui::Button::new(
+                                        RichText::new("Submit Approval")
+                                            .size(typography::XS)
+                                            .color(theme.diff_added_text()),
+                                    )
+                                    .fill(theme.diff_added_bg())
+                                    .stroke(egui::Stroke::new(
+                                        1.0,
+                                        theme.diff_added_gutter().gamma_multiply(0.3),
+                                    ))
+                                    .corner_radius(4.0),
+                                );
+                                if submit_btn.clicked() {
+                                    clicked_event = Some(ReviewEvent::Approve);
+                                    self.approve_popup_open = false;
+                                }
+
+                                let cancel_btn = ui.add(
+                                    egui::Button::new(
+                                        RichText::new("Cancel")
+                                            .size(typography::XS)
+                                            .color(theme.text_secondary()),
+                                    )
+                                    .fill(egui::Color32::TRANSPARENT)
+                                    .stroke(egui::Stroke::NONE),
+                                );
+                                if cancel_btn.clicked() {
+                                    self.approve_popup_open = false;
+                                }
+                            });
+                        });
+                });
+
+            // Close popup when clicking outside
+            let popup_rect = area_resp.response.rect;
+            if ui.input(|i| i.pointer.any_click())
+                && !popup_rect.contains(ui.input(|i| i.pointer.interact_pos().unwrap_or_default()))
+                && !approve_btn_anchor
+                    .contains(ui.input(|i| i.pointer.interact_pos().unwrap_or_default()))
+            {
+                self.approve_popup_open = false;
+            }
+        }
+
         // Handle deferred actions outside closures
         if go_back {
             self.view = PrReviewView::List;
@@ -310,6 +415,7 @@ impl PrReviewPane {
             self.comment_input.clear();
             self.submit_error = None;
             self.submit_success = None;
+            self.approve_popup_open = false;
             return;
         }
         if let Some(event) = clicked_event {

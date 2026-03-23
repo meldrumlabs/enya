@@ -136,6 +136,10 @@ pub struct PrReviewPane {
     pending_submit: Arc<Mutex<Option<PrSubmitResult>>>,
     pending_single_comment: Arc<Mutex<Option<SingleCommentResult>>>,
 
+    // ── Approve popup ──
+    /// Whether the approve message popup is open.
+    approve_popup_open: bool,
+
     // ── File tree ──
     /// Collapsed directory paths in the file tree panel.
     collapsed_dirs: rustc_hash::FxHashSet<String>,
@@ -222,6 +226,7 @@ impl PrReviewPane {
             submit_success: None,
             pending_submit: Arc::new(Mutex::new(None)),
             pending_single_comment: Arc::new(Mutex::new(None)),
+            approve_popup_open: false,
             collapsed_dirs: rustc_hash::FxHashSet::default(),
             file_opener: FileOpenerPopup::new(),
             repo_root: None,
