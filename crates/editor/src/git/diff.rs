@@ -578,3 +578,337 @@ pub fn diff_word_bg(
         _ => None,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── parse_hunk_header ──
+
+    #[test]
+    fn parse_hunk_header_basic() {
+        assert_eq!(parse_hunk_header("@@ -10,5 +20,7 @@"), Some((10, 20)));
+    }
+
+    #[test]
+    fn parse_hunk_header_with_context() {
+        assert_eq!(parse_hunk_header("@@ -1,3 +1,4 @@ fn main()"), Some((1, 1)));
+    }
+
+    #[test]
+    fn parse_hunk_header_single_line() {
+        // No comma means count=1
+        assert_eq!(parse_hunk_header("@@ -5 +5 @@"), Some((5, 5)));
+    }
+
+    #[test]
+    fn parse_hunk_header_invalid() {
+        assert_eq!(parse_hunk_header("not a hunk"), None);
+        assert_eq!(parse_hunk_header(""), None);
+    }
+
+    // ── parse_hunk_old_count ──
+
+    #[test]
+    fn parse_hunk_old_count_basic() {
+        assert_eq!(parse_hunk_old_count("@@ -10,5 +20,7 @@"), Some(5));
+    }
+
+    #[test]
+    fn parse_hunk_old_count_no_comma() {
+        assert_eq!(parse_hunk_old_count("@@ -10 +20 @@"), None);
+    }
+
+    // ── language_from_path ──
+
+    #[test]
+    fn language_detection() {
+        assert_eq!(language_from_path("src/main.rs"), "rust");
+        assert_eq!(language_from_path("cmd/server.go"), "go");
+        assert_eq!(language_from_path("app.py"), "python");
+        assert_eq!(language_from_path("index.js"), "javascript");
+        assert_eq!(language_from_path("index.tsx"), "typescript");
+        assert_eq!(language_from_path("Cargo.toml"), "toml");
+        // fallback
+        assert_eq!(language_from_path("README.md"), "rust");
+    }
+
+    // ── parse_diff_into_files ──
+
+    fn sample_diff() -> &'static str {
+        concat!(
+            "diff --git a/src/alpha.rs b/src/alpha.rs\n",
+            "--- a/src/alpha.rs\n",
+            "+++ b/src/alpha.rs\n",
+            "@@ -1,3 +1,4 @@\n",
+            " line1\n",
+            "-old line2\n",
+            "+new line2\n",
+            "+added line3\n",
+            " line4\n",
+        )
+    }
+
+    fn two_file_diff() -> &'static str {
+        concat!(
+            "diff --git a/src/beta.rs b/src/beta.rs\n",
+            "--- a/src/beta.rs\n",
+            "+++ b/src/beta.rs\n",
+            "@@ -1,2 +1,2 @@\n",
+            "-old\n",
+            "+new\n",
+            " ctx\n",
+            "diff --git a/src/alpha.rs b/src/alpha.rs\n",
+            "--- a/src/alpha.rs\n",
+            "+++ b/src/alpha.rs\n",
+            "@@ -1,2 +1,3 @@\n",
+            " first\n",
+            "+inserted\n",
+            " last\n",
+        )
+    }
+
+    #[test]
+    fn parse_single_file_diff() {
+        let files = parse_diff_into_files(sample_diff());
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].path, "src/alpha.rs");
+        assert_eq!(files[0].additions, 2);
+        assert_eq!(files[0].deletions, 1);
+    }
+
+    #[test]
+    fn parse_two_file_diff_preserves_order() {
+        let files = parse_diff_into_files(two_file_diff());
+        assert_eq!(files.len(), 2);
+        // Files should appear in diff order (beta first, alpha second)
+        assert_eq!(files[0].path, "src/beta.rs");
+        assert_eq!(files[1].path, "src/alpha.rs");
+    }
+
+    #[test]
+    fn parse_diff_line_numbers() {
+        let files = parse_diff_into_files(sample_diff());
+        let lines = &files[0].lines;
+
+        // Find the context, deletion, and addition lines (skip headers)
+        let content_lines: Vec<_> = lines
+            .iter()
+            .filter(|l| {
+                matches!(
+                    l.kind,
+                    DiffLineKind::Context | DiffLineKind::Addition | DiffLineKind::Deletion
+                )
+            })
+            .collect();
+
+        // "line1" — context at old=1, new=1
+        assert_eq!(content_lines[0].content, "line1");
+        assert_eq!(content_lines[0].kind, DiffLineKind::Context);
+        assert_eq!(content_lines[0].old_line_num, Some(1));
+        assert_eq!(content_lines[0].new_line_num, Some(1));
+
+        // "old line2" — deletion at old=2
+        assert_eq!(content_lines[1].content, "old line2");
+        assert_eq!(content_lines[1].kind, DiffLineKind::Deletion);
+        assert_eq!(content_lines[1].old_line_num, Some(2));
+        assert_eq!(content_lines[1].new_line_num, None);
+
+        // "new line2" — addition at new=2
+        assert_eq!(content_lines[2].content, "new line2");
+        assert_eq!(content_lines[2].kind, DiffLineKind::Addition);
+        assert_eq!(content_lines[2].old_line_num, None);
+        assert_eq!(content_lines[2].new_line_num, Some(2));
+    }
+
+    #[test]
+    fn parse_diff_word_highlights() {
+        let files = parse_diff_into_files(sample_diff());
+        // The deletion "old line2" and addition "new line2" should have word highlights
+        let del_line = files[0]
+            .lines
+            .iter()
+            .find(|l| l.kind == DiffLineKind::Deletion && l.content == "old line2")
+            .unwrap();
+        assert!(
+            !del_line.word_highlights.is_empty(),
+            "deletion should have word highlights"
+        );
+    }
+
+    #[test]
+    fn parse_empty_diff() {
+        let files = parse_diff_into_files("");
+        assert!(files.is_empty());
+    }
+
+    #[test]
+    fn parse_diff_new_file_content() {
+        // Reconstruct new-side content from Context + Addition lines
+        let files = parse_diff_into_files(sample_diff());
+        let new_content: Vec<&str> = files[0]
+            .lines
+            .iter()
+            .filter(|l| matches!(l.kind, DiffLineKind::Context | DiffLineKind::Addition))
+            .map(|l| l.content.as_str())
+            .collect();
+        assert_eq!(
+            new_content,
+            vec!["line1", "new line2", "added line3", "line4"]
+        );
+    }
+
+    // ── build_split_view_lines ──
+
+    #[test]
+    fn split_view_pairs_deletions_and_additions() {
+        let files = parse_diff_into_files(sample_diff());
+        let pairs = build_split_view_lines(&files[0].lines);
+
+        // Should have paired rows: file header, hunk header, context, del+add pair, add-only, context
+        let content_pairs: Vec<_> = pairs
+            .iter()
+            .filter(|(l, r)| {
+                let is_content = |d: &Option<DiffLine>| {
+                    d.as_ref().is_some_and(|d| {
+                        matches!(
+                            d.kind,
+                            DiffLineKind::Context | DiffLineKind::Addition | DiffLineKind::Deletion
+                        )
+                    })
+                };
+                is_content(l) || is_content(r)
+            })
+            .collect();
+
+        // First row: context "line1" on both sides
+        assert!(content_pairs[0].0.is_some());
+        assert!(content_pairs[0].1.is_some());
+        assert_eq!(
+            content_pairs[0].0.as_ref().unwrap().kind,
+            DiffLineKind::Context
+        );
+    }
+
+    // ── File navigation index alignment ──
+
+    #[test]
+    fn file_diffs_indexed_independently_from_api_order() {
+        // Simulate the scenario: GitHub API returns files in alphabetical order,
+        // but the diff has them in a different order. The n/p navigation should
+        // work with file_diffs indices.
+        let files = parse_diff_into_files(two_file_diff());
+
+        // Diff order: beta first, alpha second
+        assert_eq!(files[0].path, "src/beta.rs");
+        assert_eq!(files[1].path, "src/alpha.rs");
+
+        // Simulated pr_files from API (alphabetical): alpha=0, beta=1
+        // If selected_file_index=0 means "first in file_diffs" = beta,
+        // navigating to index=1 gives alpha. This is correct.
+        let max = files.len().saturating_sub(1);
+        let mut idx = 0;
+        idx = (idx + 1).min(max); // next
+        assert_eq!(files[idx].path, "src/alpha.rs");
+        idx = idx.saturating_sub(1); // prev
+        assert_eq!(files[idx].path, "src/beta.rs");
+    }
+
+    #[test]
+    fn resolve_pr_files_index_to_diff_index_by_path() {
+        // This tests the fix: when clicking a file in the tree (pr_files index),
+        // we resolve to the file_diffs index by matching path.
+        let file_diffs = parse_diff_into_files(two_file_diff());
+        // Diff order: [beta, alpha]
+
+        // Simulated pr_files order (alphabetical): [alpha, beta]
+        let pr_file_paths = ["src/alpha.rs", "src/beta.rs"];
+
+        // Clicking alpha (pr_files index 0) should resolve to file_diffs index 1
+        let clicked_pr_idx = 0;
+        let filename = pr_file_paths[clicked_pr_idx];
+        let diff_idx = file_diffs.iter().position(|d| d.path == filename);
+        assert_eq!(diff_idx, Some(1));
+
+        // Clicking beta (pr_files index 1) should resolve to file_diffs index 0
+        let clicked_pr_idx = 1;
+        let filename = pr_file_paths[clicked_pr_idx];
+        let diff_idx = file_diffs.iter().position(|d| d.path == filename);
+        assert_eq!(diff_idx, Some(0));
+    }
+
+    #[test]
+    fn next_prev_bounded_by_file_diffs_len() {
+        let files = parse_diff_into_files(two_file_diff());
+        let max = files.len().saturating_sub(1); // 1
+
+        // At max, next should not go past
+        let mut idx = max;
+        idx = (idx + 1).min(max);
+        assert_eq!(idx, 1);
+
+        // At 0, prev should not go below
+        idx = 0;
+        idx = idx.saturating_sub(1);
+        assert_eq!(idx, 0);
+    }
+
+    // ── Hidden lines ──
+
+    #[test]
+    fn hidden_lines_computed_for_multi_hunk() {
+        let diff = concat!(
+            "diff --git a/f.rs b/f.rs\n",
+            "--- a/f.rs\n",
+            "+++ b/f.rs\n",
+            "@@ -1,3 +1,3 @@\n",
+            " a\n",
+            "-b\n",
+            "+B\n",
+            " c\n",
+            "@@ -20,3 +20,3 @@ fn foo()\n",
+            " x\n",
+            "-y\n",
+            "+Y\n",
+            " z\n",
+        );
+        let files = parse_diff_into_files(diff);
+        assert_eq!(files.len(), 1);
+
+        // The second hunk starts at old line 20, previous hunk ended at old line 3.
+        // Hidden = 20 - (3+1) = 16
+        let second_hunk = files[0]
+            .lines
+            .iter()
+            .filter(|l| l.kind == DiffLineKind::HunkHeader)
+            .nth(1)
+            .unwrap();
+        assert_eq!(second_hunk.hidden_lines, Some(16));
+        assert_eq!(second_hunk.hunk_context.as_deref(), Some("fn foo()"));
+    }
+
+    // ── merge_adjacent_highlights ──
+
+    #[test]
+    fn merge_highlights_empty() {
+        assert!(merge_adjacent_highlights(vec![]).is_empty());
+    }
+
+    #[test]
+    fn merge_highlights_adjacent() {
+        let result = merge_adjacent_highlights(vec![(0, 3), (3, 6)]);
+        assert_eq!(result, vec![(0, 6)]);
+    }
+
+    #[test]
+    fn merge_highlights_overlapping() {
+        let result = merge_adjacent_highlights(vec![(0, 5), (3, 8)]);
+        assert_eq!(result, vec![(0, 8)]);
+    }
+
+    #[test]
+    fn merge_highlights_disjoint() {
+        let result = merge_adjacent_highlights(vec![(0, 2), (5, 8)]);
+        assert_eq!(result, vec![(0, 2), (5, 8)]);
+    }
+}

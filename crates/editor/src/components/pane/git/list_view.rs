@@ -6,7 +6,7 @@ use crate::git::api::relative_time;
 use crate::ui::theme::AppTheme;
 use crate::ui::typography;
 
-use super::PrReviewPane;
+use super::{PrReviewPane, ReviewState};
 
 impl PrReviewPane {
     /// Get the indices of PRs matching the current filter query.
@@ -107,6 +107,13 @@ impl PrReviewPane {
                 // Auto-focus on first frame
                 if !ui.ctx().memory(|m| m.focused() == Some(filter_id)) {
                     response.request_focus();
+                }
+                // Close filter on Escape (TextEdit may unfocus itself but
+                // we also need to deactivate the filter bar)
+                if response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                    self.filter_active = false;
+                    self.filter_query.clear();
+                    self.selected_pr_index = 0;
                 }
             });
             ui.add_space(4.0);
@@ -274,8 +281,16 @@ impl PrReviewPane {
                     );
                     cx += number_galley.size().x + 8.0;
 
+                    // Determine review state for badge
+                    let review_state = self.review_state_for_pr(pr.number);
+
                     // Title — fill remaining width (leave space for right-side badges)
-                    let badge_reserve = if pr.draft { 60.0 } else { 0.0 };
+                    let badge_reserve = match review_state {
+                        Some(ReviewState::Approved) => 90.0,
+                        Some(ReviewState::ChangesRequested) => 130.0,
+                        None if pr.draft => 60.0,
+                        None => 0.0,
+                    };
                     let title_max = (rect.right() - right_pad - cx - badge_reserve).max(40.0);
                     let title_color = if is_selected {
                         theme.text_primary()
@@ -294,12 +309,34 @@ impl PrReviewPane {
                         title_color,
                     );
 
-                    // Draft badge (top-right)
-                    if pr.draft {
-                        let badge_galley = ui.painter().layout_no_wrap(
+                    // Status badge (top-right) — Draft, Approved, or Changes Requested
+                    let badge_info: Option<(String, egui::Color32, egui::Color32)> = if pr.draft {
+                        Some((
                             "Draft".to_string(),
-                            typography::proportional(typography::XS),
                             theme.text_secondary().gamma_multiply(0.8),
+                            theme.border_subtle().gamma_multiply(0.8),
+                        ))
+                    } else {
+                        match review_state {
+                            Some(ReviewState::Approved) => Some((
+                                format!("{} Approved", egui_nerdfonts::regular::CHECK),
+                                theme.diff_added_text(),
+                                theme.diff_added_bg(),
+                            )),
+                            Some(ReviewState::ChangesRequested) => Some((
+                                format!("{} Changes requested", egui_nerdfonts::regular::X_CIRCLE),
+                                theme.diff_removed_gutter(),
+                                theme.diff_removed_bg(),
+                            )),
+                            None => None,
+                        }
+                    };
+
+                    if let Some((text, fg, bg)) = badge_info {
+                        let badge_galley = ui.painter().layout_no_wrap(
+                            text,
+                            typography::proportional(typography::XS),
+                            fg,
                         );
                         let badge_w = badge_galley.size().x + 10.0;
                         let badge_h = badge_galley.size().y + 4.0;
@@ -309,15 +346,11 @@ impl PrReviewPane {
                             egui::pos2(badge_x, badge_y),
                             egui::vec2(badge_w, badge_h),
                         );
-                        ui.painter().rect_filled(
-                            badge_rect,
-                            3.0,
-                            theme.border_subtle().gamma_multiply(0.8),
-                        );
+                        ui.painter().rect_filled(badge_rect, 3.0, bg);
                         ui.painter().galley(
                             egui::pos2(badge_x + 5.0, badge_y + 2.0),
                             badge_galley,
-                            theme.text_secondary().gamma_multiply(0.8),
+                            fg,
                         );
                     }
 
