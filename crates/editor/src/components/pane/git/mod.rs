@@ -771,6 +771,7 @@ impl PrReviewPane {
                     // Append the new comment and rebuild thread cache
                     self.review_comments.push(comment);
                     self.rebuild_thread_cache();
+                    self.fetch_avatars_for_comments();
                 }
                 Err(e) => {
                     self.submit_error = Some(e);
@@ -868,6 +869,8 @@ impl PrReviewPane {
                     self.filter_active = false;
                     self.filter_query.clear();
                     self.selected_pr_index = 0;
+                } else if self.diff_renderer.search_active() {
+                    self.diff_renderer.close_search();
                 } else if self.commenting_line.is_some() {
                     self.commenting_line = None;
                     self.comment_input.clear();
@@ -980,10 +983,16 @@ impl PrReviewPane {
                     input.consume_key(egui::Modifiers::NONE, egui::Key::X);
                     input.consume_key(egui::Modifiers::NONE, egui::Key::U);
 
-                    // In detail view: Escape/h/Backspace go back to list (consumed).
-                    // Once in list, next Escape passes through to workspace.
-                    if input.consume_key(egui::Modifiers::NONE, egui::Key::Escape)
-                        || input.consume_key(egui::Modifiers::NONE, egui::Key::H)
+                    // In detail view: Escape closes search first, then goes back.
+                    // h/Backspace/ArrowLeft always go back.
+                    if input.consume_key(egui::Modifiers::NONE, egui::Key::Escape) {
+                        if self.diff_renderer.search_active() {
+                            self.diff_renderer.close_search();
+                        } else {
+                            self.pending_go_back = true;
+                        }
+                    }
+                    if input.consume_key(egui::Modifiers::NONE, egui::Key::H)
                         || input.consume_key(egui::Modifiers::NONE, egui::Key::ArrowLeft)
                         || input.consume_key(egui::Modifiers::NONE, egui::Key::Backspace)
                     {
@@ -1111,6 +1120,7 @@ impl crate::components::Component for PrReviewPane {
             self.collapsed_threads.clear();
             self.collapsed_dirs.clear();
             self.diff_renderer.reset_for_file_change();
+            self.diff_renderer.close_search();
         }
 
         // Auto-fetch PR list on first render if we have a token

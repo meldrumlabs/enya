@@ -238,6 +238,9 @@ impl DiffRenderer {
 
     pub fn close_search(&mut self) {
         self.search_active = false;
+        self.search_query.clear();
+        self.search_matches.clear();
+        self.current_match_index = 0;
     }
 
     /// Recompute search matches across all given files.
