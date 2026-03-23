@@ -848,7 +848,7 @@ impl PrReviewPane {
                     let action = self.diff_renderer.handle_keyboard(input);
                     match action {
                         DiffKeyAction::NextFile => {
-                            let max = self.pr_files.len().saturating_sub(1);
+                            let max = self.file_diffs.len().saturating_sub(1);
                             self.selected_file_index = (self.selected_file_index + 1).min(max);
                             self.diff_renderer.reset_for_file_change();
                         }

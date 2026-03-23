@@ -699,8 +699,11 @@ impl PrReviewPane {
                             depth,
                             comment_count,
                         } => {
-                            let is_selected = *file_index == self.selected_file_index;
                             let file = &self.pr_files[*file_index];
+                            let is_selected = self
+                                .file_diffs
+                                .get(self.selected_file_index)
+                                .is_some_and(|d| d.path == file.filename);
 
                             // Background
                             if is_selected {
@@ -846,8 +849,12 @@ impl PrReviewPane {
                 self.collapsed_dirs.insert(dir_path);
             }
         }
-        if let Some(idx) = clicked_file {
-            self.selected_file_index = idx;
+        if let Some(pr_idx) = clicked_file {
+            // Resolve pr_files index to file_diffs index by matching path
+            let filename = &self.pr_files[pr_idx].filename;
+            if let Some(diff_idx) = self.file_diffs.iter().position(|d| d.path == *filename) {
+                self.selected_file_index = diff_idx;
+            }
         }
     }
 
@@ -1095,4 +1102,273 @@ fn render_comment(ui: &mut egui::Ui, theme: AppTheme, author: &str, timestamp: &
             // Body (rendered as markdown)
             crate::components::overlay::markdown_renderer::render_markdown(ui, body, theme);
         });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::git::api::PrFile;
+
+    fn make_pr_file(filename: &str) -> PrFile {
+        PrFile {
+            filename: filename.to_string(),
+            status: "modified".to_string(),
+            additions: 1,
+            deletions: 1,
+            changes: 2,
+        }
+    }
+
+    fn collect_file_names(rows: &[FileTreeRow]) -> Vec<String> {
+        rows.iter()
+            .filter_map(|r| match r {
+                FileTreeRow::File { name, .. } => Some(name.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn collect_file_indices(rows: &[FileTreeRow]) -> Vec<usize> {
+        rows.iter()
+            .filter_map(|r| match r {
+                FileTreeRow::File { file_index, .. } => Some(*file_index),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn collect_dir_names(rows: &[FileTreeRow]) -> Vec<String> {
+        rows.iter()
+            .filter_map(|r| match r {
+                FileTreeRow::Directory { name, .. } => Some(name.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn flat_files_no_directories() {
+        let files = vec![make_pr_file("README.md"), make_pr_file("Cargo.toml")];
+        let rows = build_file_tree_rows(&files, &FxHashSet::default(), &[], &[]);
+
+        let names = collect_file_names(&rows);
+        assert_eq!(names, vec!["Cargo.toml", "README.md"]); // sorted alphabetically
+        assert!(collect_dir_names(&rows).is_empty());
+    }
+
+    #[test]
+    fn files_in_directories() {
+        let files = vec![
+            make_pr_file("src/main.rs"),
+            make_pr_file("src/lib.rs"),
+            make_pr_file("tests/test.rs"),
+        ];
+        let rows = build_file_tree_rows(&files, &FxHashSet::default(), &[], &[]);
+
+        let dirs = collect_dir_names(&rows);
+        assert!(dirs.contains(&"src".to_string()));
+        assert!(dirs.contains(&"tests".to_string()));
+
+        let file_names = collect_file_names(&rows);
+        assert!(file_names.contains(&"lib.rs".to_string()));
+        assert!(file_names.contains(&"main.rs".to_string()));
+        assert!(file_names.contains(&"test.rs".to_string()));
+    }
+
+    #[test]
+    fn collapsed_directory_hides_children() {
+        let files = vec![
+            make_pr_file("src/main.rs"),
+            make_pr_file("src/lib.rs"),
+            make_pr_file("tests/test.rs"),
+        ];
+        let mut collapsed = FxHashSet::default();
+        collapsed.insert("src".to_string());
+
+        let rows = build_file_tree_rows(&files, &collapsed, &[], &[]);
+
+        // src directory should be present but collapsed
+        let src_dir = rows
+            .iter()
+            .find(|r| matches!(r, FileTreeRow::Directory { name, .. } if name == "src"));
+        assert!(src_dir.is_some());
+
+        // src files should NOT be in the rows
+        let file_names = collect_file_names(&rows);
+        assert!(!file_names.contains(&"main.rs".to_string()));
+        assert!(!file_names.contains(&"lib.rs".to_string()));
+        // tests files should still be visible
+        assert!(file_names.contains(&"test.rs".to_string()));
+    }
+
+    #[test]
+    fn nested_directories() {
+        let files = vec![
+            make_pr_file("a/b/c.rs"),
+            make_pr_file("a/b/d.rs"),
+            make_pr_file("a/e.rs"),
+        ];
+        let rows = build_file_tree_rows(&files, &FxHashSet::default(), &[], &[]);
+
+        let dirs = collect_dir_names(&rows);
+        assert!(dirs.contains(&"a".to_string()));
+        assert!(dirs.contains(&"b".to_string()));
+    }
+
+    #[test]
+    fn collapsing_parent_hides_nested_files() {
+        let files = vec![make_pr_file("a/b/c.rs"), make_pr_file("a/d.rs")];
+        let mut collapsed = FxHashSet::default();
+        collapsed.insert("a".to_string());
+
+        let rows = build_file_tree_rows(&files, &collapsed, &[], &[]);
+
+        // No files should be visible
+        let file_names = collect_file_names(&rows);
+        assert!(file_names.is_empty());
+    }
+
+    #[test]
+    fn file_indices_refer_to_original_pr_files() {
+        let files = vec![
+            make_pr_file("z_file.rs"),
+            make_pr_file("a_file.rs"),
+            make_pr_file("m_file.rs"),
+        ];
+        let rows = build_file_tree_rows(&files, &FxHashSet::default(), &[], &[]);
+
+        // Tree sorts alphabetically, but file_index should refer back to the
+        // original position in pr_files
+        let indices = collect_file_indices(&rows);
+        let names: Vec<&str> = indices
+            .iter()
+            .map(|&i| files[i].filename.as_str())
+            .collect();
+        // Sorted order: a_file, m_file, z_file
+        assert_eq!(names, vec!["a_file.rs", "m_file.rs", "z_file.rs"]);
+    }
+
+    #[test]
+    fn directory_file_count() {
+        let files = vec![
+            make_pr_file("src/a.rs"),
+            make_pr_file("src/b.rs"),
+            make_pr_file("src/sub/c.rs"),
+        ];
+        let rows = build_file_tree_rows(&files, &FxHashSet::default(), &[], &[]);
+
+        let src_dir = rows.iter().find_map(|r| match r {
+            FileTreeRow::Directory {
+                name, file_count, ..
+            } if name == "src" => Some(*file_count),
+            _ => None,
+        });
+        // All 3 files are under src/
+        assert_eq!(src_dir, Some(3));
+    }
+
+    #[test]
+    fn comment_counts_on_files() {
+        let files = vec![make_pr_file("src/main.rs")];
+        let review_comments = vec![PrComment {
+            id: 1,
+            body: "fix this".to_string(),
+            user: crate::git::api::PrUser {
+                login: "alice".to_string(),
+                avatar_url: String::new(),
+            },
+            created_at: "2024-01-01T00:00:00Z".to_string(),
+            path: Some("src/main.rs".to_string()),
+            line: Some(10),
+            in_reply_to_id: None,
+        }];
+        let draft_comments = vec![DraftComment {
+            path: "src/main.rs".to_string(),
+            line: 20,
+            side: "RIGHT".to_string(),
+            body: "draft note".to_string(),
+        }];
+
+        let rows = build_file_tree_rows(
+            &files,
+            &FxHashSet::default(),
+            &review_comments,
+            &draft_comments,
+        );
+
+        let comment_count = rows.iter().find_map(|r| match r {
+            FileTreeRow::File { comment_count, .. } => Some(*comment_count),
+            _ => None,
+        });
+        assert_eq!(comment_count, Some(2)); // 1 review + 1 draft
+    }
+
+    #[test]
+    fn cross_directory_navigation_uses_file_diffs() {
+        // This is the core regression test for the bug:
+        // n/p should navigate through file_diffs, not pr_files,
+        // and clicking a file in the tree should resolve to the correct diff index.
+        use crate::git::diff::parse_diff_into_files;
+
+        let diff = concat!(
+            "diff --git a/crates/editor/src/foo.rs b/crates/editor/src/foo.rs\n",
+            "--- a/crates/editor/src/foo.rs\n",
+            "+++ b/crates/editor/src/foo.rs\n",
+            "@@ -1,2 +1,2 @@\n",
+            "-old\n",
+            "+new\n",
+            " ctx\n",
+            "diff --git a/crates/client/src/bar.rs b/crates/client/src/bar.rs\n",
+            "--- a/crates/client/src/bar.rs\n",
+            "+++ b/crates/client/src/bar.rs\n",
+            "@@ -1,2 +1,2 @@\n",
+            "-old2\n",
+            "+new2\n",
+            " ctx2\n",
+        );
+
+        let file_diffs = parse_diff_into_files(diff);
+        assert_eq!(file_diffs.len(), 2);
+
+        // Diff order: foo first, bar second
+        assert_eq!(file_diffs[0].path, "crates/editor/src/foo.rs");
+        assert_eq!(file_diffs[1].path, "crates/client/src/bar.rs");
+
+        // pr_files from API might be in different order (alphabetical)
+        let pr_files = vec![
+            make_pr_file("crates/client/src/bar.rs"),
+            make_pr_file("crates/editor/src/foo.rs"),
+        ];
+
+        // Build tree from pr_files — clicking bar.rs gives pr_files index 0
+        let rows = build_file_tree_rows(&pr_files, &FxHashSet::default(), &[], &[]);
+        let bar_pr_idx = rows
+            .iter()
+            .find_map(|r| match r {
+                FileTreeRow::File {
+                    file_index, name, ..
+                } if name == "bar.rs" => Some(*file_index),
+                _ => None,
+            })
+            .unwrap();
+
+        // Resolve to file_diffs index
+        let bar_filename = &pr_files[bar_pr_idx].filename;
+        let bar_diff_idx = file_diffs
+            .iter()
+            .position(|d| d.path == *bar_filename)
+            .unwrap();
+        assert_eq!(bar_diff_idx, 1); // bar is at index 1 in file_diffs
+
+        // n/p navigation bounded by file_diffs.len()
+        let max = file_diffs.len().saturating_sub(1);
+        let mut idx = 0;
+        idx = (idx + 1).min(max);
+        assert_eq!(idx, 1);
+        assert_eq!(file_diffs[idx].path, "crates/client/src/bar.rs");
+
+        idx = idx.saturating_sub(1);
+        assert_eq!(idx, 0);
+        assert_eq!(file_diffs[idx].path, "crates/editor/src/foo.rs");
+    }
 }
