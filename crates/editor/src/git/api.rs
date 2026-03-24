@@ -173,6 +173,14 @@ pub enum ReviewEvent {
     Comment,
 }
 
+/// A review submitted on a pull request (from GET /pulls/{number}/reviews).
+#[derive(Debug, Clone, Deserialize)]
+pub struct PrReview {
+    pub id: u64,
+    pub user: PrUser,
+    pub state: String,
+}
+
 /// Submission payload for the create-review API.
 #[derive(Debug, Serialize)]
 struct ReviewSubmission {
@@ -368,6 +376,22 @@ pub async fn get_issue_comments(
         client,
         token,
         &format!("/repos/{owner}/{repo}/issues/{number}/comments?per_page=100"),
+    )
+    .await
+}
+
+/// Get reviews on a pull request (approval state per reviewer).
+pub async fn get_reviews(
+    client: &reqwest::Client,
+    token: &str,
+    owner: &str,
+    repo: &str,
+    number: u32,
+) -> Result<Vec<PrReview>, String> {
+    api_get(
+        client,
+        token,
+        &format!("/repos/{owner}/{repo}/pulls/{number}/reviews?per_page=100"),
     )
     .await
 }

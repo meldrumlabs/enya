@@ -622,7 +622,10 @@ async fn fetch_github_user(
 }
 
 /// Download a user's GitHub avatar image (small size).
-async fn fetch_avatar(client: &reqwest::Client, avatar_url: &str) -> Result<Vec<u8>, String> {
+pub(crate) async fn fetch_avatar(
+    client: &reqwest::Client,
+    avatar_url: &str,
+) -> Result<Vec<u8>, String> {
     // Request a small avatar (80px) to keep memory usage low
     let url = if avatar_url.contains('?') {
         format!("{avatar_url}&s=80")

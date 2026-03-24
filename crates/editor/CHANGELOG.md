@@ -6,6 +6,7 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Changed
 
+- **Approve with optional message**: The Approve button now opens a dropdown popup with an optional message field, allowing reviewers to include a comment when approving a PR.
 - **Shared DiffRenderer**: Unified diff rendering between the overlay and PR review pane into a shared `DiffRenderer` struct. The PR pane now gains search (`/`/`⌘F`), hunk jumping (`{`/`}`), line selection (click line numbers), context expansion (click hunk headers), and `⌘C` copy — features previously only available in the commit diff overlay. The overlay shed ~1200 lines of code.
 - **Threaded inline review comments**: Review comments now appear as threaded conversations directly in the Files tab diff, similar to GitHub. Comments on the same line are grouped into threads with avatar placeholders, reply buttons, and collapsible "show N more replies" for long threads. The Conversation tab now shows only PR-level discussion.
 - **"+" comment button on hover**: Hovering over a diff line shows a "+" icon in the gutter. Clicking it opens the comment input inline at that line.
@@ -13,6 +14,10 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Added
 
+- **Open PR in GitHub**: Added an external-link button next to the PR number in the detail view header that opens the pull request in the browser.
+- **Copy file contents**: Added a copy button in the diff file header that copies the full new-side file contents to the clipboard.
+- **GitHub avatar images**: Comment threads now display real GitHub profile avatars (fetched asynchronously) instead of letter-in-circle placeholders. Falls back to the letter placeholder while loading or if the fetch fails.
+- **PR review state badges**: The PR list now shows "Approved" (green) or "Changes requested" (red) badges on PRs that have been reviewed, fetched during preloading.
 - **Syntax-highlighted diffs**: Diff viewer now shows language-aware syntax colors (keywords, strings, types, etc.) layered under diff backgrounds using tree-sitter, with WASM fallback to flat colors.
 - **Collapsible hunk separators**: Hunk headers replaced with styled separators showing hidden line count and function context (e.g. "··· 42 lines hidden ··· fn foo()").
 - **Hunk-to-hunk navigation**: `{` / `}` keys jump directly between changed hunks instead of scrolling line by line.

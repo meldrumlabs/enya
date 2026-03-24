@@ -16,7 +16,8 @@ use crate::AsyncRuntime;
 use crate::components::util::file_opener::FileOpenerPopup;
 use crate::components::util::next_id_usize;
 use crate::git::api::{
-    self, CheckRun, DraftComment, IssueComment, PrComment, PrFile, PullRequest, ReviewEvent,
+    self, CheckRun, DraftComment, IssueComment, PrComment, PrFile, PrReview, PullRequest,
+    ReviewEvent,
 };
 use crate::git::diff::FileDiff;
 use crate::git::diff_renderer::{DiffKeyAction, DiffRenderer};
@@ -57,13 +58,21 @@ pub enum PrReviewPaneAction {
 /// Maximum number of PRs to preload after the list is fetched.
 const PRELOAD_COUNT: usize = 10;
 
+/// Aggregated review state for a PR.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum ReviewState {
+    Approved,
+    ChangesRequested,
+}
+
 /// Result types for async operations.
 type PrListResult = Result<Vec<PullRequest>, String>;
 type PrDetailResult = Result<(PullRequest, Vec<PrFile>, String), String>;
-type PrCommentsResult = Result<(Vec<PrComment>, Vec<IssueComment>), String>;
+type PrCommentsResult = Result<(Vec<PrComment>, Vec<IssueComment>, Vec<PrReview>), String>;
 type PrChecksResult = Result<Vec<CheckRun>, String>;
 type PrSubmitResult = Result<(), String>;
 type SingleCommentResult = Result<PrComment, String>;
+type AvatarResult = (String, Result<Vec<u8>, String>);
 
 /// All preloaded data for a single PR.
 struct PreloadedPr {
@@ -73,6 +82,7 @@ struct PreloadedPr {
     review_comments: Vec<PrComment>,
     issue_comments: Vec<IssueComment>,
     check_runs: Vec<CheckRun>,
+    reviews: Vec<PrReview>,
 }
 
 /// Combined result from preloading a single PR.
@@ -112,6 +122,10 @@ pub struct PrReviewPane {
     cached_threads: Vec<crate::git::api::CommentThread>,
     issue_comments: Vec<IssueComment>,
     check_runs: Vec<CheckRun>,
+    /// Reviews on the current PR (for showing approval state).
+    reviews: Vec<PrReview>,
+    /// Preloaded review data keyed by PR number (for list view badges).
+    preloaded_reviews: FxHashMap<u32, Vec<PrReview>>,
     selected_file_index: usize,
     active_tab: DetailTab,
     detail_loading: bool,
@@ -136,9 +150,15 @@ pub struct PrReviewPane {
     pending_submit: Arc<Mutex<Option<PrSubmitResult>>>,
     pending_single_comment: Arc<Mutex<Option<SingleCommentResult>>>,
 
+    // ── Approve popup ──
+    /// Whether the approve message popup is open.
+    approve_popup_open: bool,
+
     // ── File tree ──
     /// Collapsed directory paths in the file tree panel.
     collapsed_dirs: rustc_hash::FxHashSet<String>,
+    /// Whether to scroll the file tree to make the selected file visible.
+    file_tree_scroll_to_selected: bool,
 
     // ── File opener ──
     file_opener: FileOpenerPopup,
@@ -175,6 +195,14 @@ pub struct PrReviewPane {
     /// Whether we have already kicked off preloading for the current list.
     preload_started: bool,
 
+    // ── Avatar cache ──
+    /// Cached avatar textures, keyed by GitHub login.
+    avatar_textures: FxHashMap<String, egui::TextureHandle>,
+    /// Logins for which avatar fetches are in-flight or completed.
+    avatar_fetched: rustc_hash::FxHashSet<String>,
+    /// Pending avatar fetch results: (login, image_bytes).
+    pending_avatars: Arc<Mutex<Vec<AvatarResult>>>,
+
     // ── Async infrastructure ──
     http_client: reqwest::Client,
     async_runtime: AsyncRuntime,
@@ -204,6 +232,8 @@ impl PrReviewPane {
             cached_threads: Vec::new(),
             issue_comments: Vec::new(),
             check_runs: Vec::new(),
+            reviews: Vec::new(),
+            preloaded_reviews: FxHashMap::default(),
             selected_file_index: 0,
             active_tab: DetailTab::Files,
             detail_loading: false,
@@ -222,7 +252,9 @@ impl PrReviewPane {
             submit_success: None,
             pending_submit: Arc::new(Mutex::new(None)),
             pending_single_comment: Arc::new(Mutex::new(None)),
+            approve_popup_open: false,
             collapsed_dirs: rustc_hash::FxHashSet::default(),
+            file_tree_scroll_to_selected: false,
             file_opener: FileOpenerPopup::new(),
             repo_root: None,
             pending_open_file_opener: false,
@@ -236,6 +268,9 @@ impl PrReviewPane {
             preload_cache: FxHashMap::default(),
             pending_preloads: Vec::new(),
             preload_started: false,
+            avatar_textures: FxHashMap::default(),
+            avatar_fetched: rustc_hash::FxHashSet::default(),
+            pending_avatars: Arc::new(Mutex::new(Vec::new())),
             http_client: reqwest::Client::new(),
             async_runtime,
             token: None,
@@ -285,6 +320,33 @@ impl PrReviewPane {
     /// Rebuild the cached comment threads from `review_comments`.
     fn rebuild_thread_cache(&mut self) {
         self.cached_threads = crate::git::api::group_into_threads(&self.review_comments);
+    }
+
+    /// Derive the aggregate review state for a PR from preloaded reviews.
+    /// Returns `Some(Approved)` if at least one review is approved and none request changes,
+    /// `Some(ChangesRequested)` if any review requests changes, or `None` otherwise.
+    pub(super) fn review_state_for_pr(&self, number: u32) -> Option<ReviewState> {
+        let reviews = self.preloaded_reviews.get(&number)?;
+        // Build per-user latest state (only APPROVED / CHANGES_REQUESTED matter)
+        let mut per_user: FxHashMap<&str, &str> = FxHashMap::default();
+        for r in reviews {
+            match r.state.as_str() {
+                "APPROVED" | "CHANGES_REQUESTED" => {
+                    per_user.insert(&r.user.login, &r.state);
+                }
+                _ => {}
+            }
+        }
+        if per_user.is_empty() {
+            return None;
+        }
+        if per_user.values().any(|s| *s == "CHANGES_REQUESTED") {
+            return Some(ReviewState::ChangesRequested);
+        }
+        if per_user.values().any(|s| *s == "APPROVED") {
+            return Some(ReviewState::Approved);
+        }
+        None
     }
 
     /// Post a single inline comment directly to the GitHub API (not batched into a review).
@@ -375,6 +437,8 @@ impl PrReviewPane {
             self.review_comments = cached.review_comments;
             self.issue_comments = cached.issue_comments;
             self.check_runs = cached.check_runs;
+            self.reviews = cached.reviews.clone();
+            self.preloaded_reviews.insert(number, cached.reviews);
             self.selected_file_index = 0;
             return;
         }
@@ -446,7 +510,8 @@ impl PrReviewPane {
                     api::get_review_comments(&client, &token, &owner, &repo, number).await?;
                 let issue_comments =
                     api::get_issue_comments(&client, &token, &owner, &repo, number).await?;
-                Ok((review_comments, issue_comments))
+                let reviews = api::get_reviews(&client, &token, &owner, &repo, number).await?;
+                Ok((review_comments, issue_comments, reviews))
             }
             .await;
             *pending.lock() = Some(result);
@@ -518,6 +583,7 @@ impl PrReviewPane {
                         api::get_review_comments(&client, &token, &owner, &repo, number).await?;
                     let issue_comments =
                         api::get_issue_comments(&client, &token, &owner, &repo, number).await?;
+                    let reviews = api::get_reviews(&client, &token, &owner, &repo, number).await?;
                     let check_runs = if !pr.head.sha.is_empty() {
                         api::get_check_runs(&client, &token, &owner, &repo, &pr.head.sha)
                             .await
@@ -532,6 +598,7 @@ impl PrReviewPane {
                         review_comments,
                         issue_comments,
                         check_runs,
+                        reviews,
                     })
                 }
                 .await;
@@ -576,7 +643,7 @@ impl PrReviewPane {
     }
 
     /// Poll for async operation results. Called each frame.
-    fn poll_results(&mut self) {
+    fn poll_results(&mut self, ctx: &egui::Context) {
         // Poll PR list
         if let Some(result) = self.pending_list.lock().take() {
             self.list_loading = false;
@@ -604,6 +671,8 @@ impl PrReviewPane {
             if let Some((number, result)) = guard.take() {
                 match result {
                     Ok(preloaded) => {
+                        self.preloaded_reviews
+                            .insert(number, preloaded.reviews.clone());
                         self.preload_cache.insert(number, preloaded);
                     }
                     Err(e) => {
@@ -645,10 +714,15 @@ impl PrReviewPane {
         let comments_result = self.pending_comments.lock().take();
         if let Some(result) = comments_result {
             match result {
-                Ok((review_comments, issue_comments)) => {
+                Ok((review_comments, issue_comments, reviews)) => {
                     self.review_comments = review_comments;
                     self.rebuild_thread_cache();
                     self.issue_comments = issue_comments;
+                    self.reviews = reviews.clone();
+                    if let Some(pr) = &self.current_pr {
+                        self.preloaded_reviews.insert(pr.number, reviews);
+                    }
+                    self.fetch_avatars_for_comments();
                 }
                 Err(e) => {
                     log::warn!("Failed to fetch PR comments: {e}");
@@ -697,12 +771,80 @@ impl PrReviewPane {
                     // Append the new comment and rebuild thread cache
                     self.review_comments.push(comment);
                     self.rebuild_thread_cache();
+                    self.fetch_avatars_for_comments();
                 }
                 Err(e) => {
                     self.submit_error = Some(e);
                 }
             }
         }
+
+        // Poll avatar fetches
+        let avatar_results: Vec<_> = self.pending_avatars.lock().drain(..).collect();
+        for (login, result) in avatar_results {
+            if let Ok(bytes) = result {
+                if let Ok(dynamic_image) = image::load_from_memory(&bytes) {
+                    let rgba = dynamic_image.to_rgba8();
+                    let size = [rgba.width() as usize, rgba.height() as usize];
+                    let pixels: Vec<egui::Color32> = rgba
+                        .pixels()
+                        .map(|p| egui::Color32::from_rgba_unmultiplied(p[0], p[1], p[2], p[3]))
+                        .collect();
+                    let color_image = egui::ColorImage::new(size, pixels);
+                    let texture = ctx.load_texture(
+                        format!("avatar_{login}"),
+                        color_image,
+                        egui::TextureOptions::LINEAR,
+                    );
+                    self.avatar_textures.insert(login, texture);
+                }
+            }
+        }
+    }
+
+    /// Kick off avatar fetches for all unique users in the current comments.
+    fn fetch_avatars_for_comments(&mut self) {
+        let mut users: Vec<(String, String)> = Vec::new(); // (login, avatar_url)
+
+        // Collect from review comments
+        for comment in &self.review_comments {
+            if !comment.user.avatar_url.is_empty()
+                && !self.avatar_fetched.contains(&comment.user.login)
+            {
+                self.avatar_fetched.insert(comment.user.login.clone());
+                users.push((comment.user.login.clone(), comment.user.avatar_url.clone()));
+            }
+        }
+        // Collect from issue comments
+        for comment in &self.issue_comments {
+            if !comment.user.avatar_url.is_empty()
+                && !self.avatar_fetched.contains(&comment.user.login)
+            {
+                self.avatar_fetched.insert(comment.user.login.clone());
+                users.push((comment.user.login.clone(), comment.user.avatar_url.clone()));
+            }
+        }
+        // Collect from PR author
+        if let Some(pr) = &self.current_pr {
+            if !pr.user.avatar_url.is_empty() && !self.avatar_fetched.contains(&pr.user.login) {
+                self.avatar_fetched.insert(pr.user.login.clone());
+                users.push((pr.user.login.clone(), pr.user.avatar_url.clone()));
+            }
+        }
+
+        if users.is_empty() {
+            return;
+        }
+
+        let client = self.http_client.clone();
+        let pending = Arc::clone(&self.pending_avatars);
+
+        self.async_runtime.spawn(async move {
+            for (login, avatar_url) in users {
+                let result = crate::git::auth::fetch_avatar(&client, &avatar_url).await;
+                pending.lock().push((login, result));
+            }
+        });
     }
 }
 
@@ -727,6 +869,8 @@ impl PrReviewPane {
                     self.filter_active = false;
                     self.filter_query.clear();
                     self.selected_pr_index = 0;
+                } else if self.diff_renderer.search_active() {
+                    self.diff_renderer.close_search();
                 } else if self.commenting_line.is_some() {
                     self.commenting_line = None;
                     self.comment_input.clear();
@@ -823,16 +967,32 @@ impl PrReviewPane {
                         self.filter_query.clear();
                         self.selected_pr_index = 0;
                     }
+
+                    // Escape — close filter if active (fallback for when TextEdit
+                    // steals focus before handle_keyboard can consume Escape)
+                    if self.filter_active
+                        && input.consume_key(egui::Modifiers::NONE, egui::Key::Escape)
+                    {
+                        self.filter_active = false;
+                        self.filter_query.clear();
+                        self.selected_pr_index = 0;
+                    }
                 }
                 PrReviewView::Detail => {
                     // Consume x/u in detail view to prevent accidental pane close
                     input.consume_key(egui::Modifiers::NONE, egui::Key::X);
                     input.consume_key(egui::Modifiers::NONE, egui::Key::U);
 
-                    // In detail view: Escape/h/Backspace go back to list (consumed).
-                    // Once in list, next Escape passes through to workspace.
-                    if input.consume_key(egui::Modifiers::NONE, egui::Key::Escape)
-                        || input.consume_key(egui::Modifiers::NONE, egui::Key::H)
+                    // In detail view: Escape closes search first, then goes back.
+                    // h/Backspace/ArrowLeft always go back.
+                    if input.consume_key(egui::Modifiers::NONE, egui::Key::Escape) {
+                        if self.diff_renderer.search_active() {
+                            self.diff_renderer.close_search();
+                        } else {
+                            self.pending_go_back = true;
+                        }
+                    }
+                    if input.consume_key(egui::Modifiers::NONE, egui::Key::H)
                         || input.consume_key(egui::Modifiers::NONE, egui::Key::ArrowLeft)
                         || input.consume_key(egui::Modifiers::NONE, egui::Key::Backspace)
                     {
@@ -843,13 +1003,15 @@ impl PrReviewPane {
                     let action = self.diff_renderer.handle_keyboard(input);
                     match action {
                         DiffKeyAction::NextFile => {
-                            let max = self.pr_files.len().saturating_sub(1);
+                            let max = self.file_diffs.len().saturating_sub(1);
                             self.selected_file_index = (self.selected_file_index + 1).min(max);
                             self.diff_renderer.reset_for_file_change();
+                            self.file_tree_scroll_to_selected = true;
                         }
                         DiffKeyAction::PrevFile => {
                             self.selected_file_index = self.selected_file_index.saturating_sub(1);
                             self.diff_renderer.reset_for_file_change();
+                            self.file_tree_scroll_to_selected = true;
                         }
                         DiffKeyAction::OpenFile => {
                             self.pending_open_file_opener = true;
@@ -932,7 +1094,7 @@ impl PrReviewPane {
 impl crate::components::Component for PrReviewPane {
     fn show(&mut self, ui: &mut egui::Ui) {
         // Poll async results
-        self.poll_results();
+        self.poll_results(ui.ctx());
 
         // Handle keyboard navigation
         self.handle_keyboard(ui.ctx());
@@ -958,6 +1120,7 @@ impl crate::components::Component for PrReviewPane {
             self.collapsed_threads.clear();
             self.collapsed_dirs.clear();
             self.diff_renderer.reset_for_file_change();
+            self.diff_renderer.close_search();
         }
 
         // Auto-fetch PR list on first render if we have a token
