@@ -910,11 +910,9 @@ impl PrReviewPane {
                                 .show(ui, |ui| {
                                     ui.horizontal(|ui| {
                                         ui.label(
-                                            RichText::new(
-                                                egui_nerdfonts::regular::TEXT_BOX,
-                                            )
-                                            .color(theme.accent_primary().gamma_multiply(0.6))
-                                            .size(typography::SM),
+                                            RichText::new(egui_nerdfonts::regular::TEXT_BOX)
+                                                .color(theme.accent_primary().gamma_multiply(0.6))
+                                                .size(typography::SM),
                                         );
                                         ui.label(
                                             RichText::new("Description")
@@ -932,9 +930,7 @@ impl PrReviewPane {
                                         ui.add_space(4.0);
                                         ui.label(
                                             RichText::new(relative_time(&pr.created_at))
-                                                .color(
-                                                    theme.text_secondary().gamma_multiply(0.7),
-                                                )
+                                                .color(theme.text_secondary().gamma_multiply(0.7))
                                                 .font(typography::proportional(typography::XS)),
                                         );
                                     });

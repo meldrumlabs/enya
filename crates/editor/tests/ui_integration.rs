@@ -1209,10 +1209,10 @@ mod workspace_tests {
 /// comment input, approve popup) is properly cleared when switching between PRs.
 mod pr_review_pane_tests {
     use super::*;
-    use enya_editor::components::pane::PrReviewPane;
-    use enya_editor::components::Component;
-    use enya_editor::ui::theme::AppTheme;
     use enya_editor::AsyncRuntime;
+    use enya_editor::components::Component;
+    use enya_editor::components::pane::PrReviewPane;
+    use enya_editor::ui::theme::AppTheme;
 
     fn test_async_runtime() -> (AsyncRuntime, tokio::runtime::Runtime) {
         let rt = tokio::runtime::Runtime::new().expect("tokio runtime");

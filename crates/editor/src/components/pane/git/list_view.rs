@@ -248,7 +248,6 @@ impl PrReviewPane {
                 }
                 refresh_btn.on_hover_text("Refresh pull requests (r)");
             }
-
         });
         ui.add_space(2.0);
         ui.painter().hline(
@@ -403,10 +402,7 @@ impl PrReviewPane {
                         ))
                     } else if is_merge_ready {
                         Some((
-                            format!(
-                                "{} Ready to merge",
-                                egui_nerdfonts::regular::CHECK_CIRCLE
-                            ),
+                            format!("{} Ready to merge", egui_nerdfonts::regular::CHECK_CIRCLE),
                             theme.diff_added_text(),
                             theme.diff_added_bg(),
                         ))

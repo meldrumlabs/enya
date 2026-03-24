@@ -746,21 +746,15 @@ impl PrReviewPane {
                                     per_user.insert(&r.user.login, &r.state);
                                 }
                             }
-                            !per_user.is_empty()
-                                && per_user.values().all(|s| *s == "APPROVED")
+                            !per_user.is_empty() && per_user.values().all(|s| *s == "APPROVED")
                         };
                         let all_checks_pass = !preloaded.check_runs.is_empty()
                             && preloaded.check_runs.iter().all(|c| {
-                                matches!(
-                                    c.conclusion.as_deref(),
-                                    Some("success") | Some("skipped")
-                                )
+                                matches!(c.conclusion.as_deref(), Some("success") | Some("skipped"))
                             });
                         let mergeable = preloaded.pr.mergeable.unwrap_or(false);
-                        let merge_ready = is_approved
-                            && all_checks_pass
-                            && mergeable
-                            && !preloaded.pr.draft;
+                        let merge_ready =
+                            is_approved && all_checks_pass && mergeable && !preloaded.pr.draft;
                         self.preloaded_merge_ready.insert(number, merge_ready);
 
                         self.preloaded_reviews
