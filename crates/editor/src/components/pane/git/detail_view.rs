@@ -320,6 +320,49 @@ impl PrReviewPane {
             });
         });
 
+        // PR title + branch info line
+        if let Some(pr) = &self.current_pr {
+            ui.add_space(2.0);
+            ui.horizontal(|ui| {
+                ui.add_space(12.0);
+                let title_max = (ui.available_width() - 24.0).max(60.0);
+                let title_galley = ui.painter().layout(
+                    pr.title.clone(),
+                    typography::proportional(typography::SM),
+                    theme.text_primary(),
+                    title_max,
+                );
+                let title_pos = ui.cursor().min;
+                let title_size = title_galley.size();
+                ui.painter().galley(title_pos, title_galley, theme.text_primary());
+                ui.allocate_space(egui::vec2(title_size.x, title_size.y));
+            });
+            ui.horizontal(|ui| {
+                ui.add_space(12.0);
+                ui.label(
+                    RichText::new(&pr.base.ref_name)
+                        .color(theme.accent_primary().gamma_multiply(0.7))
+                        .font(typography::monospace(typography::XS)),
+                );
+                ui.label(
+                    RichText::new(format!(" {} ", egui_nerdfonts::regular::ARROW_LEFT))
+                        .color(theme.text_secondary().gamma_multiply(0.5))
+                        .font(typography::proportional(typography::XS)),
+                );
+                ui.label(
+                    RichText::new(&pr.head.ref_name)
+                        .color(theme.accent_primary().gamma_multiply(0.7))
+                        .font(typography::monospace(typography::XS)),
+                );
+            });
+            ui.add_space(2.0);
+            ui.painter().hline(
+                ui.available_rect_before_wrap().x_range(),
+                ui.cursor().top(),
+                egui::Stroke::new(1.0, theme.border_subtle()),
+            );
+        }
+
         // Approve popup (floating below the Approve button)
         if self.approve_popup_open {
             let popup_id = ui.id().with("approve_popup");
@@ -896,11 +939,53 @@ impl PrReviewPane {
             .id_salt("pr_conversation")
             .auto_shrink([false, false])
             .show(ui, |ui| {
-                // PR description
+                // PR description — distinct from regular comments
                 if let Some(pr) = &self.current_pr {
                     if let Some(body) = &pr.body {
                         if !body.is_empty() {
-                            render_comment(ui, theme, &pr.user.login, &pr.created_at, body);
+                            ui.add_space(8.0);
+                            egui::Frame::new()
+                                .fill(theme.bg_elevated())
+                                .stroke(egui::Stroke::new(1.0, theme.border_subtle()))
+                                .corner_radius(6.0)
+                                .inner_margin(egui::Margin::same(12))
+                                .outer_margin(egui::Margin::symmetric(12, 0))
+                                .show(ui, |ui| {
+                                    ui.horizontal(|ui| {
+                                        ui.label(
+                                            RichText::new(
+                                                egui_nerdfonts::regular::TEXT_BOX,
+                                            )
+                                            .color(theme.accent_primary().gamma_multiply(0.6))
+                                            .size(typography::SM),
+                                        );
+                                        ui.label(
+                                            RichText::new("Description")
+                                                .color(theme.text_secondary())
+                                                .font(typography::proportional(typography::XS))
+                                                .strong(),
+                                        );
+                                        ui.add_space(8.0);
+                                        ui.label(
+                                            RichText::new(&pr.user.login)
+                                                .color(theme.text_primary())
+                                                .font(typography::proportional(typography::SM))
+                                                .strong(),
+                                        );
+                                        ui.add_space(4.0);
+                                        ui.label(
+                                            RichText::new(relative_time(&pr.created_at))
+                                                .color(
+                                                    theme.text_secondary().gamma_multiply(0.7),
+                                                )
+                                                .font(typography::proportional(typography::XS)),
+                                        );
+                                    });
+                                    ui.add_space(6.0);
+                                    crate::components::overlay::markdown_renderer::render_markdown(
+                                        ui, body, theme,
+                                    );
+                                });
                         }
                     }
                 }

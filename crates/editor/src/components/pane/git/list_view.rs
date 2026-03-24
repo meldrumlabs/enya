@@ -301,15 +301,24 @@ impl PrReviewPane {
                     );
                     cx += number_galley.size().x + 8.0;
 
-                    // Determine review state for badge
+                    // Determine review state and merge-readiness for badge
                     let review_state = self.review_state_for_pr(pr.number);
+                    let is_merge_ready = self
+                        .preloaded_merge_ready
+                        .get(&pr.number)
+                        .copied()
+                        .unwrap_or(false);
 
                     // Title — fill remaining width (leave space for right-side badges)
-                    let badge_reserve = match review_state {
-                        Some(ReviewState::Approved) => 90.0,
-                        Some(ReviewState::ChangesRequested) => 130.0,
-                        None if pr.draft => 60.0,
-                        None => 0.0,
+                    let badge_reserve = if is_merge_ready {
+                        130.0
+                    } else {
+                        match review_state {
+                            Some(ReviewState::Approved) => 90.0,
+                            Some(ReviewState::ChangesRequested) => 130.0,
+                            None if pr.draft => 60.0,
+                            None => 0.0,
+                        }
                     };
                     let title_max = (rect.right() - right_pad - cx - badge_reserve).max(40.0);
                     let title_color = if is_selected {
@@ -329,12 +338,21 @@ impl PrReviewPane {
                         title_color,
                     );
 
-                    // Status badge (top-right) — Draft, Approved, or Changes Requested
+                    // Status badge (top-right) — Draft, Merge Ready, Approved, or Changes Requested
                     let badge_info: Option<(String, egui::Color32, egui::Color32)> = if pr.draft {
                         Some((
                             "Draft".to_string(),
                             theme.text_secondary().gamma_multiply(0.8),
                             theme.border_subtle().gamma_multiply(0.8),
+                        ))
+                    } else if is_merge_ready {
+                        Some((
+                            format!(
+                                "{} Ready to merge",
+                                egui_nerdfonts::regular::CHECK_CIRCLE
+                            ),
+                            theme.diff_added_text(),
+                            theme.diff_added_bg(),
                         ))
                     } else {
                         match review_state {

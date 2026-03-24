@@ -128,6 +128,8 @@ pub struct PrReviewPane {
     reviews: Vec<PrReview>,
     /// Preloaded review data keyed by PR number (for list view badges).
     preloaded_reviews: FxHashMap<u32, Vec<PrReview>>,
+    /// Preloaded merge-readiness: all checks pass, approved, mergeable, not draft.
+    preloaded_merge_ready: FxHashMap<u32, bool>,
     selected_file_index: usize,
     active_tab: DetailTab,
     detail_loading: bool,
@@ -237,6 +239,7 @@ impl PrReviewPane {
             check_runs: Vec::new(),
             reviews: Vec::new(),
             preloaded_reviews: FxHashMap::default(),
+            preloaded_merge_ready: FxHashMap::default(),
             selected_file_index: 0,
             active_tab: DetailTab::Files,
             detail_loading: false,
@@ -703,7 +706,19 @@ impl PrReviewPane {
             self.list_loading = false;
             match result {
                 Ok(prs) => {
+                    // Preserve selection by PR number across refresh
+                    let selected_number = self
+                        .pull_requests
+                        .get(self.selected_pr_index)
+                        .map(|pr| pr.number);
                     self.pull_requests = prs;
+                    if let Some(number) = selected_number {
+                        self.selected_pr_index = self
+                            .pull_requests
+                            .iter()
+                            .position(|pr| pr.number == number)
+                            .unwrap_or(0);
+                    }
                     self.list_error = None;
                     self.last_refreshed = Some(crate::util::Instant::now());
                     // Kick off preloading for the top PRs
@@ -726,6 +741,32 @@ impl PrReviewPane {
             if let Some((number, result)) = guard.take() {
                 match result {
                     Ok(preloaded) => {
+                        // Compute merge-readiness before caching
+                        let is_approved = {
+                            let mut per_user: rustc_hash::FxHashMap<&str, &str> =
+                                rustc_hash::FxHashMap::default();
+                            for r in &preloaded.reviews {
+                                if r.state == "APPROVED" || r.state == "CHANGES_REQUESTED" {
+                                    per_user.insert(&r.user.login, &r.state);
+                                }
+                            }
+                            !per_user.is_empty()
+                                && per_user.values().all(|s| *s == "APPROVED")
+                        };
+                        let all_checks_pass = !preloaded.check_runs.is_empty()
+                            && preloaded.check_runs.iter().all(|c| {
+                                matches!(
+                                    c.conclusion.as_deref(),
+                                    Some("success") | Some("skipped")
+                                )
+                            });
+                        let mergeable = preloaded.pr.mergeable.unwrap_or(false);
+                        let merge_ready = is_approved
+                            && all_checks_pass
+                            && mergeable
+                            && !preloaded.pr.draft;
+                        self.preloaded_merge_ready.insert(number, merge_ready);
+
                         self.preloaded_reviews
                             .insert(number, preloaded.reviews.clone());
                         self.preload_cache.insert(number, preloaded);

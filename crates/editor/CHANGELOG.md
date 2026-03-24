@@ -7,6 +7,7 @@ All notable changes to the Enya editor will be documented in this file.
 ### Fixed
 
 - **Stale review status when switching PRs**: Opening a different PR in the review pane no longer carries over the "Review submitted successfully" message, draft comments, comment input, or other per-review state from the previous PR.
+- **PR list selection preserved on refresh**: Refreshing the PR list now preserves the selected PR by number instead of resetting to the top.
 
 ### Changed
 
@@ -19,6 +20,9 @@ All notable changes to the Enya editor will be documented in this file.
 ### Added
 
 - **PR list refresh button**: The PR list footer now includes a clickable refresh button with a spinner during loading, a "last updated" timestamp that auto-updates, and a styled Retry button on error states.
+- **PR title and branch info in detail header**: The detail view now shows the PR title and `base ← head` branch names below the tab bar for quick context.
+- **"Ready to merge" badge**: PRs in the list view show a green "Ready to merge" badge when all checks pass, the PR is approved, and it's mergeable with no conflicts.
+- **Enhanced PR description display**: The Conversation tab now renders the PR description as a distinct "Description" section with an icon header, separate from regular comment bubbles.
 - **Open PR in GitHub**: Added an external-link button next to the PR number in the detail view header that opens the pull request in the browser.
 - **Copy file contents**: Added a copy button in the diff file header that copies the full new-side file contents to the clipboard.
 - **GitHub avatar images**: Comment threads now display real GitHub profile avatars (fetched asynchronously) instead of letter-in-circle placeholders. Falls back to the letter placeholder while loading or if the fetch fails.
