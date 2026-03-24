@@ -46,7 +46,7 @@ just install
 just run
 ```
 
-Requires [Rust](https://rustup.rs/) 1.88+ and [just](https://github.com/casey/just). See [CONTRIBUTING.md](CONTRIBUTING.md) for the full development setup, commands, and feature flags.
+Requires [Rust](https://rustup.rs/) 1.88+ and [just](https://github.com/casey/just). See [CONTRIBUTING.md](CONTRIBUTING.md) for the full development setup, commands, and feature flags. Linux users should also see the [Linux install guide](docs/LINUX_INSTALL.md) for required system packages.
 
 ## Acknowledgements
 
