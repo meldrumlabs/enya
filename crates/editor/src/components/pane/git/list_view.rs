@@ -70,6 +70,26 @@ impl PrReviewPane {
                 "Failed to load PRs",
                 error,
             );
+            ui.add_space(12.0);
+            ui.vertical_centered(|ui| {
+                let retry = ui.add(
+                    egui::Button::new(
+                        RichText::new(format!("{} Retry", egui_nerdfonts::regular::REFRESH))
+                            .color(theme.accent_primary())
+                            .font(typography::proportional(typography::SM)),
+                    )
+                    .fill(theme.accent_primary().gamma_multiply(0.1))
+                    .stroke(egui::Stroke::new(
+                        1.0,
+                        theme.accent_primary().gamma_multiply(0.3),
+                    ))
+                    .corner_radius(4.0),
+                );
+                if retry.clicked() {
+                    self.list_error = None;
+                    self.fetch_pr_list();
+                }
+            });
             return;
         }
 
@@ -475,7 +495,7 @@ impl PrReviewPane {
             self.open_pr(number);
         }
 
-        // Keybinding hints footer
+        // ── Footer: count + refresh button + last updated + keybinding hints ──
         let muted = theme.text_secondary();
         ui.painter().hline(
             ui.available_rect_before_wrap().x_range(),
@@ -500,11 +520,59 @@ impl PrReviewPane {
                     .font(typography::proportional(typography::SM)),
             );
 
+            ui.add_space(8.0);
+
+            // Refresh button — spinner while loading, icon otherwise
+            if self.list_loading {
+                ui.spinner();
+            } else {
+                let icon_color = if ui.rect_contains_pointer(ui.cursor()) {
+                    theme.accent_primary()
+                } else {
+                    muted.gamma_multiply(0.7)
+                };
+                let refresh_btn = ui.add(
+                    egui::Button::new(
+                        RichText::new(egui_nerdfonts::regular::REFRESH)
+                            .size(typography::SM)
+                            .color(icon_color),
+                    )
+                    .fill(egui::Color32::TRANSPARENT)
+                    .stroke(egui::Stroke::NONE),
+                );
+                if refresh_btn.clicked() {
+                    self.fetch_pr_list();
+                }
+                refresh_btn.on_hover_text("Refresh pull requests (r)");
+            }
+
+            // "Updated Xm ago" label
+            if let Some(ref last) = self.last_refreshed {
+                let elapsed = last.elapsed().as_secs();
+                let ago = if elapsed < 5 {
+                    "just now".to_string()
+                } else if elapsed < 60 {
+                    format!("{elapsed}s ago")
+                } else if elapsed < 3600 {
+                    format!("{}m ago", elapsed / 60)
+                } else {
+                    format!("{}h ago", elapsed / 3600)
+                };
+                ui.label(
+                    RichText::new(ago)
+                        .color(muted.gamma_multiply(0.5))
+                        .font(typography::proportional(typography::XS)),
+                );
+                // Request repaint so the "ago" label stays fresh
+                ui.ctx()
+                    .request_repaint_after(std::time::Duration::from_secs(30));
+            }
+
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.add_space(16.0);
                 ui.label(
                     RichText::new(
-                        "/ filter \u{2022} j/k navigate \u{2022} Enter open \u{2022} r refresh \u{2022} g/G top/bottom",
+                        "/ filter \u{2022} j/k navigate \u{2022} Enter open \u{2022} g/G top/bottom",
                     )
                     .color(muted.gamma_multiply(0.7))
                     .font(typography::proportional(typography::XS)),

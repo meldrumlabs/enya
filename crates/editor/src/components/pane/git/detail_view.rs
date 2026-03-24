@@ -409,13 +409,7 @@ impl PrReviewPane {
             self.cached_threads.clear();
             self.issue_comments.clear();
             self.check_runs.clear();
-            self.draft_comments.clear();
-            self.draft_body.clear();
-            self.commenting_line = None;
-            self.comment_input.clear();
-            self.submit_error = None;
-            self.submit_success = None;
-            self.approve_popup_open = false;
+            self.clear_review_state();
             return;
         }
         if let Some(event) = clicked_event {

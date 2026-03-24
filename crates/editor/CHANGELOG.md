@@ -4,6 +4,10 @@ All notable changes to the Enya editor will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Stale review status when switching PRs**: Opening a different PR in the review pane no longer carries over the "Review submitted successfully" message, draft comments, comment input, or other per-review state from the previous PR.
+
 ### Changed
 
 - **Approve with optional message**: The Approve button now opens a dropdown popup with an optional message field, allowing reviewers to include a comment when approving a PR.
@@ -14,6 +18,7 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Added
 
+- **PR list refresh button**: The PR list footer now includes a clickable refresh button with a spinner during loading, a "last updated" timestamp that auto-updates, and a styled Retry button on error states.
 - **Open PR in GitHub**: Added an external-link button next to the PR number in the detail view header that opens the pull request in the browser.
 - **Copy file contents**: Added a copy button in the diff file header that copies the full new-side file contents to the clipboard.
 - **GitHub avatar images**: Comment threads now display real GitHub profile avatars (fetched asynchronously) instead of letter-in-circle placeholders. Falls back to the letter placeholder while loading or if the fetch fails.

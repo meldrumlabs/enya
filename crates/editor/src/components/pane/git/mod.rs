@@ -107,6 +107,8 @@ pub struct PrReviewPane {
     // ── List view state ──
     pull_requests: Vec<PullRequest>,
     selected_pr_index: usize,
+    /// When the PR list was last successfully fetched.
+    last_refreshed: Option<crate::util::Instant>,
     /// Whether to scroll the list to the selected PR (set on keyboard nav, cleared after render).
     list_scroll_to_selected: bool,
     list_loading: bool,
@@ -221,6 +223,7 @@ impl PrReviewPane {
             view: PrReviewView::List,
             pull_requests: Vec::new(),
             selected_pr_index: 0,
+            last_refreshed: None,
             list_scroll_to_selected: false,
             list_loading: false,
             list_error: None,
@@ -315,6 +318,43 @@ impl PrReviewPane {
             side: "RIGHT".to_string(),
             body,
         });
+    }
+
+    // ── Test helpers ──
+
+    /// Whether a review success message is displayed.
+    #[doc(hidden)]
+    pub fn has_submit_success(&self) -> bool {
+        self.submit_success.is_some()
+    }
+
+    /// Whether a review error message is displayed.
+    #[doc(hidden)]
+    pub fn has_submit_error(&self) -> bool {
+        self.submit_error.is_some()
+    }
+
+    /// Whether a comment is being drafted on a specific line.
+    #[doc(hidden)]
+    pub fn has_commenting_line(&self) -> bool {
+        self.commenting_line.is_some()
+    }
+
+    /// Whether the approve popup is open.
+    #[doc(hidden)]
+    pub fn is_approve_popup_open(&self) -> bool {
+        self.approve_popup_open
+    }
+
+    /// Inject review state for testing. Simulates a completed review submission.
+    #[doc(hidden)]
+    pub fn simulate_submitted_review(&mut self) {
+        self.submit_success = Some("Review submitted successfully".to_string());
+        self.draft_body = "test body".to_string();
+        self.commenting_line = Some((0, 10));
+        self.comment_input = "in-progress comment".to_string();
+        self.collapsed_threads.insert(("file.rs".to_string(), 5));
+        self.approve_popup_open = true;
     }
 
     /// Rebuild the cached comment threads from `review_comments`.
@@ -425,7 +465,21 @@ impl PrReviewPane {
     }
 
     /// Navigate to a specific PR by number. Uses preloaded data if available.
+    /// Clear per-PR review and comment state (drafts, success/error messages, UI toggles).
+    fn clear_review_state(&mut self) {
+        self.submit_success = None;
+        self.submit_error = None;
+        self.commenting_line = None;
+        self.comment_input.clear();
+        self.draft_comments.clear();
+        self.draft_body.clear();
+        self.collapsed_threads.clear();
+        self.approve_popup_open = false;
+    }
+
     pub fn open_pr(&mut self, number: u32) {
+        self.clear_review_state();
+
         // Check preload cache first
         if let Some(cached) = self.preload_cache.remove(&number) {
             self.view = PrReviewView::Detail;
@@ -651,6 +705,7 @@ impl PrReviewPane {
                 Ok(prs) => {
                     self.pull_requests = prs;
                     self.list_error = None;
+                    self.last_refreshed = Some(crate::util::Instant::now());
                     // Kick off preloading for the top PRs
                     self.preload_started = false;
                 }
@@ -1117,7 +1172,7 @@ impl crate::components::Component for PrReviewPane {
             self.cached_threads.clear();
             self.issue_comments.clear();
             self.check_runs.clear();
-            self.collapsed_threads.clear();
+            self.clear_review_state();
             self.collapsed_dirs.clear();
             self.diff_renderer.reset_for_file_change();
             self.diff_renderer.close_search();
