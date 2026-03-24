@@ -126,6 +126,8 @@ pub struct PrReviewPane {
     reviews: Vec<PrReview>,
     /// Preloaded review data keyed by PR number (for list view badges).
     preloaded_reviews: FxHashMap<u32, Vec<PrReview>>,
+    /// Preloaded merge-readiness: all checks pass, approved, mergeable, not draft.
+    preloaded_merge_ready: FxHashMap<u32, bool>,
     selected_file_index: usize,
     active_tab: DetailTab,
     detail_loading: bool,
@@ -234,6 +236,7 @@ impl PrReviewPane {
             check_runs: Vec::new(),
             reviews: Vec::new(),
             preloaded_reviews: FxHashMap::default(),
+            preloaded_merge_ready: FxHashMap::default(),
             selected_file_index: 0,
             active_tab: DetailTab::Files,
             detail_loading: false,
@@ -315,6 +318,43 @@ impl PrReviewPane {
             side: "RIGHT".to_string(),
             body,
         });
+    }
+
+    // ── Test helpers ──
+
+    /// Whether a review success message is displayed.
+    #[doc(hidden)]
+    pub fn has_submit_success(&self) -> bool {
+        self.submit_success.is_some()
+    }
+
+    /// Whether a review error message is displayed.
+    #[doc(hidden)]
+    pub fn has_submit_error(&self) -> bool {
+        self.submit_error.is_some()
+    }
+
+    /// Whether a comment is being drafted on a specific line.
+    #[doc(hidden)]
+    pub fn has_commenting_line(&self) -> bool {
+        self.commenting_line.is_some()
+    }
+
+    /// Whether the approve popup is open.
+    #[doc(hidden)]
+    pub fn is_approve_popup_open(&self) -> bool {
+        self.approve_popup_open
+    }
+
+    /// Inject review state for testing. Simulates a completed review submission.
+    #[doc(hidden)]
+    pub fn simulate_submitted_review(&mut self) {
+        self.submit_success = Some("Review submitted successfully".to_string());
+        self.draft_body = "test body".to_string();
+        self.commenting_line = Some((0, 10));
+        self.comment_input = "in-progress comment".to_string();
+        self.collapsed_threads.insert(("file.rs".to_string(), 5));
+        self.approve_popup_open = true;
     }
 
     /// Rebuild the cached comment threads from `review_comments`.
@@ -425,7 +465,21 @@ impl PrReviewPane {
     }
 
     /// Navigate to a specific PR by number. Uses preloaded data if available.
+    /// Clear per-PR review and comment state (drafts, success/error messages, UI toggles).
+    fn clear_review_state(&mut self) {
+        self.submit_success = None;
+        self.submit_error = None;
+        self.commenting_line = None;
+        self.comment_input.clear();
+        self.draft_comments.clear();
+        self.draft_body.clear();
+        self.collapsed_threads.clear();
+        self.approve_popup_open = false;
+    }
+
     pub fn open_pr(&mut self, number: u32) {
+        self.clear_review_state();
+
         // Check preload cache first
         if let Some(cached) = self.preload_cache.remove(&number) {
             self.view = PrReviewView::Detail;
@@ -649,7 +703,19 @@ impl PrReviewPane {
             self.list_loading = false;
             match result {
                 Ok(prs) => {
+                    // Preserve selection by PR number across refresh
+                    let selected_number = self
+                        .pull_requests
+                        .get(self.selected_pr_index)
+                        .map(|pr| pr.number);
                     self.pull_requests = prs;
+                    if let Some(number) = selected_number {
+                        self.selected_pr_index = self
+                            .pull_requests
+                            .iter()
+                            .position(|pr| pr.number == number)
+                            .unwrap_or(0);
+                    }
                     self.list_error = None;
                     // Kick off preloading for the top PRs
                     self.preload_started = false;
@@ -671,6 +737,32 @@ impl PrReviewPane {
             if let Some((number, result)) = guard.take() {
                 match result {
                     Ok(preloaded) => {
+                        // Compute merge-readiness before caching
+                        let is_approved = {
+                            let mut per_user: rustc_hash::FxHashMap<&str, &str> =
+                                rustc_hash::FxHashMap::default();
+                            for r in &preloaded.reviews {
+                                if r.state == "APPROVED" || r.state == "CHANGES_REQUESTED" {
+                                    per_user.insert(&r.user.login, &r.state);
+                                }
+                            }
+                            !per_user.is_empty()
+                                && per_user.values().all(|s| *s == "APPROVED")
+                        };
+                        let all_checks_pass = !preloaded.check_runs.is_empty()
+                            && preloaded.check_runs.iter().all(|c| {
+                                matches!(
+                                    c.conclusion.as_deref(),
+                                    Some("success") | Some("skipped")
+                                )
+                            });
+                        let mergeable = preloaded.pr.mergeable.unwrap_or(false);
+                        let merge_ready = is_approved
+                            && all_checks_pass
+                            && mergeable
+                            && !preloaded.pr.draft;
+                        self.preloaded_merge_ready.insert(number, merge_ready);
+
                         self.preloaded_reviews
                             .insert(number, preloaded.reviews.clone());
                         self.preload_cache.insert(number, preloaded);
@@ -1117,7 +1209,7 @@ impl crate::components::Component for PrReviewPane {
             self.cached_threads.clear();
             self.issue_comments.clear();
             self.check_runs.clear();
-            self.collapsed_threads.clear();
+            self.clear_review_state();
             self.collapsed_dirs.clear();
             self.diff_renderer.reset_for_file_change();
             self.diff_renderer.close_search();

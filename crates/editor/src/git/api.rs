@@ -39,6 +39,9 @@ pub struct PullRequest {
     pub deletions: u32,
     #[serde(default)]
     pub changed_files: u32,
+    /// Whether the PR can be merged cleanly. `None` when GitHub hasn't computed it yet.
+    #[serde(default)]
+    pub mergeable: Option<bool>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

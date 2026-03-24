@@ -70,6 +70,26 @@ impl PrReviewPane {
                 "Failed to load PRs",
                 error,
             );
+            ui.add_space(12.0);
+            ui.vertical_centered(|ui| {
+                let retry = ui.add(
+                    egui::Button::new(
+                        RichText::new(format!("{} Retry", egui_nerdfonts::regular::REFRESH))
+                            .color(theme.accent_primary())
+                            .font(typography::proportional(typography::SM)),
+                    )
+                    .fill(theme.accent_primary().gamma_multiply(0.1))
+                    .stroke(egui::Stroke::new(
+                        1.0,
+                        theme.accent_primary().gamma_multiply(0.3),
+                    ))
+                    .corner_radius(4.0),
+                );
+                if retry.clicked() {
+                    self.list_error = None;
+                    self.fetch_pr_list();
+                }
+            });
             return;
         }
 
@@ -184,10 +204,66 @@ impl PrReviewPane {
             });
         }
 
-        // PR list
+        // ── Header bar: count + refresh button ──
+        let muted = theme.text_secondary();
+        ui.horizontal(|ui| {
+            ui.add_space(16.0);
+            let count_label = if self.filter_query.is_empty() {
+                format!("{} open", self.pull_requests.len())
+            } else {
+                format!(
+                    "{}/{} matched",
+                    filtered_indices.len(),
+                    self.pull_requests.len()
+                )
+            };
+            ui.label(
+                RichText::new(count_label)
+                    .color(muted)
+                    .font(typography::proportional(typography::SM)),
+            );
+
+            ui.add_space(4.0);
+
+            // Refresh button — spinner while loading, icon otherwise
+            if self.list_loading {
+                ui.spinner();
+            } else {
+                let icon_color = if ui.rect_contains_pointer(ui.cursor()) {
+                    theme.accent_primary()
+                } else {
+                    muted.gamma_multiply(0.7)
+                };
+                let refresh_btn = ui.add(
+                    egui::Button::new(
+                        RichText::new(egui_nerdfonts::regular::REFRESH)
+                            .size(typography::SM)
+                            .color(icon_color),
+                    )
+                    .fill(egui::Color32::TRANSPARENT)
+                    .stroke(egui::Stroke::NONE),
+                );
+                if refresh_btn.clicked() {
+                    self.fetch_pr_list();
+                }
+                refresh_btn.on_hover_text("Refresh pull requests (r)");
+            }
+
+        });
+        ui.add_space(2.0);
+        ui.painter().hline(
+            ui.available_rect_before_wrap().x_range(),
+            ui.cursor().top(),
+            egui::Stroke::new(1.0, theme.border_subtle()),
+        );
+
+        // PR list — reserve space for the footer keybinding hints
+        let footer_height = 32.0;
+        let scroll_max = (ui.available_height() - footer_height).max(40.0);
         let mut clicked_pr_number: Option<u32> = None;
         egui::ScrollArea::vertical()
             .id_salt("pr_list_scroll")
+            .max_height(scroll_max)
             .auto_shrink([false, false])
             .show(ui, |ui| {
                 for (display_idx, &pr_idx) in filtered_indices.iter().enumerate() {
@@ -281,15 +357,24 @@ impl PrReviewPane {
                     );
                     cx += number_galley.size().x + 8.0;
 
-                    // Determine review state for badge
+                    // Determine review state and merge-readiness for badge
                     let review_state = self.review_state_for_pr(pr.number);
+                    let is_merge_ready = self
+                        .preloaded_merge_ready
+                        .get(&pr.number)
+                        .copied()
+                        .unwrap_or(false);
 
                     // Title — fill remaining width (leave space for right-side badges)
-                    let badge_reserve = match review_state {
-                        Some(ReviewState::Approved) => 90.0,
-                        Some(ReviewState::ChangesRequested) => 130.0,
-                        None if pr.draft => 60.0,
-                        None => 0.0,
+                    let badge_reserve = if is_merge_ready {
+                        130.0
+                    } else {
+                        match review_state {
+                            Some(ReviewState::Approved) => 90.0,
+                            Some(ReviewState::ChangesRequested) => 130.0,
+                            None if pr.draft => 60.0,
+                            None => 0.0,
+                        }
                     };
                     let title_max = (rect.right() - right_pad - cx - badge_reserve).max(40.0);
                     let title_color = if is_selected {
@@ -309,12 +394,21 @@ impl PrReviewPane {
                         title_color,
                     );
 
-                    // Status badge (top-right) — Draft, Approved, or Changes Requested
+                    // Status badge (top-right) — Draft, Merge Ready, Approved, or Changes Requested
                     let badge_info: Option<(String, egui::Color32, egui::Color32)> = if pr.draft {
                         Some((
                             "Draft".to_string(),
                             theme.text_secondary().gamma_multiply(0.8),
                             theme.border_subtle().gamma_multiply(0.8),
+                        ))
+                    } else if is_merge_ready {
+                        Some((
+                            format!(
+                                "{} Ready to merge",
+                                egui_nerdfonts::regular::CHECK_CIRCLE
+                            ),
+                            theme.diff_added_text(),
+                            theme.diff_added_bg(),
                         ))
                     } else {
                         match review_state {
@@ -475,7 +569,7 @@ impl PrReviewPane {
             self.open_pr(number);
         }
 
-        // Keybinding hints footer
+        // ── Footer: keybinding hints ──
         let muted = theme.text_secondary();
         ui.painter().hline(
             ui.available_rect_before_wrap().x_range(),
@@ -485,33 +579,15 @@ impl PrReviewPane {
         ui.add_space(6.0);
         ui.horizontal(|ui| {
             ui.add_space(16.0);
-            let count_label = if self.filter_query.is_empty() {
-                format!("{} open", self.pull_requests.len())
-            } else {
-                format!(
-                    "{}/{} matched",
-                    filtered_indices.len(),
-                    self.pull_requests.len()
-                )
-            };
             ui.label(
-                RichText::new(count_label)
-                    .color(muted)
-                    .font(typography::proportional(typography::SM)),
+                RichText::new(
+                    "/ filter \u{2022} j/k navigate \u{2022} Enter open \u{2022} g/G top/bottom",
+                )
+                .color(muted.gamma_multiply(0.7))
+                .font(typography::proportional(typography::XS)),
             );
-
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.add_space(16.0);
-                ui.label(
-                    RichText::new(
-                        "/ filter \u{2022} j/k navigate \u{2022} Enter open \u{2022} r refresh \u{2022} g/G top/bottom",
-                    )
-                    .color(muted.gamma_multiply(0.7))
-                    .font(typography::proportional(typography::XS)),
-                );
-            });
         });
-        ui.add_space(8.0);
+        ui.add_space(6.0);
     }
 }
 

@@ -1202,3 +1202,92 @@ mod workspace_tests {
         harness.step();
     }
 }
+
+/// Tests for the PR review pane's state management.
+///
+/// Verifies that per-PR review state (success/error messages, draft comments,
+/// comment input, approve popup) is properly cleared when switching between PRs.
+mod pr_review_pane_tests {
+    use super::*;
+    use enya_editor::components::pane::PrReviewPane;
+    use enya_editor::components::Component;
+    use enya_editor::ui::theme::AppTheme;
+    use enya_editor::AsyncRuntime;
+
+    fn test_async_runtime() -> (AsyncRuntime, tokio::runtime::Runtime) {
+        let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
+        let async_rt = AsyncRuntime::new(rt.handle().clone());
+        (async_rt, rt)
+    }
+
+    /// Test that opening a PR clears stale review state from a previous PR.
+    #[test]
+    fn test_open_pr_clears_review_state() {
+        let (async_rt, _rt) = test_async_runtime();
+        let mut pane = PrReviewPane::new("owner", "repo", async_rt);
+        pane.set_theme(AppTheme::default());
+
+        // Simulate having submitted a review on a previous PR
+        pane.simulate_submitted_review();
+        pane.set_draft_body("old review body".to_string());
+        pane.add_draft_comment("file.rs".to_string(), 42, "old comment".to_string());
+
+        assert!(pane.has_submit_success());
+        assert!(pane.is_approve_popup_open());
+        assert!(pane.has_commenting_line());
+
+        // Open a different PR (no token set, so no network call)
+        pane.open_pr(999);
+
+        // All per-PR review state should be cleared
+        assert!(!pane.has_submit_success());
+        assert!(!pane.has_submit_error());
+        assert!(!pane.has_commenting_line());
+        assert!(!pane.is_approve_popup_open());
+    }
+
+    /// Test that the PR review pane renders without panicking after state clear.
+    #[test]
+    fn test_pr_review_pane_renders_after_state_clear() {
+        let (async_rt, _rt) = test_async_runtime();
+        let mut pane = PrReviewPane::new("owner", "repo", async_rt);
+        pane.set_theme(AppTheme::default());
+
+        // Dirty the state, then open a new PR to clear it
+        pane.simulate_submitted_review();
+        pane.open_pr(123);
+
+        let mut harness = Harness::new_state(
+            |ctx: &egui::Context, pane: &mut PrReviewPane| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    Component::show(pane, ui);
+                });
+            },
+            pane,
+        );
+
+        // Should render without panicking
+        harness.step();
+        harness.step();
+
+        // Success message should not be visible
+        assert!(!harness.state().has_submit_success());
+    }
+
+    /// Test that opening the same PR number still clears state.
+    #[test]
+    fn test_open_same_pr_clears_state() {
+        let (async_rt, _rt) = test_async_runtime();
+        let mut pane = PrReviewPane::new("owner", "repo", async_rt);
+        pane.set_theme(AppTheme::default());
+
+        pane.simulate_submitted_review();
+        assert!(pane.has_submit_success());
+
+        // Re-open the same PR number
+        pane.open_pr(1);
+
+        assert!(!pane.has_submit_success());
+        assert!(!pane.is_approve_popup_open());
+    }
+}

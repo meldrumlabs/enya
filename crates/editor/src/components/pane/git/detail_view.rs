@@ -409,13 +409,7 @@ impl PrReviewPane {
             self.cached_threads.clear();
             self.issue_comments.clear();
             self.check_runs.clear();
-            self.draft_comments.clear();
-            self.draft_body.clear();
-            self.commenting_line = None;
-            self.comment_input.clear();
-            self.submit_error = None;
-            self.submit_success = None;
-            self.approve_popup_open = false;
+            self.clear_review_state();
             return;
         }
         if let Some(event) = clicked_event {
@@ -902,11 +896,53 @@ impl PrReviewPane {
             .id_salt("pr_conversation")
             .auto_shrink([false, false])
             .show(ui, |ui| {
-                // PR description
+                // PR description — distinct from regular comments
                 if let Some(pr) = &self.current_pr {
                     if let Some(body) = &pr.body {
                         if !body.is_empty() {
-                            render_comment(ui, theme, &pr.user.login, &pr.created_at, body);
+                            ui.add_space(8.0);
+                            egui::Frame::new()
+                                .fill(theme.bg_elevated())
+                                .stroke(egui::Stroke::new(1.0, theme.border_subtle()))
+                                .corner_radius(6.0)
+                                .inner_margin(egui::Margin::same(12))
+                                .outer_margin(egui::Margin::symmetric(12, 0))
+                                .show(ui, |ui| {
+                                    ui.horizontal(|ui| {
+                                        ui.label(
+                                            RichText::new(
+                                                egui_nerdfonts::regular::TEXT_BOX,
+                                            )
+                                            .color(theme.accent_primary().gamma_multiply(0.6))
+                                            .size(typography::SM),
+                                        );
+                                        ui.label(
+                                            RichText::new("Description")
+                                                .color(theme.text_secondary())
+                                                .font(typography::proportional(typography::XS))
+                                                .strong(),
+                                        );
+                                        ui.add_space(8.0);
+                                        ui.label(
+                                            RichText::new(&pr.user.login)
+                                                .color(theme.text_primary())
+                                                .font(typography::proportional(typography::SM))
+                                                .strong(),
+                                        );
+                                        ui.add_space(4.0);
+                                        ui.label(
+                                            RichText::new(relative_time(&pr.created_at))
+                                                .color(
+                                                    theme.text_secondary().gamma_multiply(0.7),
+                                                )
+                                                .font(typography::proportional(typography::XS)),
+                                        );
+                                    });
+                                    ui.add_space(6.0);
+                                    crate::components::overlay::markdown_renderer::render_markdown(
+                                        ui, body, theme,
+                                    );
+                                });
                         }
                     }
                 }
