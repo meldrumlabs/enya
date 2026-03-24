@@ -1,5 +1,5 @@
 [workspace.package]
-version = "0.1.1"
+version = "0.1.2"
 edition = "2024"
 rust-version = "1.88"
 authors = ["Meldrum Labs"]
@@ -51,20 +51,20 @@ exclude = [
 ]
 
 [workspace.dependencies]
-enya-promql = { path = "crates/promql", version = "0.1.1" }
-enya-logql = { path = "crates/logql", version = "0.1.1" }
-enya-build-tools = { path = "crates/build-tools", version = "0.1.1" }
-enya-build-info = { path = "crates/build-info", version = "0.1.1" }
-enya-client = { path = "crates/client", version = "0.1.1" }
-enya-analyzer = { path = "crates/analyzer", version = "0.1.1" }
-enya-ai = { path = "crates/ai", version = "0.1.1" }
-enya-search = { path = "crates/search", version = "0.1.1" }
-enya-datafusion = { path = "crates/datafusion", version = "0.1.1" }
-enya-plugin = { path = "crates/plugin", version = "0.1.1" }
-enya-config = { path = "crates/config", version = "0.1.1" }
-enya-headless = { path = "crates/headless", version = "0.1.1" }
-enya-agent = { path = "crates/agent", version = "0.1.1" }
-egui_ghostty = { path = "crates/egui_ghostty", version = "0.1.1" }
+enya-promql = { path = "crates/promql", version = "0.1.2" }
+enya-logql = { path = "crates/logql", version = "0.1.2" }
+enya-build-tools = { path = "crates/build-tools", version = "0.1.2" }
+enya-build-info = { path = "crates/build-info", version = "0.1.2" }
+enya-client = { path = "crates/client", version = "0.1.2" }
+enya-analyzer = { path = "crates/analyzer", version = "0.1.2" }
+enya-ai = { path = "crates/ai", version = "0.1.2" }
+enya-search = { path = "crates/search", version = "0.1.2" }
+enya-datafusion = { path = "crates/datafusion", version = "0.1.2" }
+enya-plugin = { path = "crates/plugin", version = "0.1.2" }
+enya-config = { path = "crates/config", version = "0.1.2" }
+enya-headless = { path = "crates/headless", version = "0.1.2" }
+enya-agent = { path = "crates/agent", version = "0.1.2" }
+egui_ghostty = { path = "crates/egui_ghostty", version = "0.1.2" }
 
 # We bundle our own fonts (Departure Mono, Maple Mono, etc.) so disable default_fonts
 egui = { version = "0.33.3", default-features = false }

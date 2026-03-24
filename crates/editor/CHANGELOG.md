@@ -4,6 +4,8 @@ All notable changes to the Enya editor will be documented in this file.
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-03-24
+
 ### Fixed
 
 - **Stale review status when switching PRs**: Opening a different PR in the review pane no longer carries over the "Review submitted successfully" message, draft comments, comment input, or other per-review state from the previous PR.
