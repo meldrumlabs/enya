@@ -107,8 +107,6 @@ pub struct PrReviewPane {
     // ── List view state ──
     pull_requests: Vec<PullRequest>,
     selected_pr_index: usize,
-    /// When the PR list was last successfully fetched.
-    last_refreshed: Option<crate::util::Instant>,
     /// Whether to scroll the list to the selected PR (set on keyboard nav, cleared after render).
     list_scroll_to_selected: bool,
     list_loading: bool,
@@ -225,7 +223,6 @@ impl PrReviewPane {
             view: PrReviewView::List,
             pull_requests: Vec::new(),
             selected_pr_index: 0,
-            last_refreshed: None,
             list_scroll_to_selected: false,
             list_loading: false,
             list_error: None,
@@ -720,7 +717,6 @@ impl PrReviewPane {
                             .unwrap_or(0);
                     }
                     self.list_error = None;
-                    self.last_refreshed = Some(crate::util::Instant::now());
                     // Kick off preloading for the top PRs
                     self.preload_started = false;
                 }

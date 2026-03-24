@@ -320,49 +320,6 @@ impl PrReviewPane {
             });
         });
 
-        // PR title + branch info line
-        if let Some(pr) = &self.current_pr {
-            ui.add_space(2.0);
-            ui.horizontal(|ui| {
-                ui.add_space(12.0);
-                let title_max = (ui.available_width() - 24.0).max(60.0);
-                let title_galley = ui.painter().layout(
-                    pr.title.clone(),
-                    typography::proportional(typography::SM),
-                    theme.text_primary(),
-                    title_max,
-                );
-                let title_pos = ui.cursor().min;
-                let title_size = title_galley.size();
-                ui.painter().galley(title_pos, title_galley, theme.text_primary());
-                ui.allocate_space(egui::vec2(title_size.x, title_size.y));
-            });
-            ui.horizontal(|ui| {
-                ui.add_space(12.0);
-                ui.label(
-                    RichText::new(&pr.base.ref_name)
-                        .color(theme.accent_primary().gamma_multiply(0.7))
-                        .font(typography::monospace(typography::XS)),
-                );
-                ui.label(
-                    RichText::new(format!(" {} ", egui_nerdfonts::regular::ARROW_LEFT))
-                        .color(theme.text_secondary().gamma_multiply(0.5))
-                        .font(typography::proportional(typography::XS)),
-                );
-                ui.label(
-                    RichText::new(&pr.head.ref_name)
-                        .color(theme.accent_primary().gamma_multiply(0.7))
-                        .font(typography::monospace(typography::XS)),
-                );
-            });
-            ui.add_space(2.0);
-            ui.painter().hline(
-                ui.available_rect_before_wrap().x_range(),
-                ui.cursor().top(),
-                egui::Stroke::new(1.0, theme.border_subtle()),
-            );
-        }
-
         // Approve popup (floating below the Approve button)
         if self.approve_popup_open {
             let popup_id = ui.id().with("approve_popup");

@@ -204,10 +204,66 @@ impl PrReviewPane {
             });
         }
 
-        // PR list
+        // ── Header bar: count + refresh button ──
+        let muted = theme.text_secondary();
+        ui.horizontal(|ui| {
+            ui.add_space(16.0);
+            let count_label = if self.filter_query.is_empty() {
+                format!("{} open", self.pull_requests.len())
+            } else {
+                format!(
+                    "{}/{} matched",
+                    filtered_indices.len(),
+                    self.pull_requests.len()
+                )
+            };
+            ui.label(
+                RichText::new(count_label)
+                    .color(muted)
+                    .font(typography::proportional(typography::SM)),
+            );
+
+            ui.add_space(4.0);
+
+            // Refresh button — spinner while loading, icon otherwise
+            if self.list_loading {
+                ui.spinner();
+            } else {
+                let icon_color = if ui.rect_contains_pointer(ui.cursor()) {
+                    theme.accent_primary()
+                } else {
+                    muted.gamma_multiply(0.7)
+                };
+                let refresh_btn = ui.add(
+                    egui::Button::new(
+                        RichText::new(egui_nerdfonts::regular::REFRESH)
+                            .size(typography::SM)
+                            .color(icon_color),
+                    )
+                    .fill(egui::Color32::TRANSPARENT)
+                    .stroke(egui::Stroke::NONE),
+                );
+                if refresh_btn.clicked() {
+                    self.fetch_pr_list();
+                }
+                refresh_btn.on_hover_text("Refresh pull requests (r)");
+            }
+
+        });
+        ui.add_space(2.0);
+        ui.painter().hline(
+            ui.available_rect_before_wrap().x_range(),
+            ui.cursor().top(),
+            egui::Stroke::new(1.0, theme.border_subtle()),
+        );
+
+        // PR list — reserve space for the footer keybinding hints
+        let footer_height = 32.0;
+        let scroll_max = (ui.available_height() - footer_height).max(40.0);
         let mut clicked_pr_number: Option<u32> = None;
         egui::ScrollArea::vertical()
             .id_salt("pr_list_scroll")
+            .max_height(scroll_max)
             .auto_shrink([false, false])
             .show(ui, |ui| {
                 for (display_idx, &pr_idx) in filtered_indices.iter().enumerate() {
@@ -513,7 +569,7 @@ impl PrReviewPane {
             self.open_pr(number);
         }
 
-        // ── Footer: count + refresh button + last updated + keybinding hints ──
+        // ── Footer: keybinding hints ──
         let muted = theme.text_secondary();
         ui.painter().hline(
             ui.available_rect_before_wrap().x_range(),
@@ -523,81 +579,15 @@ impl PrReviewPane {
         ui.add_space(6.0);
         ui.horizontal(|ui| {
             ui.add_space(16.0);
-            let count_label = if self.filter_query.is_empty() {
-                format!("{} open", self.pull_requests.len())
-            } else {
-                format!(
-                    "{}/{} matched",
-                    filtered_indices.len(),
-                    self.pull_requests.len()
-                )
-            };
             ui.label(
-                RichText::new(count_label)
-                    .color(muted)
-                    .font(typography::proportional(typography::SM)),
+                RichText::new(
+                    "/ filter \u{2022} j/k navigate \u{2022} Enter open \u{2022} g/G top/bottom",
+                )
+                .color(muted.gamma_multiply(0.7))
+                .font(typography::proportional(typography::XS)),
             );
-
-            ui.add_space(8.0);
-
-            // Refresh button — spinner while loading, icon otherwise
-            if self.list_loading {
-                ui.spinner();
-            } else {
-                let icon_color = if ui.rect_contains_pointer(ui.cursor()) {
-                    theme.accent_primary()
-                } else {
-                    muted.gamma_multiply(0.7)
-                };
-                let refresh_btn = ui.add(
-                    egui::Button::new(
-                        RichText::new(egui_nerdfonts::regular::REFRESH)
-                            .size(typography::SM)
-                            .color(icon_color),
-                    )
-                    .fill(egui::Color32::TRANSPARENT)
-                    .stroke(egui::Stroke::NONE),
-                );
-                if refresh_btn.clicked() {
-                    self.fetch_pr_list();
-                }
-                refresh_btn.on_hover_text("Refresh pull requests (r)");
-            }
-
-            // "Updated Xm ago" label
-            if let Some(ref last) = self.last_refreshed {
-                let elapsed = last.elapsed().as_secs();
-                let ago = if elapsed < 5 {
-                    "just now".to_string()
-                } else if elapsed < 60 {
-                    format!("{elapsed}s ago")
-                } else if elapsed < 3600 {
-                    format!("{}m ago", elapsed / 60)
-                } else {
-                    format!("{}h ago", elapsed / 3600)
-                };
-                ui.label(
-                    RichText::new(ago)
-                        .color(muted.gamma_multiply(0.5))
-                        .font(typography::proportional(typography::XS)),
-                );
-                // Request repaint so the "ago" label stays fresh
-                ui.ctx()
-                    .request_repaint_after(std::time::Duration::from_secs(30));
-            }
-
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.add_space(16.0);
-                ui.label(
-                    RichText::new(
-                        "/ filter \u{2022} j/k navigate \u{2022} Enter open \u{2022} g/G top/bottom",
-                    )
-                    .color(muted.gamma_multiply(0.7))
-                    .font(typography::proportional(typography::XS)),
-                );
-            });
         });
-        ui.add_space(8.0);
+        ui.add_space(6.0);
     }
 }
 

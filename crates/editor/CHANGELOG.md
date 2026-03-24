@@ -19,8 +19,7 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Added
 
-- **PR list refresh button**: The PR list footer now includes a clickable refresh button with a spinner during loading, a "last updated" timestamp that auto-updates, and a styled Retry button on error states.
-- **PR title and branch info in detail header**: The detail view now shows the PR title and `base ← head` branch names below the tab bar for quick context.
+- **PR list refresh button**: The PR list header now includes a clickable refresh button with a spinner during loading, and a styled Retry button on error states.
 - **"Ready to merge" badge**: PRs in the list view show a green "Ready to merge" badge when all checks pass, the PR is approved, and it's mergeable with no conflicts.
 - **Enhanced PR description display**: The Conversation tab now renders the PR description as a distinct "Description" section with an icon header, separate from regular comment bubbles.
 - **Open PR in GitHub**: Added an external-link button next to the PR number in the detail view header that opens the pull request in the browser.
