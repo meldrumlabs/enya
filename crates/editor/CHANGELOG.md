@@ -4,6 +4,10 @@ All notable changes to the Enya editor will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- **Updated libghostty to v1.3.1**: Upgraded the embedded Ghostty terminal emulator from v1.2.3 to v1.3.1, bringing hundreds of terminal bug fixes and improvements. Also upgraded the Zig toolchain from 0.14.1 to 0.15.2.
+
 ## [0.1.2] - 2026-03-24
 
 ### Fixed

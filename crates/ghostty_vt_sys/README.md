@@ -8,7 +8,7 @@ This crate was vendored from [gpui-ghostty](https://github.com/Xuanwo/gpui-ghost
 
 ## Build Requirements
 
-This crate requires **Zig 0.14.1** to compile the ghostty VT library. The build script will attempt to download Zig automatically if not present.
+This crate requires **Zig 0.15.2** to compile the ghostty VT library. The build script will attempt to download Zig automatically if not present.
 
 ## License
 

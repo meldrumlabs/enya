@@ -4,40 +4,50 @@ pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
     const target = b.standardTargetOptions(.{});
 
-    const ziglyph_host = b.dependency("ziglyph", .{
-        .target = b.graph.host,
-        .optimize = optimize,
+    // Get uucode dependency and its generated tables
+    const uucode_dep = b.dependency("uucode", .{
+        .build_config_path = b.path("ghostty_src/build/uucode_config.zig"),
     });
-
-    const ziglyph_target = b.dependency("ziglyph", .{
-        .target = target,
-        .optimize = optimize,
-    });
+    const uucode_tables = uucode_dep.namedLazyPath("tables.zig");
 
     const props_exe = b.addExecutable(.{
         .name = "props-unigen",
         .root_module = b.createModule(.{
-            .root_source_file = b.path("ghostty_src/unicode/props.zig"),
+            .root_source_file = b.path("ghostty_src/unicode/props_uucode.zig"),
             .target = b.graph.host,
             .optimize = optimize,
         }),
+        .use_llvm = true,
     });
-    props_exe.root_module.addImport("ziglyph", ziglyph_host.module("ziglyph"));
 
     const symbols_exe = b.addExecutable(.{
         .name = "symbols-unigen",
         .root_module = b.createModule(.{
-            .root_source_file = b.path("ghostty_src/unicode/symbols.zig"),
+            .root_source_file = b.path("ghostty_src/unicode/symbols_uucode.zig"),
             .target = b.graph.host,
             .optimize = optimize,
         }),
+        .use_llvm = true,
     });
-    symbols_exe.root_module.addImport("ziglyph", ziglyph_host.module("ziglyph"));
+
+    // Add uucode import to both generators
+    if (b.lazyDependency("uucode", .{
+        .target = b.graph.host,
+        .tables_path = uucode_tables,
+        .build_config_path = b.path("ghostty_src/build/uucode_config.zig"),
+    })) |dep| {
+        inline for (&.{ props_exe, symbols_exe }) |exe| {
+            exe.root_module.addImport("uucode", dep.module("uucode"));
+        }
+    }
 
     const props_run = b.addRunArtifact(props_exe);
     const symbols_run = b.addRunArtifact(symbols_exe);
-    const props_output = props_run.captureStdOut();
-    const symbols_output = symbols_run.captureStdOut();
+
+    // Generated Zig files have to end with .zig
+    const wf = b.addWriteFiles();
+    const props_output = wf.addCopyFile(props_run.captureStdOut(), "props.zig");
+    const symbols_output = wf.addCopyFile(symbols_run.captureStdOut(), "symbols.zig");
 
     const lib = b.addLibrary(.{
         .name = "ghostty_vt",
@@ -49,7 +59,30 @@ pub fn build(b: *std.Build) void {
         .linkage = .static,
     });
     lib.linkLibC();
-    lib.root_module.addImport("ziglyph", ziglyph_target.module("ziglyph"));
+
+    // Add terminal_options build options (matching ghostty's lib-vt config)
+    const terminal_opts = b.addOptions();
+    terminal_opts.addOption(
+        @import("ghostty_src/terminal/build_options.zig").Artifact,
+        "artifact",
+        .lib,
+    );
+    terminal_opts.addOption(bool, "c_abi", false);
+    terminal_opts.addOption(bool, "oniguruma", false);
+    terminal_opts.addOption(bool, "simd", false);
+    terminal_opts.addOption(bool, "slow_runtime_safety", false);
+    terminal_opts.addOption(bool, "kitty_graphics", false);
+    terminal_opts.addOption(bool, "tmux_control_mode", false);
+    lib.root_module.addOptions("terminal_options", terminal_opts);
+
+    // Add uucode import to the library module
+    if (b.lazyDependency("uucode", .{
+        .target = target,
+        .tables_path = uucode_tables,
+        .build_config_path = b.path("ghostty_src/build/uucode_config.zig"),
+    })) |dep| {
+        lib.root_module.addImport("uucode", dep.module("uucode"));
+    }
 
     props_output.addStepDependencies(&lib.step);
     lib.root_module.addAnonymousImport("unicode_tables", .{
