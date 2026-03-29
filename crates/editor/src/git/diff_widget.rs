@@ -69,6 +69,7 @@ pub fn diff_line_colors(
 ///
 /// `search_highlights` is a slice of `(start, end, is_current_match)`.
 /// Pass `&[]` when search is not active.
+#[allow(clippy::too_many_arguments)]
 pub fn build_diff_line_layout_job(
     content: &str,
     word_highlights: &[(usize, usize)],
@@ -77,6 +78,7 @@ pub fn build_diff_line_layout_job(
     syntax_spans: &[(usize, usize, egui::Color32)],
     search_highlights: &[(usize, usize, bool)],
     font_size: f32,
+    theme: AppTheme,
 ) -> LayoutJob {
     let mut job = LayoutJob::default();
     let font_id = typography::monospace(font_size);
@@ -162,9 +164,9 @@ pub fn build_diff_line_layout_job(
         // Search highlights take priority over word highlights for background
         let bg = if let Some(&(_, _, is_current)) = search_match {
             if is_current {
-                Some(egui::Color32::from_rgba_premultiplied(230, 160, 0, 180))
+                Some(theme.diff_search_current_bg())
             } else {
-                Some(egui::Color32::from_rgba_premultiplied(180, 140, 0, 100))
+                Some(theme.diff_search_other_bg())
             }
         } else if in_word_highlight {
             word_bg
@@ -172,9 +174,9 @@ pub fn build_diff_line_layout_job(
             None
         };
 
-        // For search highlights, use dark text for contrast
+        // For search highlights, use contrasting text
         let final_text_color = if search_match.is_some() {
-            egui::Color32::from_rgb(30, 30, 30)
+            theme.diff_search_text()
         } else {
             text_color
         };
@@ -310,6 +312,7 @@ pub fn render_diff_line(
         &syntax_spans,
         &[],
         typography::SM,
+        theme,
     );
 
     let galley = ui.painter().layout_job(job);
@@ -527,6 +530,7 @@ pub fn render_split_line(
         &syntax_spans,
         &[],
         typography::SM,
+        theme,
     );
 
     let galley = ui.painter().layout_job(job);

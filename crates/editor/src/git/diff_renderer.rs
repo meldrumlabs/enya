@@ -1411,6 +1411,7 @@ fn render_unified_line(
         &syntax_spans,
         search_highlights,
         font_size,
+        theme,
     );
 
     let galley = ui.painter().layout_job(layout_job);
@@ -1628,6 +1629,7 @@ fn render_split_line(
         &syntax_spans,
         &[],
         font_size,
+        theme,
     );
     let galley = ui.fonts_mut(|f| f.layout_job(job));
     ui.painter().galley(
