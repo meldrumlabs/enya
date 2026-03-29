@@ -23,6 +23,7 @@ enum FileTreeRow {
         name: String,
         depth: usize,
         comment_count: usize,
+        unseen_count: usize,
     },
 }
 
@@ -32,6 +33,7 @@ fn build_file_tree_rows(
     collapsed_dirs: &FxHashSet<String>,
     review_comments: &[PrComment],
     draft_comments: &[DraftComment],
+    seen_comment_ids: &rustc_hash::FxHashSet<u64>,
 ) -> Vec<FileTreeRow> {
     // Collect unique directory prefixes and count files per directory
     let mut dir_files: Vec<(Vec<&str>, usize)> = Vec::new();
@@ -102,12 +104,19 @@ fn build_file_tree_rows(
             .iter()
             .filter(|c| c.path == *filename)
             .count();
+        let unseen_count = review_comments
+            .iter()
+            .filter(|c| {
+                c.path.as_deref() == Some(filename.as_str()) && !seen_comment_ids.contains(&c.id)
+            })
+            .count();
 
         rows.push(FileTreeRow::File {
             file_index: *file_index,
             name: file_name.to_string(),
             depth: dir_parts.len(),
             comment_count: review_count + draft_count,
+            unseen_count,
         });
     }
 
@@ -521,36 +530,85 @@ impl PrReviewPane {
     fn show_files_tab(&mut self, ui: &mut egui::Ui) {
         let theme = self.theme;
         let available_height = (ui.available_height() - 50.0).max(100.0);
-        let file_panel_width = 220.0;
-        let diff_width = (ui.available_width() - file_panel_width - 12.0).max(200.0);
+        let total_width = ui.available_width();
 
-        ui.horizontal(|ui| {
-            // File panel (left)
-            ui.allocate_ui_with_layout(
-                egui::vec2(file_panel_width, available_height),
-                egui::Layout::top_down(egui::Align::LEFT),
-                |ui| {
-                    self.show_file_panel(ui, theme);
-                },
-            );
+        if self.file_panel_collapsed {
+            // Collapsed: show a thin expand button + full-width diff
+            let toggle_width = 24.0;
+            let diff_width = (total_width - toggle_width - 4.0).max(200.0);
 
-            // Vertical separator
-            let sep_rect = ui.available_rect_before_wrap();
-            ui.painter().vline(
-                sep_rect.left(),
-                sep_rect.y_range(),
-                egui::Stroke::new(1.0, theme.border_subtle()),
-            );
+            ui.horizontal(|ui| {
+                // Expand toggle strip
+                ui.allocate_ui_with_layout(
+                    egui::vec2(toggle_width, available_height),
+                    egui::Layout::top_down(egui::Align::Center),
+                    |ui| {
+                        ui.add_space(8.0);
+                        let btn = ui.add(
+                            egui::Button::new(
+                                RichText::new(egui_nerdfonts::regular::CHEVRON_RIGHT)
+                                    .size(typography::SM)
+                                    .color(theme.text_secondary()),
+                            )
+                            .fill(egui::Color32::TRANSPARENT)
+                            .stroke(egui::Stroke::NONE),
+                        );
+                        if btn.clicked() {
+                            self.file_panel_collapsed = false;
+                        }
+                        btn.on_hover_text("Show file tree");
+                    },
+                );
 
-            // Diff content area (right)
-            ui.allocate_ui_with_layout(
-                egui::vec2(diff_width, available_height),
-                egui::Layout::top_down(egui::Align::LEFT),
-                |ui| {
-                    self.show_diff_view(ui);
-                },
-            );
-        });
+                // Vertical separator
+                let sep_rect = ui.available_rect_before_wrap();
+                ui.painter().vline(
+                    sep_rect.left(),
+                    sep_rect.y_range(),
+                    egui::Stroke::new(1.0, theme.border_subtle()),
+                );
+
+                // Diff content area (full width)
+                ui.allocate_ui_with_layout(
+                    egui::vec2(diff_width, available_height),
+                    egui::Layout::top_down(egui::Align::LEFT),
+                    |ui| {
+                        self.show_diff_view(ui);
+                    },
+                );
+            });
+        } else {
+            let file_panel_width = 220.0;
+            let diff_width = (total_width - file_panel_width - 12.0).max(200.0);
+
+            ui.horizontal(|ui| {
+                // File panel (left)
+                ui.allocate_ui_with_layout(
+                    egui::vec2(file_panel_width, available_height),
+                    egui::Layout::top_down(egui::Align::LEFT),
+                    |ui| {
+                        self.show_file_panel(ui, theme);
+                    },
+                );
+
+                // Vertical separator
+                let sep_rect = ui.available_rect_before_wrap();
+                ui.painter().vline(
+                    sep_rect.left(),
+                    sep_rect.y_range(),
+                    egui::Stroke::new(1.0, theme.border_subtle()),
+                );
+
+                // Diff content area (right)
+                ui.allocate_ui_with_layout(
+                    egui::vec2(diff_width, available_height),
+                    egui::Layout::top_down(egui::Align::LEFT),
+                    |ui| {
+                        self.show_diff_view(ui);
+                    },
+                );
+            });
+        }
     }
 
     /// Render the file panel (right side in files tab).
@@ -570,6 +628,23 @@ impl PrReviewPane {
                     .color(theme.text_secondary())
                     .font(typography::proportional(typography::XS)),
             );
+
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.add_space(4.0);
+                let collapse_btn = ui.add(
+                    egui::Button::new(
+                        RichText::new(egui_nerdfonts::regular::CHEVRON_LEFT)
+                            .size(typography::SM)
+                            .color(theme.text_secondary()),
+                    )
+                    .fill(egui::Color32::TRANSPARENT)
+                    .stroke(egui::Stroke::NONE),
+                );
+                if collapse_btn.clicked() {
+                    self.file_panel_collapsed = true;
+                }
+                collapse_btn.on_hover_text("Hide file tree");
+            });
         });
         ui.add_space(6.0);
 
@@ -579,6 +654,7 @@ impl PrReviewPane {
             &self.collapsed_dirs,
             &self.review_comments,
             &self.draft_comments,
+            &self.seen_comment_ids,
         );
 
         let mut toggle_dir: Option<String> = None;
@@ -692,6 +768,7 @@ impl PrReviewPane {
                             name,
                             depth,
                             comment_count,
+                            unseen_count,
                         } => {
                             let file = &self.pr_files[*file_index];
                             let is_selected = self
@@ -825,6 +902,14 @@ impl PrReviewPane {
                                     theme.accent_primary(),
                                 );
                             }
+
+                            // Unseen comment dot indicator
+                            if *unseen_count > 0 {
+                                right_x -= 8.0;
+                                let dot_center = egui::pos2(right_x - 3.0, rect.center().y);
+                                ui.painter()
+                                    .circle_filled(dot_center, 3.0, theme.accent_primary());
+                            }
                             let _ = right_x;
 
                             // Auto-scroll to keep selected row visible on n/p navigation
@@ -856,6 +941,7 @@ impl PrReviewPane {
             let filename = &self.pr_files[pr_idx].filename;
             if let Some(diff_idx) = self.file_diffs.iter().position(|d| d.path == *filename) {
                 self.selected_file_index = diff_idx;
+                self.mark_current_file_comments_seen();
             }
         }
     }
@@ -1189,7 +1275,13 @@ mod tests {
     #[test]
     fn flat_files_no_directories() {
         let files = vec![make_pr_file("README.md"), make_pr_file("Cargo.toml")];
-        let rows = build_file_tree_rows(&files, &FxHashSet::default(), &[], &[]);
+        let rows = build_file_tree_rows(
+            &files,
+            &FxHashSet::default(),
+            &[],
+            &[],
+            &FxHashSet::default(),
+        );
 
         let names = collect_file_names(&rows);
         assert_eq!(names, vec!["Cargo.toml", "README.md"]); // sorted alphabetically
@@ -1203,7 +1295,13 @@ mod tests {
             make_pr_file("src/lib.rs"),
             make_pr_file("tests/test.rs"),
         ];
-        let rows = build_file_tree_rows(&files, &FxHashSet::default(), &[], &[]);
+        let rows = build_file_tree_rows(
+            &files,
+            &FxHashSet::default(),
+            &[],
+            &[],
+            &FxHashSet::default(),
+        );
 
         let dirs = collect_dir_names(&rows);
         assert!(dirs.contains(&"src".to_string()));
@@ -1225,7 +1323,7 @@ mod tests {
         let mut collapsed = FxHashSet::default();
         collapsed.insert("src".to_string());
 
-        let rows = build_file_tree_rows(&files, &collapsed, &[], &[]);
+        let rows = build_file_tree_rows(&files, &collapsed, &[], &[], &FxHashSet::default());
 
         // src directory should be present but collapsed
         let src_dir = rows
@@ -1248,7 +1346,13 @@ mod tests {
             make_pr_file("a/b/d.rs"),
             make_pr_file("a/e.rs"),
         ];
-        let rows = build_file_tree_rows(&files, &FxHashSet::default(), &[], &[]);
+        let rows = build_file_tree_rows(
+            &files,
+            &FxHashSet::default(),
+            &[],
+            &[],
+            &FxHashSet::default(),
+        );
 
         let dirs = collect_dir_names(&rows);
         assert!(dirs.contains(&"a".to_string()));
@@ -1261,7 +1365,7 @@ mod tests {
         let mut collapsed = FxHashSet::default();
         collapsed.insert("a".to_string());
 
-        let rows = build_file_tree_rows(&files, &collapsed, &[], &[]);
+        let rows = build_file_tree_rows(&files, &collapsed, &[], &[], &FxHashSet::default());
 
         // No files should be visible
         let file_names = collect_file_names(&rows);
@@ -1275,7 +1379,13 @@ mod tests {
             make_pr_file("a_file.rs"),
             make_pr_file("m_file.rs"),
         ];
-        let rows = build_file_tree_rows(&files, &FxHashSet::default(), &[], &[]);
+        let rows = build_file_tree_rows(
+            &files,
+            &FxHashSet::default(),
+            &[],
+            &[],
+            &FxHashSet::default(),
+        );
 
         // Tree sorts alphabetically, but file_index should refer back to the
         // original position in pr_files
@@ -1295,7 +1405,13 @@ mod tests {
             make_pr_file("src/b.rs"),
             make_pr_file("src/sub/c.rs"),
         ];
-        let rows = build_file_tree_rows(&files, &FxHashSet::default(), &[], &[]);
+        let rows = build_file_tree_rows(
+            &files,
+            &FxHashSet::default(),
+            &[],
+            &[],
+            &FxHashSet::default(),
+        );
 
         let src_dir = rows.iter().find_map(|r| match r {
             FileTreeRow::Directory {
@@ -1334,6 +1450,7 @@ mod tests {
             &FxHashSet::default(),
             &review_comments,
             &draft_comments,
+            &FxHashSet::default(),
         );
 
         let comment_count = rows.iter().find_map(|r| match r {
@@ -1381,7 +1498,13 @@ mod tests {
         ];
 
         // Build tree from pr_files — clicking bar.rs gives pr_files index 0
-        let rows = build_file_tree_rows(&pr_files, &FxHashSet::default(), &[], &[]);
+        let rows = build_file_tree_rows(
+            &pr_files,
+            &FxHashSet::default(),
+            &[],
+            &[],
+            &FxHashSet::default(),
+        );
         let bar_pr_idx = rows
             .iter()
             .find_map(|r| match r {

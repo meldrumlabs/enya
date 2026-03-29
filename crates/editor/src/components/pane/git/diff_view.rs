@@ -162,6 +162,7 @@ impl PrReviewPane {
                 self.selected_file_index,
             ) {
                 self.selected_file_index = new_file;
+                self.mark_current_file_comments_seen();
             }
         }
 

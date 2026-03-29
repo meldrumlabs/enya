@@ -161,6 +161,12 @@ pub struct PrReviewPane {
     collapsed_dirs: rustc_hash::FxHashSet<String>,
     /// Whether to scroll the file tree to make the selected file visible.
     file_tree_scroll_to_selected: bool,
+    /// Whether the file panel is collapsed (hidden) for full-width diff view.
+    file_panel_collapsed: bool,
+
+    // ── Seen comments ──
+    /// Comment IDs that the user has "seen" (by viewing the file containing them).
+    seen_comment_ids: rustc_hash::FxHashSet<u64>,
 
     // ── File opener ──
     file_opener: FileOpenerPopup,
@@ -258,6 +264,8 @@ impl PrReviewPane {
             approve_popup_open: false,
             collapsed_dirs: rustc_hash::FxHashSet::default(),
             file_tree_scroll_to_selected: false,
+            file_panel_collapsed: false,
+            seen_comment_ids: rustc_hash::FxHashSet::default(),
             file_opener: FileOpenerPopup::new(),
             repo_root: None,
             pending_open_file_opener: false,
@@ -360,6 +368,19 @@ impl PrReviewPane {
     /// Rebuild the cached comment threads from `review_comments`.
     fn rebuild_thread_cache(&mut self) {
         self.cached_threads = crate::git::api::group_into_threads(&self.review_comments);
+    }
+
+    /// Mark all comments on the currently selected file as "seen".
+    fn mark_current_file_comments_seen(&mut self) {
+        let Some(file_diff) = self.file_diffs.get(self.selected_file_index) else {
+            return;
+        };
+        let path = &file_diff.path;
+        for comment in &self.review_comments {
+            if comment.path.as_deref() == Some(path) {
+                self.seen_comment_ids.insert(comment.id);
+            }
+        }
     }
 
     /// Derive the aggregate review state for a PR from preloaded reviews.
@@ -494,6 +515,7 @@ impl PrReviewPane {
             self.reviews = cached.reviews.clone();
             self.preloaded_reviews.insert(number, cached.reviews);
             self.selected_file_index = 0;
+            self.mark_current_file_comments_seen();
             return;
         }
 
@@ -784,6 +806,7 @@ impl PrReviewPane {
                     self.pr_files = files;
                     self.selected_file_index = 0;
                     self.detail_error = None;
+                    self.mark_current_file_comments_seen();
 
                     // Now fetch checks with the head SHA
                     if !head_sha_empty {
@@ -1093,11 +1116,13 @@ impl PrReviewPane {
                             self.selected_file_index = (self.selected_file_index + 1).min(max);
                             self.diff_renderer.reset_for_file_change();
                             self.file_tree_scroll_to_selected = true;
+                            self.mark_current_file_comments_seen();
                         }
                         DiffKeyAction::PrevFile => {
                             self.selected_file_index = self.selected_file_index.saturating_sub(1);
                             self.diff_renderer.reset_for_file_change();
                             self.file_tree_scroll_to_selected = true;
+                            self.mark_current_file_comments_seen();
                         }
                         DiffKeyAction::OpenFile => {
                             self.pending_open_file_opener = true;

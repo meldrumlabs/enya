@@ -4,6 +4,13 @@ All notable changes to the Enya editor will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **Unread comment indicators**: File tree rows show an accent-colored dot when a file has unseen review comments. Comments are marked as "seen" when the user views the file.
+- **Collapsible file tree panel**: The file panel in the Files tab can be collapsed to a thin chevron strip, giving the diff view full width. Click the chevron to expand again.
+- **Copy hint on selection**: When diff lines are selected, a floating "⌘C copy N lines" hint badge appears to make the copy interaction discoverable.
+- **Hunk flash animation**: Jumping to a hunk via `{`/`}` now briefly flashes the target hunk header with the accent color, making it easy to spot the landing position.
+
 ## [0.1.2] - 2026-03-24
 
 ### Fixed
