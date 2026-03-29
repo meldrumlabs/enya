@@ -1056,6 +1056,16 @@ impl Workspace {
             }
         }
 
+        // Handle vim-style keyboard navigation BEFORE component rendering
+        // so that workspace leader keys (c, space, y) are consumed before
+        // pane-level handlers can steal them (e.g. diff renderer consumes 'c'
+        // for commenting, which blocks the 'ct' theme cycle shortcut).
+        let viewport_keyboard_action = if !self.buffer_editor.is_open() {
+            self.handle_viewport_keyboard(ctx)
+        } else {
+            None
+        };
+
         {
             // Main area with toolbar and viewport
             egui::CentralPanel::default().show_inside(ui, |ui| {
@@ -1676,12 +1686,8 @@ impl Workspace {
             self.leader_keys.clear_all();
         }
 
-        // Handle vim-style keyboard navigation for viewport
-        // (only if no modal is open)
-        if !self.buffer_editor.is_open() {
-            if let Some(action) = self.handle_viewport_keyboard(ctx) {
-                return action;
-            }
+        if let Some(action) = viewport_keyboard_action {
+            return action;
         }
 
         self.handle_command_result(cmd_result, ctx)

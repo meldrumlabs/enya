@@ -4,6 +4,11 @@ All notable changes to the Enya editor will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- **File tree stats overlapping filenames**: In the PR review pane file tree, the comment icon and +/- stats no longer overlap long filenames — the filename now truncates based on the actual width of the right-side stats.
+- **`ct` theme shortcut blocked by PR review pane**: Workspace leader key sequences (like `ct` to cycle theme) now run before pane-level keyboard handlers, so the diff renderer's `c` shortcut no longer steals the key press.
+
 ### Added
 
 - **Unread comment indicators**: File tree rows show an accent-colored dot when a file has unseen review comments. Comments are marked as "seen" when the user views the file.

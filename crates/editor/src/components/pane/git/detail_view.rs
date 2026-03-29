@@ -825,13 +825,51 @@ impl PrReviewPane {
                             );
                             cx += icon_galley.size().x + 4.0;
 
+                            // Pre-compute right-side stats to know their width
+                            let del_galley = (file.deletions > 0).then(|| {
+                                ui.painter().layout_no_wrap(
+                                    format!("-{}", file.deletions),
+                                    typography::monospace(typography::XS),
+                                    theme.diff_removed_gutter(),
+                                )
+                            });
+                            let add_galley = (file.additions > 0).then(|| {
+                                ui.painter().layout_no_wrap(
+                                    format!("+{}", file.additions),
+                                    typography::monospace(typography::XS),
+                                    theme.diff_added_gutter(),
+                                )
+                            });
+                            let comment_galley = (*comment_count > 0).then(|| {
+                                ui.painter().layout_no_wrap(
+                                    format!(
+                                        "{} {comment_count}",
+                                        egui_nerdfonts::regular::COMMENT_TEXT
+                                    ),
+                                    typography::proportional(typography::XS),
+                                    theme.accent_primary(),
+                                )
+                            });
+
+                            let mut stats_width = 0.0;
+                            if let Some(ref g) = del_galley {
+                                stats_width += g.size().x + 3.0;
+                            }
+                            if let Some(ref g) = add_galley {
+                                stats_width += g.size().x;
+                            }
+                            if let Some(ref g) = comment_galley {
+                                stats_width += g.size().x + 6.0;
+                            }
+
                             // Filename (just the name, no path)
                             let name_color = if is_selected {
                                 theme.text_primary()
                             } else {
                                 theme.text_primary().gamma_multiply(0.85)
                             };
-                            let max_name_width = (rect.right() - 12.0 - cx - 40.0).max(20.0);
+                            let max_name_width =
+                                (rect.right() - 12.0 - cx - stats_width - 6.0).max(20.0);
                             let name_galley = ui.painter().layout(
                                 name.clone(),
                                 typography::monospace(typography::XS),
@@ -844,15 +882,10 @@ impl PrReviewPane {
                                 name_color,
                             );
 
-                            // Stats on right
+                            // Paint stats on right
                             let mut right_x = rect.right() - 12.0;
 
-                            if file.deletions > 0 {
-                                let del_galley = ui.painter().layout_no_wrap(
-                                    format!("-{}", file.deletions),
-                                    typography::monospace(typography::XS),
-                                    theme.diff_removed_gutter(),
-                                );
+                            if let Some(del_galley) = del_galley {
                                 right_x -= del_galley.size().x;
                                 ui.painter().galley(
                                     egui::pos2(
@@ -865,12 +898,7 @@ impl PrReviewPane {
                                 right_x -= 3.0;
                             }
 
-                            if file.additions > 0 {
-                                let add_galley = ui.painter().layout_no_wrap(
-                                    format!("+{}", file.additions),
-                                    typography::monospace(typography::XS),
-                                    theme.diff_added_gutter(),
-                                );
+                            if let Some(add_galley) = add_galley {
                                 right_x -= add_galley.size().x;
                                 ui.painter().galley(
                                     egui::pos2(
@@ -882,23 +910,15 @@ impl PrReviewPane {
                                 );
                             }
 
-                            if *comment_count > 0 {
+                            if let Some(comment_galley) = comment_galley {
                                 right_x -= 6.0;
-                                let badge_galley = ui.painter().layout_no_wrap(
-                                    format!(
-                                        "{} {comment_count}",
-                                        egui_nerdfonts::regular::COMMENT_TEXT
-                                    ),
-                                    typography::proportional(typography::XS),
-                                    theme.accent_primary(),
-                                );
-                                right_x -= badge_galley.size().x;
+                                right_x -= comment_galley.size().x;
                                 ui.painter().galley(
                                     egui::pos2(
                                         right_x,
-                                        rect.center().y - badge_galley.size().y / 2.0,
+                                        rect.center().y - comment_galley.size().y / 2.0,
                                     ),
-                                    badge_galley,
+                                    comment_galley,
                                     theme.accent_primary(),
                                 );
                             }
