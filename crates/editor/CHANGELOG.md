@@ -10,6 +10,7 @@ All notable changes to the Enya editor will be documented in this file.
 - **Collapsible file tree panel**: The file panel in the Files tab can be collapsed to a thin chevron strip, giving the diff view full width. Click the chevron to expand again.
 - **Copy hint on selection**: When diff lines are selected, a floating "⌘C copy N lines" hint badge appears to make the copy interaction discoverable.
 - **Hunk flash animation**: Jumping to a hunk via `{`/`}` now briefly flashes the target hunk header with the accent color, making it easy to spot the landing position.
+- **Enhanced word-level diff highlights**: Boosted contrast of inline word-change backgrounds across all themes (especially dark themes) and added a thin underline to changed words for a stronger visual cue when scanning modified lines.
 
 ## [0.1.2] - 2026-03-24
 

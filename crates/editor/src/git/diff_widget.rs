@@ -183,6 +183,12 @@ pub fn build_diff_line_layout_job(
         if let Some(bg_color) = bg {
             format.background = bg_color;
         }
+        // Add underline to word-highlighted segments (not search matches) for extra visual cue
+        if in_word_highlight && search_match.is_none() {
+            if let Some(bg_color) = word_bg {
+                format.underline = egui::Stroke::new(1.0, bg_color.gamma_multiply(1.8));
+            }
+        }
         job.append(text, 0.0, format);
     }
 

@@ -2301,43 +2301,43 @@ impl AppTheme {
         }
     }
 
-    /// Word-level addition highlight - brighter for inline changes
+    /// Word-level addition highlight - prominent for inline changes
     pub fn diff_added_word_bg(&self) -> Color32 {
         match self {
-            Self::Custom(colors) => colors.success.gamma_multiply(0.35),
-            Self::Parchment => Color32::from_rgb(172, 242, 189),
-            Self::Stockholm => Color32::from_rgb(180, 235, 200), // Cool green word
-            Self::Copenhagen => Color32::from_rgb(185, 238, 200), // Warm green word
-            Self::Light => Color32::from_rgb(172, 242, 189),     // Green word
-            Self::Midnight => Color32::from_rgb(30, 70, 55),
-            Self::Ayu => Color32::from_rgb(40, 70, 45),
-            Self::Aurora => Color32::from_rgb(35, 80, 65),
-            Self::Graphite => Color32::from_rgb(45, 70, 45), // Added word graphite
-            Self::Ink => Color32::from_rgb(35, 60, 50),      // Added word ink
-            Self::Void => Color32::from_rgb(25, 60, 48),     // Added word void
-            Self::Neon => Color32::from_rgb(25, 60, 48),     // Added word neon
-            Self::Onyx => Color32::from_rgb(30, 55, 35),     // Added word onyx
-            Self::System | Self::Dark => Color32::from_rgb(35, 70, 50),
+            Self::Custom(colors) => colors.success.gamma_multiply(0.45),
+            Self::Parchment => Color32::from_rgb(150, 235, 170),
+            Self::Stockholm => Color32::from_rgb(160, 228, 185), // Cool green word
+            Self::Copenhagen => Color32::from_rgb(165, 230, 185), // Warm green word
+            Self::Light => Color32::from_rgb(150, 235, 170),     // Green word
+            Self::Midnight => Color32::from_rgb(38, 95, 70),
+            Self::Ayu => Color32::from_rgb(48, 95, 58),
+            Self::Aurora => Color32::from_rgb(42, 105, 82),
+            Self::Graphite => Color32::from_rgb(52, 95, 58), // Added word graphite
+            Self::Ink => Color32::from_rgb(42, 82, 65),      // Added word ink
+            Self::Void => Color32::from_rgb(32, 82, 62),     // Added word void
+            Self::Neon => Color32::from_rgb(32, 82, 62),     // Added word neon
+            Self::Onyx => Color32::from_rgb(38, 75, 48),     // Added word onyx
+            Self::System | Self::Dark => Color32::from_rgb(42, 95, 65),
         }
     }
 
-    /// Word-level deletion highlight - brighter for inline changes
+    /// Word-level deletion highlight - prominent for inline changes
     pub fn diff_removed_word_bg(&self) -> Color32 {
         match self {
-            Self::Custom(colors) => colors.error.gamma_multiply(0.35),
-            Self::Parchment => Color32::from_rgb(255, 200, 200),
-            Self::Stockholm => Color32::from_rgb(248, 205, 208), // Cool red word
-            Self::Copenhagen => Color32::from_rgb(250, 208, 205), // Warm red word
-            Self::Light => Color32::from_rgb(255, 200, 200),     // Red word
-            Self::Midnight => Color32::from_rgb(80, 40, 45),
-            Self::Ayu => Color32::from_rgb(85, 45, 45),
-            Self::Aurora => Color32::from_rgb(90, 45, 50),
-            Self::Graphite => Color32::from_rgb(85, 45, 45), // Removed word graphite
-            Self::Ink => Color32::from_rgb(70, 40, 50),      // Removed word ink
-            Self::Void => Color32::from_rgb(70, 35, 40),     // Removed word void
-            Self::Neon => Color32::from_rgb(70, 35, 40),     // Removed word neon
-            Self::Onyx => Color32::from_rgb(70, 38, 35),     // Removed word onyx
-            Self::System | Self::Dark => Color32::from_rgb(75, 35, 38),
+            Self::Custom(colors) => colors.error.gamma_multiply(0.45),
+            Self::Parchment => Color32::from_rgb(255, 178, 178),
+            Self::Stockholm => Color32::from_rgb(245, 185, 190), // Cool red word
+            Self::Copenhagen => Color32::from_rgb(248, 188, 185), // Warm red word
+            Self::Light => Color32::from_rgb(255, 178, 178),     // Red word
+            Self::Midnight => Color32::from_rgb(108, 48, 55),
+            Self::Ayu => Color32::from_rgb(112, 52, 52),
+            Self::Aurora => Color32::from_rgb(115, 52, 58),
+            Self::Graphite => Color32::from_rgb(112, 52, 52), // Removed word graphite
+            Self::Ink => Color32::from_rgb(92, 48, 58),       // Removed word ink
+            Self::Void => Color32::from_rgb(92, 42, 48),      // Removed word void
+            Self::Neon => Color32::from_rgb(92, 42, 48),      // Removed word neon
+            Self::Onyx => Color32::from_rgb(92, 45, 42),      // Removed word onyx
+            Self::System | Self::Dark => Color32::from_rgb(100, 42, 46),
         }
     }
 
