@@ -73,6 +73,12 @@ pub struct DiffRenderer {
     /// True when `g` was pressed, waiting for a second key (e.g. `g` again for `gg`).
     g_pending: bool,
 
+    // ── Hunk flash animation ──
+    /// The hunk index that is currently flashing (after ]c/[c jump).
+    flash_hunk_index: Option<usize>,
+    /// When the flash started.
+    flash_start: Option<Instant>,
+
     // ── Content metrics ──
     /// Total line count from last render, used for `G` (jump to bottom).
     last_total_lines: usize,
@@ -114,6 +120,8 @@ impl DiffRenderer {
             current_hunk_index: 0,
             selected_lines: None,
             selection_anchor: None,
+            flash_hunk_index: None,
+            flash_start: None,
             search_active: false,
             search_query: String::new(),
             search_matches: Vec::new(),
@@ -550,6 +558,8 @@ impl DiffRenderer {
                 .copied()
                 .unwrap_or(0.0);
             self.animate_scroll_to(target);
+            self.flash_hunk_index = Some(self.current_hunk_index);
+            self.flash_start = Some(Instant::now());
         }
     }
 
@@ -562,7 +572,26 @@ impl DiffRenderer {
                 .copied()
                 .unwrap_or(0.0);
             self.animate_scroll_to(target);
+            self.flash_hunk_index = Some(self.current_hunk_index);
+            self.flash_start = Some(Instant::now());
         }
+    }
+
+    /// Returns the current flash alpha (0.0 if no flash active). Call each frame
+    /// and request repaint if > 0.
+    fn tick_hunk_flash(&mut self) -> Option<(usize, f32)> {
+        let start = self.flash_start?;
+        let hunk_idx = self.flash_hunk_index?;
+        const FLASH_DURATION: f32 = 0.4;
+        let elapsed = start.elapsed().as_secs_f32();
+        if elapsed >= FLASH_DURATION {
+            self.flash_hunk_index = None;
+            self.flash_start = None;
+            return None;
+        }
+        // Ease out: starts bright, fades to zero
+        let alpha = 1.0 - (elapsed / FLASH_DURATION);
+        Some((hunk_idx, alpha))
     }
 }
 
@@ -775,6 +804,12 @@ impl DiffRenderer {
             }
         }
 
+        // Tick hunk flash animation
+        let flash_state = self.tick_hunk_flash();
+        if flash_state.is_some() {
+            ui.ctx().request_repaint();
+        }
+
         let selected_lines = self.selected_lines;
         let accent = theme.accent_primary();
         let font_size = self.font_size;
@@ -796,11 +831,22 @@ impl DiffRenderer {
                 ui.add_space(4.0);
                 ui.style_mut().spacing.item_spacing.y = 0.0;
 
+                let mut hunk_counter: usize = 0;
+
                 for (line_idx, line) in file_diff.lines.iter().enumerate() {
                     // Skip file headers — the caller renders the file path in its own header
                     if line.kind == DiffLineKind::FileHeader {
                         continue;
                     }
+
+                    // Track hunk index for flash animation
+                    let hunk_flash_alpha = if line.kind == DiffLineKind::HunkHeader {
+                        let idx = hunk_counter;
+                        hunk_counter += 1;
+                        flash_state.filter(|(fi, _)| *fi == idx).map(|(_, a)| a)
+                    } else {
+                        None
+                    };
 
                     // Search highlights for this line
                     let line_search_highlights: Vec<(usize, usize, bool)> =
@@ -827,6 +873,7 @@ impl DiffRenderer {
                         accent,
                         &line_search_highlights,
                         font_size,
+                        hunk_flash_alpha,
                     );
 
                     match action {
@@ -858,6 +905,44 @@ impl DiffRenderer {
         // Store comment request for caller to process
         if let Some(line_idx) = comment_line_idx {
             self.pending_comment_line = Some((current_file_index, line_idx));
+        }
+
+        // Show copy hint when lines are selected
+        if let Some((start, end)) = self.selected_lines {
+            let count = start.abs_diff(end) + 1;
+            let hint_text = if count == 1 {
+                "\u{2318}C copy line".to_string()
+            } else {
+                format!("\u{2318}C copy {count} lines")
+            };
+            // Floating hint in the bottom-right corner
+            let avail = ui.available_rect_before_wrap();
+            let hint_pos = egui::pos2(avail.right() - 16.0, avail.bottom() + 4.0);
+            let hint_galley = ui.painter().layout_no_wrap(
+                hint_text,
+                typography::proportional(typography::XS),
+                theme.text_secondary().gamma_multiply(0.7),
+            );
+            let hint_rect = egui::Rect::from_min_size(
+                egui::pos2(
+                    hint_pos.x - hint_galley.size().x - 8.0,
+                    hint_pos.y - hint_galley.size().y - 6.0,
+                ),
+                hint_galley.size() + egui::vec2(12.0, 8.0),
+            );
+            ui.painter()
+                .rect_filled(hint_rect, 4.0, theme.bg_elevated());
+            ui.painter().rect_stroke(
+                hint_rect,
+                4.0,
+                egui::Stroke::new(1.0, theme.border_subtle()),
+                egui::StrokeKind::Outside,
+            );
+            ui.painter().galley(
+                egui::pos2(hint_rect.left() + 6.0, hint_rect.top() + 4.0),
+                hint_galley,
+                theme.text_secondary(),
+            );
         }
     }
 
@@ -1106,6 +1191,7 @@ fn render_unified_line(
     accent: Color32,
     search_highlights: &[(usize, usize, bool)],
     font_size: f32,
+    hunk_flash_alpha: Option<f32>,
 ) -> LineAction {
     let mut clicked_shift: Option<bool> = None;
 
@@ -1130,6 +1216,12 @@ fn render_unified_line(
             theme.diff_hunk_bg()
         };
         ui.painter().rect_filled(rect, 0.0, bg);
+
+        // Flash overlay after hunk jump
+        if let Some(alpha) = hunk_flash_alpha {
+            let flash_color = theme.accent_primary().gamma_multiply(0.25 * alpha);
+            ui.painter().rect_filled(rect, 0.0, flash_color);
+        }
 
         // Separator lines
         let sep_color = theme.diff_hunk_text().gamma_multiply(0.2);
@@ -1319,6 +1411,7 @@ fn render_unified_line(
         &syntax_spans,
         search_highlights,
         font_size,
+        theme,
     );
 
     let galley = ui.painter().layout_job(layout_job);
@@ -1536,6 +1629,7 @@ fn render_split_line(
         &syntax_spans,
         &[],
         font_size,
+        theme,
     );
     let galley = ui.fonts_mut(|f| f.layout_job(job));
     ui.painter().galley(

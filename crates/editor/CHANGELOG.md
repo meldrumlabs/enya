@@ -4,6 +4,20 @@ All notable changes to the Enya editor will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **Unread comment indicators**: File tree rows show an accent-colored dot when a file has unseen review comments. Comments are marked as "seen" when the user views the file.
+- **Collapsible file tree panel**: The file panel in the Files tab can be collapsed to a thin chevron strip, giving the diff view full width. Click the chevron to expand again.
+- **Copy hint on selection**: When diff lines are selected, a floating "⌘C copy N lines" hint badge appears to make the copy interaction discoverable.
+- **Hunk flash animation**: Jumping to a hunk via `{`/`}` now briefly flashes the target hunk header with the accent color, making it easy to spot the landing position.
+- **Enhanced word-level diff highlights**: Boosted contrast of inline word-change backgrounds across all themes (especially dark themes) and added a thin underline to changed words for a stronger visual cue when scanning modified lines.
+
+### Changed
+
+- **Light theme diff palettes overhauled**: Reworked diff colors for all four light themes (Parchment, Stockholm, Copenhagen, Light). Line backgrounds are now softer and more muted (GitHub-style washes instead of highlighter-pen saturation). Parchment gets a fully warm-shifted palette — cream-green additions, cream-rose deletions, warm brown hunk headers — matching its paper aesthetic. Light gets its own distinct neutral-cool palette instead of sharing Parchment's colors. Gutter stripes are muted across all light themes for less visual noise.
+- **Dark theme diff identity**: Void now uses violet-tinted diff colors (lavender-teal additions, lavender-pink deletions) matching its purple aesthetic. Neon uses magenta-tinted colors (cyan-green additions, hot pink deletions). Graphite gets warm earthy tones (olive-green, orange-red). Ayu shifts to amber/teal. Aurora gets pink-shifted reds and cyan-shifted greens. Each dark theme now has a distinct diff personality.
+- **Theme-aware search highlights**: Replaced hardcoded orange/gold search highlight colors with per-theme values. Void uses purple highlights, Neon uses magenta, and all themes get properly matched search colors instead of a one-size-fits-all gold.
+
 ## [0.1.2] - 2026-03-24
 
 ### Fixed
