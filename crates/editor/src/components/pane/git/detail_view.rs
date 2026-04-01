@@ -433,6 +433,9 @@ impl PrReviewPane {
             egui::Stroke::new(1.0, theme.border_subtle()),
         );
 
+        // ── PR description banner (collapsible) ──
+        self.show_description_banner(ui, theme);
+
         // Loading state
         if self.detail_loading {
             ui.add_space(40.0);
@@ -964,6 +967,242 @@ impl PrReviewPane {
                 self.mark_current_file_comments_seen();
             }
         }
+    }
+
+    /// Render the collapsible PR description banner between the tab bar and tab content.
+    ///
+    /// IMPORTANT: This method must NOT create any focusable widgets (Button, ScrollArea,
+    /// TextEdit, or ui.interact with Sense::click). The pane's `handle_keyboard()` guard
+    /// (`ctx.memory(|m| m.focused().is_some())`) bails out when *any* widget has focus,
+    /// which would permanently break hjkl navigation until focus is cleared.
+    /// All interactivity here uses raw pointer checks instead.
+    fn show_description_banner(&mut self, ui: &mut egui::Ui, theme: AppTheme) {
+        // Only show if the PR has a non-empty body
+        let body = match self.current_pr.as_ref().and_then(|pr| pr.body.as_deref()) {
+            Some(b) if !b.is_empty() => b.to_string(),
+            _ => return,
+        };
+        let pr_author = self
+            .current_pr
+            .as_ref()
+            .map(|pr| pr.user.login.clone())
+            .unwrap_or_default();
+        let pr_created = self
+            .current_pr
+            .as_ref()
+            .map(|pr| pr.created_at.clone())
+            .unwrap_or_default();
+
+        // Frosted-glass banner — semi-transparent surface with a subtle accent
+        // tint, a thin border, and a top-edge highlight for depth.
+        let overlay_bg = theme.overlay_bg();
+        let accent = theme.accent_primary();
+        // Blend: 96% overlay_bg + 4% accent for a very subtle tint
+        let banner_fill = egui::Color32::from_rgba_unmultiplied(
+            ((overlay_bg.r() as u16 * 24 + accent.r() as u16) / 25) as u8,
+            ((overlay_bg.g() as u16 * 24 + accent.g() as u16) / 25) as u8,
+            ((overlay_bg.b() as u16 * 24 + accent.b() as u16) / 25) as u8,
+            overlay_bg.a().min(240), // keep slightly translucent
+        );
+        let border_color = theme.overlay_border().gamma_multiply(0.5);
+        let highlight_color = theme.overlay_highlight();
+
+        // Height limits for the markdown body (not including header).
+        let collapsed_max_h = 80.0;
+        let expanded_max_h = (ui.available_height() * 0.4).max(120.0);
+
+        let frame_resp = egui::Frame::new()
+            .fill(banner_fill)
+            .stroke(egui::Stroke::new(0.5, border_color))
+            .corner_radius(egui::CornerRadius::same(4))
+            .inner_margin(egui::Margin {
+                left: 16,
+                right: 16,
+                top: 8,
+                bottom: 4,
+            })
+            .outer_margin(egui::Margin {
+                left: 4,
+                right: 4,
+                top: 2,
+                bottom: 2,
+            })
+            .show(ui, |ui| {
+                ui.set_width(ui.available_width());
+
+                // ── Header row: chevron + icon + "Description" + author + timestamp ──
+                let header_resp = ui.horizontal(|ui| {
+                    let chevron = if self.description_collapsed {
+                        egui_nerdfonts::regular::CHEVRON_RIGHT
+                    } else {
+                        egui_nerdfonts::regular::CHEVRON_DOWN
+                    };
+                    ui.label(
+                        RichText::new(chevron)
+                            .size(typography::XS)
+                            .color(theme.text_secondary()),
+                    );
+                    ui.label(
+                        RichText::new(egui_nerdfonts::regular::TEXT_BOX)
+                            .color(theme.accent_primary().gamma_multiply(0.7))
+                            .size(typography::SM),
+                    );
+                    ui.label(
+                        RichText::new("Description")
+                            .color(theme.text_primary())
+                            .font(typography::proportional(typography::XS))
+                            .strong(),
+                    );
+                    ui.add_space(6.0);
+                    ui.label(
+                        RichText::new(&pr_author)
+                            .color(theme.text_secondary())
+                            .font(typography::proportional(typography::XS)),
+                    );
+                    ui.label(
+                        RichText::new(relative_time(&pr_created))
+                            .color(theme.text_secondary().gamma_multiply(0.6))
+                            .font(typography::proportional(typography::XS)),
+                    );
+                });
+
+                // ── Body (unless collapsed) ──
+                if !self.description_collapsed {
+                    ui.add_space(4.0);
+
+                    let max_h = if self.description_expanded {
+                        expanded_max_h
+                    } else {
+                        collapsed_max_h
+                    };
+
+                    let available_w = ui.available_width();
+
+                    if self.description_expanded {
+                        // Expanded: use ScrollArea for vertical scrolling.
+                        // Hide scroll bars so no focusable widgets are created —
+                        // mouse-wheel / trackpad scrolling still works.
+                        egui::ScrollArea::vertical()
+                            .id_salt("pr_desc_scroll")
+                            .max_height(max_h)
+                            .scroll_bar_visibility(
+                                egui::scroll_area::ScrollBarVisibility::AlwaysHidden,
+                            )
+                            .show(ui, |ui| {
+                                ui.set_width(available_w);
+                                ui.disable();
+                                crate::components::overlay::markdown_renderer::render_markdown(
+                                    ui, &body, theme,
+                                );
+                            });
+                    } else {
+                        // Collapsed preview: clipped child UI, no scroll.
+                        let child_rect = egui::Rect::from_min_size(
+                            ui.cursor().left_top(),
+                            egui::vec2(available_w, max_h),
+                        );
+                        let mut child_ui = ui.new_child(
+                            egui::UiBuilder::new()
+                                .max_rect(child_rect)
+                                .id_salt("pr_desc_banner"),
+                        );
+                        child_ui.set_clip_rect(child_rect);
+                        child_ui.disable();
+                        crate::components::overlay::markdown_renderer::render_markdown(
+                            &mut child_ui,
+                            &body,
+                            theme,
+                        );
+                        let content_h = child_ui.min_rect().height();
+                        let used_h = content_h.min(max_h);
+                        ui.allocate_space(egui::vec2(available_w, used_h));
+
+                        // Fade-out gradient when content is truncated
+                        if content_h > collapsed_max_h {
+                            let fade_h = 28.0;
+                            let fade_rect = egui::Rect::from_min_max(
+                                egui::pos2(child_rect.left(), child_rect.min.y + used_h - fade_h),
+                                egui::pos2(child_rect.right(), child_rect.min.y + used_h),
+                            );
+                            let fade_top = egui::Color32::from_rgba_unmultiplied(
+                                banner_fill.r(),
+                                banner_fill.g(),
+                                banner_fill.b(),
+                                0,
+                            );
+                            let mesh = {
+                                let mut mesh = egui::Mesh::default();
+                                mesh.colored_vertex(fade_rect.left_top(), fade_top);
+                                mesh.colored_vertex(fade_rect.right_top(), fade_top);
+                                mesh.colored_vertex(fade_rect.right_bottom(), banner_fill);
+                                mesh.colored_vertex(fade_rect.left_bottom(), banner_fill);
+                                mesh.add_triangle(0, 1, 2);
+                                mesh.add_triangle(0, 2, 3);
+                                mesh
+                            };
+                            ui.painter().add(egui::Shape::mesh(mesh));
+                        }
+                    }
+
+                    // Show "more/less" toggle when body is long enough to overflow the
+                    // collapsed height, or when already expanded (so user can collapse back).
+                    let is_clipped = self.description_expanded || body.len() > 200;
+
+                    // "more / less" toggle — rendered as a label, toggled via pointer
+                    if is_clipped {
+                        ui.add_space(2.0);
+                        let toggle_resp = ui.horizontal(|ui| {
+                            ui.add_space(ui.available_width() - 80.0);
+                            let label_text = if self.description_expanded {
+                                format!("less {}", egui_nerdfonts::regular::CHEVRON_UP)
+                            } else {
+                                format!("more {}", egui_nerdfonts::regular::CHEVRON_DOWN)
+                            };
+                            ui.label(
+                                RichText::new(label_text)
+                                    .size(typography::XS)
+                                    .color(theme.accent_primary()),
+                            );
+                        });
+                        let toggle_rect = toggle_resp.response.rect;
+                        if ui.input(|i| i.pointer.any_pressed())
+                            && toggle_rect.contains(
+                                ui.input(|i| i.pointer.interact_pos().unwrap_or_default()),
+                            )
+                        {
+                            self.description_expanded = !self.description_expanded;
+                        }
+                        if toggle_rect
+                            .contains(ui.input(|i| i.pointer.hover_pos().unwrap_or_default()))
+                        {
+                            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                        }
+                    }
+                }
+
+                // Header click-to-toggle (check after body so body clicks don't toggle)
+                let header_rect = header_resp.response.rect;
+                if ui.input(|i| i.pointer.any_pressed())
+                    && header_rect
+                        .contains(ui.input(|i| i.pointer.interact_pos().unwrap_or_default()))
+                {
+                    self.description_collapsed = !self.description_collapsed;
+                    if self.description_collapsed {
+                        self.description_expanded = false;
+                    }
+                }
+                if header_rect.contains(ui.input(|i| i.pointer.hover_pos().unwrap_or_default())) {
+                    ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                }
+            });
+
+        // Top-edge highlight glow (frosted glass effect)
+        let frame_rect = frame_resp.response.rect;
+        ui.painter().hline(
+            frame_rect.x_range(),
+            frame_rect.top() + 0.5,
+            egui::Stroke::new(1.0, highlight_color),
+        );
     }
 
     /// Render the Conversation tab — PR body + issue-level discussion only.

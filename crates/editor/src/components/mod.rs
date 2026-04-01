@@ -81,6 +81,13 @@ pub trait Component: Any {
         ""
     }
 
+    /// Whether this component handles its own hjkl / arrow-key navigation.
+    /// When `true`, the workspace keyboard handler will NOT consume h/j/k/l
+    /// for tile-to-tile focus changes, letting the component handle them instead.
+    fn handles_own_navigation(&self) -> bool {
+        false
+    }
+
     /// Set whether a workspace overlay is blocking keyboard input.
     /// Default implementation does nothing - components can override if needed.
     fn set_overlay_blocks_input(&mut self, _blocks: bool) {}

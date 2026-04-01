@@ -98,6 +98,19 @@ impl Workspace {
         let pane_ids = self.get_pane_tile_ids();
         let current_focus = self.behavior.focused_tile();
 
+        // Check if the focused pane handles its own hjkl navigation
+        // (e.g. the PR review pane uses j/k for list scrolling, h for back).
+        let focused_pane_handles_nav = current_focus
+            .and_then(|tile_id| self.viewport_tree.tiles.get(tile_id))
+            .and_then(|tile| {
+                if let egui_tiles::Tile::Pane(pane) = tile {
+                    Some(pane.handles_own_navigation())
+                } else {
+                    None
+                }
+            })
+            .unwrap_or(false);
+
         let mut consumed = false;
         let mut should_clear_focus = false;
         let mut should_close_focused = false;
@@ -629,72 +642,80 @@ impl Workspace {
                 return;
             }
 
-            // h or left arrow - move left (or focus sidebar at left edge)
-            if input.consume_key(egui::Modifiers::NONE, egui::Key::H)
-                || input.consume_key(egui::Modifiers::NONE, egui::Key::ArrowLeft)
-            {
-                if let Some(current_id) = current_focus {
-                    let sibling = self.find_sibling_in_direction(current_id, NavDirection::Left);
-                    if sibling.is_some() {
-                        new_tile_id = sibling;
+            // h/j/k/l and arrow keys - tile-to-tile focus navigation.
+            // Skip when the focused pane handles its own navigation (e.g. PR review pane
+            // uses j/k for list scrolling, h for back, l for horizontal diff scroll).
+            if !focused_pane_handles_nav {
+                // h or left arrow - move left (or focus sidebar at left edge)
+                if input.consume_key(egui::Modifiers::NONE, egui::Key::H)
+                    || input.consume_key(egui::Modifiers::NONE, egui::Key::ArrowLeft)
+                {
+                    if let Some(current_id) = current_focus {
+                        let sibling =
+                            self.find_sibling_in_direction(current_id, NavDirection::Left);
+                        if sibling.is_some() {
+                            new_tile_id = sibling;
+                        } else {
+                            // At left edge — focus the sidebar
+                            should_focus_sidebar = true;
+                        }
                     } else {
-                        // At left edge — focus the sidebar
+                        // No focus — focus the sidebar
                         should_focus_sidebar = true;
                     }
-                } else {
-                    // No focus — focus the sidebar
-                    should_focus_sidebar = true;
+                    consumed = true;
+                    return;
                 }
-                consumed = true;
-                return;
-            }
 
-            // l or right arrow - move right
-            if input.consume_key(egui::Modifiers::NONE, egui::Key::L)
-                || input.consume_key(egui::Modifiers::NONE, egui::Key::ArrowRight)
-            {
-                if let Some(current_id) = current_focus {
-                    let sibling = self.find_sibling_in_direction(current_id, NavDirection::Right);
-                    if sibling.is_some() {
-                        new_tile_id = sibling;
+                // l or right arrow - move right
+                if input.consume_key(egui::Modifiers::NONE, egui::Key::L)
+                    || input.consume_key(egui::Modifiers::NONE, egui::Key::ArrowRight)
+                {
+                    if let Some(current_id) = current_focus {
+                        let sibling =
+                            self.find_sibling_in_direction(current_id, NavDirection::Right);
+                        if sibling.is_some() {
+                            new_tile_id = sibling;
+                        } else if self.agent_panel.is_open() {
+                            // At right edge with agent panel open - focus the panel
+                            should_focus_agent_panel = true;
+                        }
                     } else if self.agent_panel.is_open() {
-                        // At right edge with agent panel open - focus the panel
+                        // No focus and agent panel open - focus the panel
                         should_focus_agent_panel = true;
+                    } else {
+                        new_tile_id = pane_ids.first().copied();
                     }
-                } else if self.agent_panel.is_open() {
-                    // No focus and agent panel open - focus the panel
-                    should_focus_agent_panel = true;
-                } else {
-                    new_tile_id = pane_ids.first().copied();
+                    consumed = true;
+                    return;
                 }
-                consumed = true;
-                return;
-            }
 
-            // j or down arrow - move down
-            if input.consume_key(egui::Modifiers::NONE, egui::Key::J)
-                || input.consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown)
-            {
-                if let Some(current_id) = current_focus {
-                    new_tile_id = self.find_sibling_in_direction(current_id, NavDirection::Down);
-                } else {
-                    new_tile_id = pane_ids.first().copied();
+                // j or down arrow - move down
+                if input.consume_key(egui::Modifiers::NONE, egui::Key::J)
+                    || input.consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown)
+                {
+                    if let Some(current_id) = current_focus {
+                        new_tile_id =
+                            self.find_sibling_in_direction(current_id, NavDirection::Down);
+                    } else {
+                        new_tile_id = pane_ids.first().copied();
+                    }
+                    consumed = true;
+                    return;
                 }
-                consumed = true;
-                return;
-            }
 
-            // k or up arrow - move up
-            if input.consume_key(egui::Modifiers::NONE, egui::Key::K)
-                || input.consume_key(egui::Modifiers::NONE, egui::Key::ArrowUp)
-            {
-                if let Some(current_id) = current_focus {
-                    new_tile_id = self.find_sibling_in_direction(current_id, NavDirection::Up);
-                } else {
-                    new_tile_id = pane_ids.first().copied();
+                // k or up arrow - move up
+                if input.consume_key(egui::Modifiers::NONE, egui::Key::K)
+                    || input.consume_key(egui::Modifiers::NONE, egui::Key::ArrowUp)
+                {
+                    if let Some(current_id) = current_focus {
+                        new_tile_id = self.find_sibling_in_direction(current_id, NavDirection::Up);
+                    } else {
+                        new_tile_id = pane_ids.first().copied();
+                    }
+                    consumed = true;
+                    return;
                 }
-                consumed = true;
-                return;
             }
 
             // u - undo last action (vim-style)

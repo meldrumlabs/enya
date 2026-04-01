@@ -8,9 +8,11 @@ All notable changes to the Enya editor will be documented in this file.
 
 - **File tree stats overlapping filenames**: In the PR review pane file tree, the comment icon and +/- stats no longer overlap long filenames — the filename now truncates based on the actual width of the right-side stats.
 - **`ct` theme shortcut blocked by PR review pane**: Workspace leader key sequences (like `ct` to cycle theme) now run before pane-level keyboard handlers, so the diff renderer's `c` shortcut no longer steals the key press.
+- **PR review pane keyboard navigation stolen by workspace**: The workspace's h/j/k/l tile-navigation handler consumed these keys before the PR pane could use them for list scrolling, diff navigation, and back navigation. Added `handles_own_navigation()` to the `Component` trait so panes can opt out of workspace-level hjkl consumption.
 
 ### Added
 
+- **PR description banner**: When opening a PR, a collapsible description banner appears below the tab bar (visible on all tabs). Shows the markdown-rendered PR body truncated to a few lines with a fade-out gradient, expandable to the full description. Click the header to collapse entirely. Gives immediate context without switching to the Conversation tab.
 - **Unread comment indicators**: File tree rows show an accent-colored dot when a file has unseen review comments. Comments are marked as "seen" when the user views the file.
 - **Collapsible file tree panel**: The file panel in the Files tab can be collapsed to a thin chevron strip, giving the diff view full width. Click the chevron to expand again.
 - **Copy hint on selection**: When diff lines are selected, a floating "⌘C copy N lines" hint badge appears to make the copy interaction discoverable.

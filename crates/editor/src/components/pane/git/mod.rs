@@ -156,6 +156,12 @@ pub struct PrReviewPane {
     /// Whether the approve message popup is open.
     approve_popup_open: bool,
 
+    // ── Description banner ──
+    /// Whether the PR description banner is collapsed in the detail view.
+    description_collapsed: bool,
+    /// Whether the PR description banner is expanded to show the full body.
+    description_expanded: bool,
+
     // ── File tree ──
     /// Collapsed directory paths in the file tree panel.
     collapsed_dirs: rustc_hash::FxHashSet<String>,
@@ -262,6 +268,8 @@ impl PrReviewPane {
             pending_submit: Arc::new(Mutex::new(None)),
             pending_single_comment: Arc::new(Mutex::new(None)),
             approve_popup_open: false,
+            description_collapsed: false,
+            description_expanded: false,
             collapsed_dirs: rustc_hash::FxHashSet::default(),
             file_tree_scroll_to_selected: false,
             file_panel_collapsed: false,
@@ -500,6 +508,8 @@ impl PrReviewPane {
 
     pub fn open_pr(&mut self, number: u32) {
         self.clear_review_state();
+        self.description_collapsed = false;
+        self.description_expanded = false;
 
         // Check preload cache first
         if let Some(cached) = self.preload_cache.remove(&number) {
@@ -1302,6 +1312,10 @@ impl crate::components::Component for PrReviewPane {
 
     fn description(&self) -> &str {
         ""
+    }
+
+    fn handles_own_navigation(&self) -> bool {
+        true
     }
 
     fn to_pane_config(&self) -> Option<enya_config::PaneConfig> {
