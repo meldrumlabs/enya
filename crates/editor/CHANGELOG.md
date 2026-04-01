@@ -4,6 +4,8 @@ All notable changes to the Enya editor will be documented in this file.
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-04-01
+
 ### Fixed
 
 - **File tree stats overlapping filenames**: In the PR review pane file tree, the comment icon and +/- stats no longer overlap long filenames — the filename now truncates based on the actual width of the right-side stats.
