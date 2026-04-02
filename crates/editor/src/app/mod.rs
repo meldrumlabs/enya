@@ -1087,8 +1087,10 @@ impl EnyaApp {
             // matches the agent panel's height (doesn't touch titlebar/statusbar)
             if show_sidebar {
                 self.project_sidebar.set_theme(self.effective_theme());
-                self.project_sidebar
-                    .set_active_workspace(self.workspace.loaded_name());
+                self.project_sidebar.set_active_workspace_with_project(
+                    self.workspace.loaded_name(),
+                    self.workspace.loaded_project(),
+                );
                 self.project_sidebar
                     .refresh_workspaces(&self.state.settings);
                 sidebar_result = self.project_sidebar.show(ui, ctx);
@@ -1211,6 +1213,59 @@ impl EnyaApp {
                     self.workspace.set_loaded_name(None);
                     self.workspace.set_loaded_project(None);
                 }
+                self.project_sidebar.force_rescan();
+                self.project_sidebar
+                    .refresh_workspaces(&self.state.settings);
+            }
+            crate::components::ProjectSidebarResult::RenameWorkspace {
+                old_name,
+                project,
+                new_name,
+            } => {
+                // Update recent workspace entries
+                for w in &mut self.state.settings.recent_workspaces {
+                    if w.name == old_name && w.project == project {
+                        w.name = new_name.clone();
+                    }
+                }
+
+                // Perform filesystem rename on native
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    let old_path = enya_config::resolve_project_workspace_path(&project, &old_name);
+                    let new_path = enya_config::resolve_project_workspace_path(&project, &new_name);
+                    if new_path.exists() {
+                        self.notifications
+                            .notify(crate::components::Notification::new(
+                                format!("Workspace '{new_name}' already exists"),
+                                crate::components::NotificationLevel::Error,
+                            ));
+                    } else if let Err(e) = std::fs::rename(&old_path, &new_path) {
+                        self.notifications
+                            .notify(crate::components::Notification::new(
+                                format!("Failed to rename workspace: {e}"),
+                                crate::components::NotificationLevel::Error,
+                            ));
+                    } else {
+                        self.notifications
+                            .notify(crate::components::Notification::new(
+                                format!("Renamed workspace: {old_name} → {new_name}"),
+                                crate::components::NotificationLevel::Success,
+                            ));
+                    }
+                }
+
+                // If currently loaded workspace was renamed, update loaded name
+                #[cfg(not(target_arch = "wasm32"))]
+                if self.workspace.loaded_name() == Some(old_name.as_str())
+                    && self
+                        .workspace
+                        .loaded_project()
+                        .is_some_and(|p| p == project.as_str())
+                {
+                    self.workspace.set_loaded_name(Some(new_name.clone()));
+                }
+
                 self.project_sidebar.force_rescan();
                 self.project_sidebar
                     .refresh_workspaces(&self.state.settings);
