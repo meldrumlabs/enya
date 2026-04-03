@@ -305,7 +305,11 @@ impl Workspace {
             }
 
             // g - go-to leader key (gd = go to definition)
-            if input.consume_key(egui::Modifiers::NONE, egui::Key::G) {
+            // Skip when focused pane handles its own navigation (e.g. PR review pane
+            // uses g/gg for scroll-to-top and Shift+G for scroll-to-bottom).
+            if !focused_pane_handles_nav
+                && input.consume_key(egui::Modifiers::NONE, egui::Key::G)
+            {
                 log::debug!("'g' key pressed - setting go-to leader key");
                 self.leader_keys.press_g();
                 consumed = true;

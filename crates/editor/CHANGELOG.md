@@ -4,6 +4,11 @@ All notable changes to the Enya editor will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- **`gg` scroll-to-top broken in PR review pane**: The workspace's `g` leader key handler (for `gd`/`ga`/`gp`) was consuming the `g` key press before the PR review pane's diff renderer could use it for `gg`. Now skipped when the focused pane handles its own navigation.
+- **Mouse wheel scrolling broken in PR diff view**: The `ScrollArea` scroll offset was set each frame but never read back from egui's output, so mouse wheel input was overwritten on the next frame. Both unified and split views now sync the scroll offset back.
+
 ## [0.1.3] - 2026-04-01
 
 ### Fixed
