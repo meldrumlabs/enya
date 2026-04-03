@@ -581,7 +581,7 @@ impl PrReviewPane {
                 );
             });
         } else {
-            let file_panel_width = 220.0;
+            let file_panel_width = (total_width * 0.28).clamp(180.0, 320.0);
             let diff_width = (total_width - file_panel_width - 12.0).max(200.0);
 
             ui.horizontal(|ui| {
