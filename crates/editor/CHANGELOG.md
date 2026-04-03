@@ -9,6 +9,7 @@ All notable changes to the Enya editor will be documented in this file.
 - **`gg` scroll-to-top broken in PR review pane**: The workspace's `g` leader key handler (for `gd`/`ga`/`gp`) was consuming the `g` key press before the PR review pane's diff renderer could use it for `gg`. Now skipped when the focused pane handles its own navigation.
 - **Mouse wheel scrolling broken in PR diff view**: The `ScrollArea` scroll offset was set each frame but never read back from egui's output, so mouse wheel input was overwritten on the next frame. Both unified and split views now sync the scroll offset back.
 - **PR file tree squashed with long filenames**: The file panel had a fixed 220px width, leaving little room for filenames when combined with indent and stats. Now uses 28% of pane width, clamped between 180–320px.
+- **`n`/`p` file navigation out of order across folders**: `file_diffs` followed the API's diff output order while the file tree was sorted alphabetically by path, so `n`/`p` would jump to unexpected files rather than following the visible tree order. Now sorts `file_diffs` by path to match the tree.
 
 ## [0.1.3] - 2026-04-01
 
