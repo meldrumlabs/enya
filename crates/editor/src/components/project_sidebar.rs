@@ -70,6 +70,12 @@ pub enum ProjectSidebarResult {
         name: String,
         project: String,
     },
+    /// Rename a workspace (old_name -> new_name) within a project.
+    RenameWorkspace {
+        old_name: String,
+        project: String,
+        new_name: String,
+    },
     /// Delete an entire project and all its workspaces.
     DeleteProject(String),
     /// Sidebar lost focus — return keyboard control to workspace
@@ -88,6 +94,8 @@ pub struct ProjectSidebar {
     theme: AppTheme,
     workspaces: Vec<SidebarWorkspaceItem>,
     active_workspace: Option<String>,
+    /// Project name for the active workspace (if known).
+    active_workspace_project: Option<String>,
     /// Flat navigation items (project headers + workspaces).
     nav_items: Vec<SidebarNavItem>,
     /// Keyboard selection index within `nav_items`.
@@ -97,6 +105,8 @@ pub struct ProjectSidebar {
     collapsed_projects: FxHashSet<String>,
     /// Project awaiting delete confirmation (shown as a y/n dialog).
     pending_delete_project: Option<String>,
+    /// Optional inline rename state: (project, old_name, buffer)
+    rename_workspace: Option<(String, String, String)>,
 }
 
 impl Default for ProjectSidebar {
@@ -118,6 +128,8 @@ impl ProjectSidebar {
             last_scan: None,
             collapsed_projects: FxHashSet::default(),
             pending_delete_project: None,
+            rename_workspace: None,
+            active_workspace_project: None,
         }
     }
 
@@ -158,8 +170,15 @@ impl ProjectSidebar {
         self.theme = theme;
     }
 
-    pub fn set_active_workspace(&mut self, name: Option<&str>) {
+    // Deprecated: use `set_active_workspace_with_project` which accepts both
+    // a workspace name and project. The old single-argument setter was removed.
+
+    /// Set active workspace name and project (optional). Prefer this when
+    /// the caller knows both values to avoid ambiguous highlights when
+    /// multiple projects contain workspaces with the same name.
+    pub fn set_active_workspace_with_project(&mut self, name: Option<&str>, project: Option<&str>) {
         self.active_workspace = name.map(|s| s.to_string());
+        self.active_workspace_project = project.map(|s| s.to_string());
     }
 
     /// Toggle whether a project's workspace list is collapsed in the sidebar.
@@ -499,14 +518,21 @@ impl ProjectSidebar {
                                 let ws = self
                                     .workspaces
                                     .iter()
-                                    .find(|w| w.name == *name && w.project == *project);
-                                let is_active =
-                                    self.active_workspace.as_deref().is_some_and(|a| a == name);
+                                    .find(|w| w.name == *name && w.project == *project)
+                                    .cloned(); // clone only the found item
+                                let is_active = match (
+                                    &self.active_workspace,
+                                    &self.active_workspace_project,
+                                ) {
+                                    (Some(a), Some(p)) => a == name && p == project,
+                                    (Some(a), None) => a == name,
+                                    _ => false,
+                                };
 
                                 if let Some(ws) = ws {
                                     if let Some(action) = self.render_workspace_row(
                                         ui,
-                                        ws,
+                                        &ws,
                                         is_active,
                                         is_selected,
                                         *indented,
@@ -894,7 +920,7 @@ impl ProjectSidebar {
 
     #[allow(clippy::too_many_arguments)]
     fn render_workspace_row(
-        &self,
+        &mut self,
         ui: &mut egui::Ui,
         item: &SidebarWorkspaceItem,
         is_active: bool,
@@ -999,8 +1025,85 @@ impl ProjectSidebar {
             }
         }
 
-        {
-            let max_name_w = avail_width - name_x - right_pad;
+        // Rename button (visible on hover/selected). Placed left of archive button.
+        #[cfg(not(target_arch = "wasm32"))]
+        if hovered || is_selected {
+            let archive_x = rect.max.x - 16.0;
+            let rename_rect = egui::Rect::from_center_size(
+                egui::pos2(archive_x - 24.0, rect.center().y),
+                Vec2::new(18.0, 18.0),
+            );
+            let rename_btn = ui.interact(
+                rename_rect,
+                ui.id().with(("ws_rename_btn", &item.project, &item.name)),
+                egui::Sense::click(),
+            );
+            ui.painter().text(
+                rename_rect.center(),
+                egui::Align2::CENTER_CENTER,
+                egui_nerdfonts::regular::PENCIL_OUTLINE,
+                egui::FontId::proportional(12.0),
+                text_tertiary,
+            );
+            if rename_btn.clicked() {
+                self.rename_workspace =
+                    Some((item.project.clone(), item.name.clone(), item.name.clone()));
+            }
+            if rename_btn.hovered() {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                rename_btn.on_hover_text("Rename workspace");
+            }
+        }
+
+        // Inline rename editor: if we're renaming this workspace, show a text field
+        let max_name_w = avail_width - name_x - right_pad;
+        if let Some((proj, old, buf)) = self.rename_workspace.as_mut() {
+            if proj == &item.project && old == &item.name {
+                let rename_id = ui.id().with(("ws_rename", &item.project, &item.name));
+                let mut buffer = buf.clone();
+                let edit = egui::TextEdit::singleline(&mut buffer)
+                    .id(rename_id)
+                    .desired_width(max_name_w)
+                    .font(typography::proportional(typography::SM))
+                    .text_color(text_primary);
+                let text_resp = ui.add(edit);
+                // keep buffer in state
+                *buf = buffer;
+
+                // Ensure focus to allow typing immediately
+                if !text_resp.has_focus() {
+                    text_resp.request_focus();
+                }
+
+                // Commit on Enter or when the edit loses focus
+                // (no explicit consume; we'll detect Enter via `ui.input(|i| ...)` below)
+
+                if text_resp.lost_focus() || ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                    let new_name = buf.trim().to_string();
+                    let old_name = old.clone();
+                    let project = proj.clone();
+                    self.rename_workspace = None;
+                    if new_name.is_empty() || new_name == old_name {
+                        return None;
+                    }
+                    return Some(ProjectSidebarResult::RenameWorkspace {
+                        old_name,
+                        project,
+                        new_name,
+                    });
+                }
+            } else {
+                // not the one being edited; paint normal text
+                let name_text = truncate_text(&item.name, max_name_w, typography::SM * 0.55);
+                ui.painter().text(
+                    egui::pos2(name_x, rect.center().y),
+                    egui::Align2::LEFT_CENTER,
+                    &name_text,
+                    typography::proportional(typography::SM),
+                    name_color,
+                );
+            }
+        } else {
             let name_text = truncate_text(&item.name, max_name_w, typography::SM * 0.55);
             ui.painter().text(
                 egui::pos2(name_x, rect.center().y),
@@ -1014,6 +1117,13 @@ impl ProjectSidebar {
         // Click handling
         if hovered {
             ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+        }
+
+        // Double-click to start inline rename (mouse users expect this).
+        if response.double_clicked() {
+            self.rename_workspace =
+                Some((item.project.clone(), item.name.clone(), item.name.clone()));
+            return None;
         }
 
         if response.clicked() {
