@@ -401,14 +401,33 @@ impl PrReviewPane {
     }
 
     /// Toggle reviewed status for the currently selected file.
+    /// When marking as reviewed (not un-marking), auto-advances to the next
+    /// unreviewed file so the reviewer can fly through the file list.
     fn toggle_current_file_reviewed(&mut self) {
         let Some(file_diff) = self.file_diffs.get(self.selected_file_index) else {
             return;
         };
         let path = file_diff.path.clone();
-        if !self.reviewed_files.remove(&path) {
-            self.reviewed_files.insert(path);
+        if self.reviewed_files.remove(&path) {
+            // Un-marking — stay on the current file.
+            return;
         }
+        self.reviewed_files.insert(path);
+
+        // Auto-advance: find the next unreviewed file after the current one,
+        // wrapping around to the beginning if needed.
+        let total = self.file_diffs.len();
+        for offset in 1..total {
+            let idx = (self.selected_file_index + offset) % total;
+            if !self.reviewed_files.contains(&self.file_diffs[idx].path) {
+                self.selected_file_index = idx;
+                self.diff_renderer.reset_for_file_change();
+                self.file_tree_scroll_to_selected = true;
+                self.mark_current_file_comments_seen();
+                return;
+            }
+        }
+        // All files reviewed — stay on current file.
     }
 
     /// Derive the aggregate review state for a PR from preloaded reviews.

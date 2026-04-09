@@ -829,6 +829,23 @@ fn render_floating_card(
             response.request_focus();
         }
 
+        // Cmd+Enter to submit, Escape to cancel
+        if response.has_focus() {
+            let cmd = if cfg!(target_os = "macos") {
+                egui::Modifiers::MAC_CMD
+            } else {
+                egui::Modifiers::CTRL
+            };
+            ui.input_mut(|input| {
+                if input.consume_key(cmd, egui::Key::Enter) && !comment_input.is_empty() {
+                    action.submit = Some((file_path.to_string(), line_num, comment_input.clone()));
+                }
+                if input.consume_key(egui::Modifiers::NONE, egui::Key::Escape) {
+                    action.cancel = true;
+                }
+            });
+        }
+
         ui.add_space(2.0);
         ui.horizontal(|ui| {
             let submit_label = if thread.is_some() { "Reply" } else { "Comment" };
@@ -1154,6 +1171,29 @@ fn render_inline_comments(
 
                         if response.gained_focus() || comment_input.is_empty() {
                             response.request_focus();
+                        }
+
+                        // Cmd+Enter to submit, Escape to cancel
+                        if response.has_focus() {
+                            let cmd = if cfg!(target_os = "macos") {
+                                egui::Modifiers::MAC_CMD
+                            } else {
+                                egui::Modifiers::CTRL
+                            };
+                            ui.input_mut(|input| {
+                                if input.consume_key(cmd, egui::Key::Enter)
+                                    && !comment_input.is_empty()
+                                {
+                                    *pending_add_comment = Some((
+                                        file_path.to_string(),
+                                        line_num,
+                                        comment_input.clone(),
+                                    ));
+                                }
+                                if input.consume_key(egui::Modifiers::NONE, egui::Key::Escape) {
+                                    *clear_commenting = true;
+                                }
+                            });
                         }
 
                         ui.add_space(4.0);

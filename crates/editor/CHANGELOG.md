@@ -8,6 +8,8 @@ All notable changes to the Enya editor will be documented in this file.
 
 - **Floating comment gutter**: PR review comments now render in a floating gutter to the right of the diff instead of breaking the code flow inline. Comments are anchored to their source line with subtle connector lines, and displaced cards (when comments are on adjacent lines) push downward with visual anchor lines back to the source. The anchor line in the diff gets a subtle accent highlight. Falls back to the original inline layout when the pane is narrower than 700px or in split-view mode.
 - **Per-file reviewed checkmarks**: Press `v` to mark the current file as reviewed. A green checkmark appears in the file tree, and a progress badge ("3/12") shows in the tab bar header — turning green when all files are reviewed. Review state resets when switching PRs.
+- **Auto-advance on review**: Pressing `v` to mark a file as viewed automatically jumps to the next unreviewed file, making it fast to fly through a file list.
+- **Cmd+Enter / Escape for comments**: Comment compose inputs now support `Cmd+Enter` (`Ctrl+Enter` on Linux) to submit and `Escape` to cancel, in both floating and inline comment modes.
 
 ### Fixed
 
