@@ -62,6 +62,7 @@ impl Workspace {
             || self.tutorial_overlay.is_open()
             || self.plugins_overlay.is_open()
             || self.source_preview.is_open()
+            || self.diff_viewer.is_open()
             || codebase_finder_open
         // Note: agent_panel.is_open() intentionally NOT checked here.
         // The agent panel can be open while viewport has focus (agent_panel_focused is checked separately).

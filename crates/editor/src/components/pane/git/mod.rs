@@ -228,6 +228,10 @@ pub struct PrReviewPane {
     http_client: reqwest::Client,
     async_runtime: AsyncRuntime,
     token: Option<String>,
+    /// Counts consecutive frames where the token hasn't changed.
+    /// Auto-fetch is deferred until the token is stable (≥2 frames) so the
+    /// git credential token has a chance to arrive before firing requests.
+    token_stable_frames: u8,
 }
 
 impl PrReviewPane {
@@ -302,11 +306,25 @@ impl PrReviewPane {
             http_client: reqwest::Client::new(),
             async_runtime,
             token: None,
+            token_stable_frames: 0,
         }
     }
 
     /// Set the GitHub access token. Called each frame from workspace.
     pub fn set_token(&mut self, token: Option<String>) {
+        if token != self.token {
+            // Token changed — reset the stability counter so we don't fire a
+            // request with a token that's about to be replaced (e.g., OAuth
+            // arriving first, then git credential replacing it).
+            self.token_stable_frames = 0;
+            // If we already have an error from a previous token, clear it so
+            // the auto-fetch can retry with the new one.
+            if token.is_some() && self.list_error.is_some() {
+                self.list_error = None;
+            }
+        } else if self.token_stable_frames < 2 {
+            self.token_stable_frames += 1;
+        }
         self.token = token;
     }
 
@@ -1293,11 +1311,14 @@ impl crate::components::Component for PrReviewPane {
             self.diff_renderer.close_search();
         }
 
-        // Auto-fetch PR list on first render if we have a token
+        // Auto-fetch PR list on first render if we have a stable token.
+        // Wait for token_stable_frames >= 2 so the git credential token has a
+        // chance to arrive and replace the OAuth token before we fire the request.
         if self.pull_requests.is_empty()
             && !self.list_loading
             && self.list_error.is_none()
             && self.token.is_some()
+            && self.token_stable_frames >= 2
             && self.view == PrReviewView::List
         {
             self.fetch_pr_list();

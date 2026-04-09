@@ -1380,7 +1380,9 @@ impl Workspace {
             );
             // Disable keyboard when another overlay is on top
             self.diff_viewer.set_keyboard_disabled(
-                self.time_range_picker.is_open() || self.command_palette.is_open(),
+                self.time_range_picker.is_open()
+                    || self.command_palette.is_open()
+                    || self.unified_finder.is_open(),
             );
             match self.diff_viewer.show(ctx) {
                 DiffViewerResult::Error(msg) => {

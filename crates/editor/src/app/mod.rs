@@ -1997,6 +1997,21 @@ impl eframe::App for EnyaApp {
     /// Called by the frame work to save state before shutdown.
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
         eframe::set_value(storage, eframe::APP_KEY, &self.state);
+
+        // Auto-save workspace layout so pane arrangement persists across restarts
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            if let (Some(name), Some(project)) = (
+                self.workspace.loaded_name().map(|s| s.to_string()),
+                self.workspace.loaded_project().map(|s| s.to_string()),
+            ) {
+                let config = self.workspace.to_workspace_config(&name, None);
+                let path = enya_config::resolve_project_workspace_path(&project, &name);
+                if let Err(e) = config.save(&path) {
+                    log::warn!("Auto-save workspace failed: {e}");
+                }
+            }
+        }
     }
 
     /// Background clear color. On macOS this is fully transparent so the
