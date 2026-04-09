@@ -1451,20 +1451,14 @@ mod diff_renderer_tests {
         // j scrolls down
         let mut input = input_with_key(egui::Key::J, egui::Modifiers::NONE);
         renderer.handle_keyboard(&mut input);
-        assert!(
-            renderer.scroll_offset_y() > 0.0,
-            "j should scroll down"
-        );
+        assert!(renderer.scroll_offset_y() > 0.0, "j should scroll down");
 
         let after_j = renderer.scroll_offset_y();
 
         // k scrolls up
         let mut input = input_with_key(egui::Key::K, egui::Modifiers::NONE);
         renderer.handle_keyboard(&mut input);
-        assert!(
-            renderer.scroll_offset_y() < after_j,
-            "k should scroll up"
-        );
+        assert!(renderer.scroll_offset_y() < after_j, "k should scroll up");
     }
 
     /// Test that `c` returns CommentOnSelected action.
@@ -1532,9 +1526,10 @@ mod diff_renderer_tests {
         });
 
         // We also need the pointer inside the scroll area for egui to route the event
-        harness.input_mut().events.push(egui::Event::PointerMoved(
-            egui::pos2(200.0, 200.0),
-        ));
+        harness
+            .input_mut()
+            .events
+            .push(egui::Event::PointerMoved(egui::pos2(200.0, 200.0)));
 
         // Run a few frames for the scroll to settle
         harness.step();
