@@ -88,6 +88,17 @@ pub struct DiffRenderer {
 
     // ── Typography ──
     font_size: f32,
+
+    // ── Floating comments support ──
+    /// Line Y positions from the last render pass: `(line_idx, new_line_num, y_top)`.
+    /// Populated during `render_unified` / `render_split`, consumed by the caller
+    /// to position floating comment cards in the gutter.
+    line_y_positions: Vec<(usize, usize, f32)>,
+
+    /// The scroll-area content origin from the last render (top-left of the
+    /// scrollable region in screen coords). Callers need this to convert the
+    /// relative `line_y_positions` into absolute painter coords.
+    last_content_origin: egui::Pos2,
 }
 
 // ---------------------------------------------------------------------------
@@ -132,6 +143,8 @@ impl DiffRenderer {
             last_total_lines: 0,
             id_salt: id_salt.to_string(),
             font_size,
+            line_y_positions: Vec::new(),
+            last_content_origin: egui::Pos2::ZERO,
         }
     }
 
@@ -176,6 +189,17 @@ impl DiffRenderer {
 
     pub fn scroll_offset_y(&self) -> f32 {
         self.scroll_offset_y
+    }
+
+    /// Line Y positions from the last render: `(line_idx, new_line_num, y_top)`.
+    /// The Y values are relative to the scroll-area content origin.
+    pub fn line_y_positions(&self) -> &[(usize, usize, f32)] {
+        &self.line_y_positions
+    }
+
+    /// The scroll-area content origin from the last render.
+    pub fn last_content_origin(&self) -> egui::Pos2 {
+        self.last_content_origin
     }
 
     /// Approximate line index at the current scroll position.
@@ -750,6 +774,9 @@ impl DiffRenderer {
             ui.ctx().request_repaint();
         }
 
+        // Clear line positions from previous frame (repopulated by render_unified)
+        self.line_y_positions.clear();
+
         // Track total lines for gg/G navigation
         self.last_total_lines = file_diff.lines.len();
 
@@ -823,6 +850,8 @@ impl DiffRenderer {
         let mut expand_hunk_idx: Option<usize> = None;
         let mut comment_line_idx: Option<usize> = None;
 
+        let mut collected_y_positions: Vec<(usize, usize, f32)> = Vec::new();
+
         let scroll_output = egui::ScrollArea::both()
             .id_salt(format!("{}_unified", self.id_salt))
             .scroll_offset(egui::vec2(self.scroll_offset_x, self.scroll_offset_y))
@@ -883,6 +912,14 @@ impl DiffRenderer {
                         LineAction::None => {}
                     }
 
+                    // Capture Y position for floating comment anchoring
+                    if let Some(new_ln) = line.new_line_num {
+                        // cursor().top() is the Y *after* this line was laid out;
+                        // subtract line_height to get the top of this line.
+                        let y_top = ui.cursor().top() - line_height;
+                        collected_y_positions.push((line_idx, new_ln, y_top));
+                    }
+
                     // Per-line callback (inline comments, etc.)
                     if let Some(ref mut cb) = line_callback {
                         cb(ui, line_idx, line);
@@ -895,6 +932,10 @@ impl DiffRenderer {
         // Sync scroll offset back from egui so mouse-wheel scrolling works
         self.scroll_offset_x = scroll_output.state.offset.x;
         self.scroll_offset_y = scroll_output.state.offset.y;
+
+        // Store line positions for floating comments
+        self.line_y_positions = collected_y_positions;
+        self.last_content_origin = scroll_output.inner_rect.left_top();
 
         // Process clicks
         if let Some((line_idx, shift)) = clicked_line {

@@ -4,6 +4,10 @@ All notable changes to the Enya editor will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **Floating comment gutter**: PR review comments now render in a floating gutter to the right of the diff instead of breaking the code flow inline. Comments are anchored to their source line with subtle connector lines, and displaced cards (when comments are on adjacent lines) push downward with visual anchor lines back to the source. The anchor line in the diff gets a subtle accent highlight. Falls back to the original inline layout when the pane is narrower than 700px or in split-view mode.
+
 ### Fixed
 
 - **`gg` scroll-to-top broken in PR review pane**: The workspace's `g` leader key handler (for `gd`/`ga`/`gp`) was consuming the `g` key press before the PR review pane's diff renderer could use it for `gg`. Now skipped when the focused pane handles its own navigation.

@@ -146,6 +146,9 @@ pub struct PrReviewPane {
     comment_input: String,
     /// Tracks which comment threads are collapsed, keyed by (file_path, line_number).
     collapsed_threads: rustc_hash::FxHashSet<(String, usize)>,
+    /// Measured card heights from the previous frame, keyed by line_num.
+    /// Used by floating-comment layout to avoid card overlap.
+    floating_card_heights: rustc_hash::FxHashMap<usize, f32>,
     submitting_review: bool,
     submit_error: Option<String>,
     submit_success: Option<String>,
@@ -262,6 +265,7 @@ impl PrReviewPane {
             commenting_line: None,
             comment_input: String::new(),
             collapsed_threads: rustc_hash::FxHashSet::default(),
+            floating_card_heights: rustc_hash::FxHashMap::default(),
             submitting_review: false,
             submit_error: None,
             submit_success: None,
