@@ -823,7 +823,7 @@ impl DiffRenderer {
         let mut expand_hunk_idx: Option<usize> = None;
         let mut comment_line_idx: Option<usize> = None;
 
-        egui::ScrollArea::both()
+        let scroll_output = egui::ScrollArea::both()
             .id_salt(format!("{}_unified", self.id_salt))
             .scroll_offset(egui::vec2(self.scroll_offset_x, self.scroll_offset_y))
             .auto_shrink([false, false])
@@ -891,6 +891,10 @@ impl DiffRenderer {
 
                 ui.add_space(8.0);
             });
+
+        // Sync scroll offset back from egui so mouse-wheel scrolling works
+        self.scroll_offset_x = scroll_output.state.offset.x;
+        self.scroll_offset_y = scroll_output.state.offset.y;
 
         // Process clicks
         if let Some((line_idx, shift)) = clicked_line {
@@ -1036,7 +1040,7 @@ impl DiffRenderer {
             egui::Stroke::new(1.0, theme.border_subtle()),
         );
 
-        egui::ScrollArea::vertical()
+        let scroll_output = egui::ScrollArea::vertical()
             .id_salt(format!("{}_split", self.id_salt))
             .scroll_offset(egui::vec2(0.0, self.scroll_offset_y))
             .auto_shrink([false, false])
@@ -1170,6 +1174,9 @@ impl DiffRenderer {
 
                 ui.add_space(8.0);
             });
+
+        // Sync scroll offset back from egui so mouse-wheel scrolling works
+        self.scroll_offset_y = scroll_output.state.offset.y;
     }
 }
 

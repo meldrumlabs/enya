@@ -664,7 +664,8 @@ impl PrReviewPane {
                     let pr = api::get_pull(&client, &token, &owner, &repo, number).await?;
                     let files = api::get_pull_files(&client, &token, &owner, &repo, number).await?;
                     let diff = api::get_pull_diff(&client, &token, &owner, &repo, number).await?;
-                    let file_diffs = crate::git::diff::parse_diff_into_files(&diff);
+                    let mut file_diffs = crate::git::diff::parse_diff_into_files(&diff);
+                    file_diffs.sort_by(|a, b| a.path.cmp(&b.path));
                     let review_comments =
                         api::get_review_comments(&client, &token, &owner, &repo, number).await?;
                     let issue_comments =
@@ -809,7 +810,9 @@ impl PrReviewPane {
             self.detail_loading = false;
             match result {
                 Ok((pr, files, diff)) => {
-                    self.file_diffs = crate::git::diff::parse_diff_into_files(&diff);
+                    let mut file_diffs = crate::git::diff::parse_diff_into_files(&diff);
+                    file_diffs.sort_by(|a, b| a.path.cmp(&b.path));
+                    self.file_diffs = file_diffs;
                     let pr_number = pr.number;
                     let head_sha_empty = pr.head.sha.is_empty();
                     self.current_pr = Some(pr);
