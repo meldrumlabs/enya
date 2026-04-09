@@ -180,7 +180,10 @@ impl Workspace {
                 return;
             }
 
-            if input.consume_key(egui::Modifiers::NONE, egui::Key::V) && current_focus.is_some() {
+            if !focused_pane_handles_nav
+                && input.consume_key(egui::Modifiers::NONE, egui::Key::V)
+                && current_focus.is_some()
+            {
                 // Check if this is part of a cv sequence
                 if self.leader_keys.is_c_active() {
                     should_cycle_visualization = true;

@@ -177,6 +177,10 @@ pub struct PrReviewPane {
     /// Comment IDs that the user has "seen" (by viewing the file containing them).
     seen_comment_ids: rustc_hash::FxHashSet<u64>,
 
+    // ── Per-file reviewed status ──
+    /// File paths the user has marked as "reviewed".
+    reviewed_files: rustc_hash::FxHashSet<String>,
+
     // ── File opener ──
     file_opener: FileOpenerPopup,
     /// Repo root for constructing full file paths.
@@ -278,6 +282,7 @@ impl PrReviewPane {
             file_tree_scroll_to_selected: false,
             file_panel_collapsed: false,
             seen_comment_ids: rustc_hash::FxHashSet::default(),
+            reviewed_files: rustc_hash::FxHashSet::default(),
             file_opener: FileOpenerPopup::new(),
             repo_root: None,
             pending_open_file_opener: false,
@@ -395,6 +400,17 @@ impl PrReviewPane {
         }
     }
 
+    /// Toggle reviewed status for the currently selected file.
+    fn toggle_current_file_reviewed(&mut self) {
+        let Some(file_diff) = self.file_diffs.get(self.selected_file_index) else {
+            return;
+        };
+        let path = file_diff.path.clone();
+        if !self.reviewed_files.remove(&path) {
+            self.reviewed_files.insert(path);
+        }
+    }
+
     /// Derive the aggregate review state for a PR from preloaded reviews.
     /// Returns `Some(Approved)` if at least one review is approved and none request changes,
     /// `Some(ChangesRequested)` if any review requests changes, or `None` otherwise.
@@ -507,6 +523,8 @@ impl PrReviewPane {
         self.draft_comments.clear();
         self.draft_body.clear();
         self.collapsed_threads.clear();
+        self.reviewed_files.clear();
+        self.floating_card_heights.clear();
         self.approve_popup_open = false;
     }
 
@@ -1108,6 +1126,11 @@ impl PrReviewPane {
                     // Consume x/u in detail view to prevent accidental pane close
                     input.consume_key(egui::Modifiers::NONE, egui::Key::X);
                     input.consume_key(egui::Modifiers::NONE, egui::Key::U);
+
+                    // v — toggle current file as reviewed ("viewed")
+                    if input.consume_key(egui::Modifiers::NONE, egui::Key::V) {
+                        self.toggle_current_file_reviewed();
+                    }
 
                     // In detail view: Escape closes search first, then goes back.
                     // h/Backspace/ArrowLeft always go back.
