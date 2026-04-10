@@ -501,6 +501,73 @@ pub async fn create_review_comment(
         .map_err(|e| format!("Parse failed: {e}"))
 }
 
+// ── Merge ───────────────────────────────────────────────────────────────
+
+/// Merge method for a pull request.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MergeMethod {
+    Merge,
+    Squash,
+    Rebase,
+}
+
+impl MergeMethod {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            MergeMethod::Merge => "merge",
+            MergeMethod::Squash => "squash",
+            MergeMethod::Rebase => "rebase",
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            MergeMethod::Merge => "Create a merge commit",
+            MergeMethod::Squash => "Squash and merge",
+            MergeMethod::Rebase => "Rebase and merge",
+        }
+    }
+}
+
+/// Merge a pull request via PUT /repos/{owner}/{repo}/pulls/{number}/merge.
+pub async fn merge_pull(
+    client: &reqwest::Client,
+    token: &str,
+    owner: &str,
+    repo: &str,
+    number: u32,
+    commit_title: Option<&str>,
+    merge_method: MergeMethod,
+) -> Result<(), String> {
+    let url = format!(
+        "{}/repos/{owner}/{repo}/pulls/{number}/merge",
+        github_api_base()
+    );
+
+    let mut payload = serde_json::json!({
+        "merge_method": merge_method.as_str(),
+    });
+    if let Some(title) = commit_title {
+        payload["commit_title"] = serde_json::Value::String(title.to_string());
+    }
+
+    let resp = client
+        .put(&url)
+        .headers(api_headers(token))
+        .json(&payload)
+        .send()
+        .await
+        .map_err(|e| format!("Request failed: {e}"))?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        return Err(format!("GitHub API error {status}: {body}"));
+    }
+
+    Ok(())
+}
+
 // ── Relative time ───────────────────────────────────────────────────────
 
 /// Format an ISO 8601 timestamp as a human-readable relative time string.

@@ -3,7 +3,7 @@
 use egui::RichText;
 use rustc_hash::FxHashSet;
 
-use crate::git::api::{DraftComment, PrComment, PrFile, ReviewEvent, relative_time};
+use crate::git::api::{DraftComment, MergeMethod, PrComment, PrFile, ReviewEvent, relative_time};
 use crate::ui::theme::AppTheme;
 use crate::ui::typography;
 
@@ -136,6 +136,8 @@ impl PrReviewPane {
         let mut clicked_event: Option<ReviewEvent> = None;
         let mut go_back = false;
         let mut approve_btn_anchor = egui::Rect::NOTHING;
+        let mut merge_btn_anchor = egui::Rect::NOTHING;
+        let mut do_merge = false;
         ui.horizontal(|ui| {
             ui.add_space(8.0);
 
@@ -201,6 +203,56 @@ impl PrReviewPane {
 
                 let has_content = !self.draft_comments.is_empty() || !self.draft_body.is_empty();
                 let can_submit = self.token.is_some() && !self.submitting_review;
+
+                // Merge (toggles popup for strategy selection)
+                let is_open = self
+                    .current_pr
+                    .as_ref()
+                    .is_some_and(|pr| pr.state == "open");
+                let can_merge = can_submit
+                    && is_open
+                    && !self.merging
+                    && self
+                        .current_pr
+                        .as_ref()
+                        .and_then(|pr| pr.mergeable)
+                        .unwrap_or(false);
+                let merge_btn = ui.add_enabled(
+                    can_merge,
+                    egui::Button::new(
+                        RichText::new(format!("Merge {}", egui_nerdfonts::regular::CHEVRON_DOWN))
+                            .size(typography::XS)
+                            .color(if can_merge {
+                                theme.accent_primary()
+                            } else {
+                                theme.text_secondary().gamma_multiply(0.5)
+                            }),
+                    )
+                    .fill(if can_merge {
+                        if self.merge_popup_open {
+                            theme.accent_primary().gamma_multiply(0.2)
+                        } else {
+                            theme.accent_primary().gamma_multiply(0.12)
+                        }
+                    } else {
+                        theme.bg_elevated()
+                    })
+                    .stroke(egui::Stroke::new(
+                        1.0,
+                        if can_merge {
+                            theme.accent_primary().gamma_multiply(0.3)
+                        } else {
+                            theme.border_subtle()
+                        },
+                    ))
+                    .corner_radius(4.0),
+                );
+                if merge_btn.clicked() {
+                    self.merge_popup_open = !self.merge_popup_open;
+                }
+                merge_btn_anchor = merge_btn.rect;
+
+                ui.add_space(4.0);
 
                 // Approve (toggles popup for optional message)
                 let approve_btn = ui.add_enabled(
@@ -291,8 +343,67 @@ impl PrReviewPane {
                     clicked_event = Some(ReviewEvent::Comment);
                 }
 
-                // Submitting indicator
-                if self.submitting_review {
+                ui.add_space(4.0);
+
+                // Organize (AI review insights)
+                {
+                    const BRAILLE_FRAMES: [char; 10] =
+                        ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+
+                    let is_loading = matches!(
+                        self.walkthrough_state,
+                        super::walkthrough::WalkthroughState::Loading
+                    );
+                    let is_ready = matches!(
+                        self.walkthrough_state,
+                        super::walkthrough::WalkthroughState::Ready(_)
+                    );
+
+                    let label = if is_loading {
+                        let time = ui.ctx().input(|i| i.time);
+                        let frame = ((time * 10.0) as usize) % BRAILLE_FRAMES.len();
+                        ui.ctx().request_repaint();
+                        format!("{} Organizing...", BRAILLE_FRAMES[frame])
+                    } else {
+                        "Organize".to_string()
+                    };
+
+                    let organize_btn = ui.add_enabled(
+                        !is_loading && !self.file_diffs.is_empty(),
+                        egui::Button::new(RichText::new(label).size(typography::XS).color(
+                            if is_loading || is_ready {
+                                theme.accent_primary()
+                            } else {
+                                theme.text_primary()
+                            },
+                        ))
+                        .fill(if is_ready {
+                            theme.accent_primary().gamma_multiply(0.12)
+                        } else {
+                            theme.bg_elevated()
+                        })
+                        .stroke(egui::Stroke::new(
+                            1.0,
+                            if is_ready {
+                                theme.accent_primary().gamma_multiply(0.3)
+                            } else {
+                                theme.border_subtle()
+                            },
+                        ))
+                        .corner_radius(4.0),
+                    );
+                    if organize_btn.clicked() {
+                        if is_ready {
+                            self.walkthrough_state =
+                                super::walkthrough::WalkthroughState::Idle;
+                        } else {
+                            self.request_walkthrough();
+                        }
+                    }
+                }
+
+                // Submitting / merging indicator
+                if self.submitting_review || self.merging {
                     ui.add_space(4.0);
                     ui.spinner();
                 }
@@ -431,7 +542,171 @@ impl PrReviewPane {
             }
         }
 
+        // Merge popup (floating below the Merge button)
+        if self.merge_popup_open {
+            let popup_id = ui.id().with("merge_popup");
+            let popup_pos = egui::pos2(
+                merge_btn_anchor.right() - 260.0,
+                merge_btn_anchor.bottom() + 4.0,
+            );
+            let area_resp = egui::Area::new(popup_id)
+                .order(egui::Order::Foreground)
+                .fixed_pos(popup_pos)
+                .show(ui.ctx(), |ui| {
+                    egui::Frame::new()
+                        .fill(theme.bg_elevated())
+                        .stroke(egui::Stroke::new(1.0, theme.border_subtle()))
+                        .corner_radius(6.0)
+                        .inner_margin(egui::Margin::same(12))
+                        .show(ui, |ui| {
+                            ui.set_width(240.0);
+                            ui.label(
+                                RichText::new("Merge pull request")
+                                    .color(theme.text_primary())
+                                    .font(typography::proportional(typography::SM))
+                                    .strong(),
+                            );
+                            ui.add_space(8.0);
+
+                            // Strategy radio buttons
+                            for method in
+                                [MergeMethod::Squash, MergeMethod::Merge, MergeMethod::Rebase]
+                            {
+                                let selected = self.merge_method == method;
+                                let (rect, response) = ui.allocate_exact_size(
+                                    egui::vec2(ui.available_width(), 28.0),
+                                    egui::Sense::click(),
+                                );
+
+                                if response.hovered() || selected {
+                                    ui.painter().rect_filled(
+                                        rect,
+                                        4.0,
+                                        if selected {
+                                            theme.accent_primary().gamma_multiply(0.12)
+                                        } else {
+                                            theme.text_primary().gamma_multiply(0.04)
+                                        },
+                                    );
+                                }
+
+                                // Radio circle
+                                let circle_center = egui::pos2(rect.left() + 12.0, rect.center().y);
+                                ui.painter().circle_stroke(
+                                    circle_center,
+                                    5.0,
+                                    egui::Stroke::new(
+                                        1.0,
+                                        if selected {
+                                            theme.accent_primary()
+                                        } else {
+                                            theme.text_secondary()
+                                        },
+                                    ),
+                                );
+                                if selected {
+                                    ui.painter().circle_filled(
+                                        circle_center,
+                                        3.0,
+                                        theme.accent_primary(),
+                                    );
+                                }
+
+                                // Label
+                                let label_galley = ui.painter().layout_no_wrap(
+                                    method.label().to_string(),
+                                    typography::proportional(typography::XS),
+                                    if selected {
+                                        theme.text_primary()
+                                    } else {
+                                        theme.text_secondary()
+                                    },
+                                );
+                                ui.painter().galley(
+                                    egui::pos2(
+                                        rect.left() + 24.0,
+                                        rect.center().y - label_galley.size().y / 2.0,
+                                    ),
+                                    label_galley,
+                                    theme.text_primary(),
+                                );
+
+                                if response.clicked() {
+                                    self.merge_method = method;
+                                }
+                            }
+
+                            ui.add_space(8.0);
+
+                            // Confirm merge button
+                            ui.horizontal(|ui| {
+                                let confirm_label = match self.merge_method {
+                                    MergeMethod::Squash => "Squash and merge",
+                                    MergeMethod::Merge => "Confirm merge",
+                                    MergeMethod::Rebase => "Rebase and merge",
+                                };
+                                let confirm_btn = ui.add(
+                                    egui::Button::new(
+                                        RichText::new(confirm_label)
+                                            .size(typography::XS)
+                                            .color(theme.accent_primary()),
+                                    )
+                                    .fill(theme.accent_primary().gamma_multiply(0.15))
+                                    .stroke(egui::Stroke::new(
+                                        1.0,
+                                        theme.accent_primary().gamma_multiply(0.3),
+                                    ))
+                                    .corner_radius(4.0),
+                                );
+                                if confirm_btn.clicked() {
+                                    do_merge = true;
+                                }
+
+                                let cancel_btn = ui.add(
+                                    egui::Button::new(
+                                        RichText::new("Cancel")
+                                            .size(typography::XS)
+                                            .color(theme.text_secondary()),
+                                    )
+                                    .fill(egui::Color32::TRANSPARENT)
+                                    .stroke(egui::Stroke::NONE),
+                                );
+                                if cancel_btn.clicked() {
+                                    self.merge_popup_open = false;
+                                }
+                            });
+
+                            // Merging spinner
+                            if self.merging {
+                                ui.add_space(4.0);
+                                ui.horizontal(|ui| {
+                                    ui.spinner();
+                                    ui.add_space(4.0);
+                                    ui.label(
+                                        RichText::new("Merging...")
+                                            .color(theme.text_secondary())
+                                            .font(typography::proportional(typography::XS)),
+                                    );
+                                });
+                            }
+                        });
+                });
+
+            // Close popup when clicking outside
+            let popup_rect = area_resp.response.rect;
+            if ui.input(|i| i.pointer.any_click())
+                && !popup_rect.contains(ui.input(|i| i.pointer.interact_pos().unwrap_or_default()))
+                && !merge_btn_anchor
+                    .contains(ui.input(|i| i.pointer.interact_pos().unwrap_or_default()))
+            {
+                self.merge_popup_open = false;
+            }
+        }
+
         // Handle deferred actions outside closures
+        if do_merge {
+            self.merge_pull();
+        }
         if go_back {
             self.view = PrReviewView::List;
             self.current_pr = None;
@@ -458,6 +733,9 @@ impl PrReviewPane {
 
         // ── PR description banner (collapsible) ──
         self.show_description_banner(ui, theme);
+
+        // ── AI walkthrough summary banner ──
+        self.show_walkthrough_banner(ui, theme);
 
         // Loading state
         if self.detail_loading {
@@ -673,6 +951,21 @@ impl PrReviewPane {
             });
         });
         ui.add_space(6.0);
+
+        // Use walkthrough grouped view if active, otherwise normal tree
+        let walkthrough_groups = self.walkthrough_file_order();
+        if let Some(ref groups) = walkthrough_groups {
+            let mut clicked_file: Option<usize> = None;
+            self.show_walkthrough_file_panel(ui, theme, groups, &mut clicked_file);
+
+            self.file_tree_scroll_to_selected = false;
+
+            if let Some(diff_idx) = clicked_file {
+                self.selected_file_index = diff_idx;
+                self.mark_current_file_comments_seen();
+            }
+            return;
+        }
 
         // Build flattened tree rows from file paths
         let tree_rows = build_file_tree_rows(
@@ -1009,6 +1302,233 @@ impl PrReviewPane {
                 self.selected_file_index = diff_idx;
                 self.mark_current_file_comments_seen();
             }
+        }
+    }
+
+    /// Render the walkthrough-grouped file panel (replaces the normal tree when active).
+    fn show_walkthrough_file_panel(
+        &self,
+        ui: &mut egui::Ui,
+        theme: AppTheme,
+        groups: &[(&str, Vec<usize>)],
+        clicked_file: &mut Option<usize>,
+    ) {
+        let accent = theme.accent_primary();
+
+        egui::ScrollArea::vertical()
+            .id_salt("pr_walkthrough_panel")
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                for (group_label, file_indices) in groups {
+                    // ── Group header ──
+                    let (header_rect, _) = ui.allocate_exact_size(
+                        egui::vec2(ui.available_width(), 22.0),
+                        egui::Sense::hover(),
+                    );
+
+                    // Subtle accent bar on the left
+                    ui.painter().rect_filled(
+                        egui::Rect::from_min_size(header_rect.min, egui::vec2(2.0, 22.0)),
+                        1.0,
+                        accent.gamma_multiply(0.4),
+                    );
+
+                    let label_galley = ui.painter().layout_no_wrap(
+                        (*group_label).to_string(),
+                        typography::proportional(typography::XS),
+                        accent.gamma_multiply(0.9),
+                    );
+                    ui.painter().galley(
+                        egui::pos2(
+                            header_rect.left() + 8.0,
+                            header_rect.center().y - label_galley.size().y / 2.0,
+                        ),
+                        label_galley,
+                        accent.gamma_multiply(0.9),
+                    );
+
+                    // ── Files in this group ──
+                    for &diff_idx in file_indices {
+                        let Some(file_diff) = self.file_diffs.get(diff_idx) else {
+                            continue;
+                        };
+                        let file_path = &file_diff.path;
+
+                        // File row — compact, no annotations (insights are inline in gutter)
+                        let row_height = 24.0;
+                        let (rect, response) = ui.allocate_exact_size(
+                            egui::vec2(ui.available_width(), row_height),
+                            egui::Sense::click(),
+                        );
+
+                        let is_selected = self.selected_file_index == diff_idx;
+                        let is_hovered = response.hovered();
+                        let is_reviewed = self.reviewed_files.contains(file_path);
+
+                        // Background
+                        if is_selected {
+                            ui.painter()
+                                .rect_filled(rect, 3.0, accent.gamma_multiply(0.12));
+                            ui.painter().rect_filled(
+                                egui::Rect::from_min_size(rect.min, egui::vec2(3.0, row_height)),
+                                2.0,
+                                accent,
+                            );
+                        } else if is_hovered {
+                            ui.painter().rect_filled(
+                                rect,
+                                3.0,
+                                theme.text_primary().gamma_multiply(0.04),
+                            );
+                        }
+
+                        let indent = 10.0;
+                        let mut cx = rect.left() + indent;
+                        let name_y = rect.center().y - 6.0;
+
+                        // File icon
+                        let pr_file = self.pr_files.iter().find(|f| f.filename == *file_path);
+                        let icon = match pr_file.map(|f| f.status.as_str()) {
+                            Some("removed") => egui_nerdfonts::regular::FILE_MINUS,
+                            Some("added") => egui_nerdfonts::regular::FILE_PLUS,
+                            _ => egui_nerdfonts::regular::FILE_EDIT,
+                        };
+                        let icon_color = if is_selected {
+                            accent
+                        } else {
+                            theme.text_secondary()
+                        };
+                        let icon_galley = ui.painter().layout_no_wrap(
+                            icon.to_string(),
+                            typography::proportional(typography::XS),
+                            icon_color,
+                        );
+                        ui.painter().galley(
+                            egui::pos2(cx, name_y),
+                            icon_galley.clone(),
+                            icon_color,
+                        );
+                        cx += icon_galley.size().x + 4.0;
+
+                        // Filename (just the name, not full path)
+                        let display_name = file_path.rsplit('/').next().unwrap_or(file_path);
+                        let name_color = if is_selected {
+                            theme.text_primary()
+                        } else {
+                            theme.text_primary().gamma_multiply(0.85)
+                        };
+
+                        // Reviewed checkmark on the right
+                        let mut right_x = rect.right() - 8.0;
+                        if is_reviewed {
+                            let check_galley = ui.painter().layout_no_wrap(
+                                egui_nerdfonts::regular::CHECK.to_string(),
+                                typography::proportional(typography::XS),
+                                theme.diff_added_gutter(),
+                            );
+                            right_x -= check_galley.size().x;
+                            ui.painter().galley(
+                                egui::pos2(right_x, name_y),
+                                check_galley,
+                                theme.diff_added_gutter(),
+                            );
+                            right_x -= 4.0;
+                        }
+
+                        let max_name_width = (right_x - cx - 4.0).max(20.0);
+                        let name_galley = ui.painter().layout(
+                            display_name.to_string(),
+                            typography::monospace(typography::XS),
+                            name_color,
+                            max_name_width,
+                        );
+                        ui.painter()
+                            .galley(egui::pos2(cx, name_y), name_galley, name_color);
+
+                        // Auto-scroll on keyboard nav
+                        if is_selected && self.file_tree_scroll_to_selected {
+                            response.scroll_to_me(Some(egui::Align::Center));
+                        }
+
+                        if response.clicked() {
+                            *clicked_file = Some(diff_idx);
+                        }
+
+                        response.on_hover_text(file_path);
+                    }
+
+                    ui.add_space(4.0);
+                }
+            });
+    }
+
+    /// Render the AI walkthrough summary banner when a walkthrough is ready.
+    ///
+    /// Uses the same raw-pointer interaction approach as show_description_banner
+    /// to avoid stealing keyboard focus.
+    /// Show walkthrough error state (if any). The summary banner is intentionally
+    /// omitted — the walkthrough value lives in the inline gutter insights.
+    fn show_walkthrough_banner(&mut self, ui: &mut egui::Ui, theme: AppTheme) {
+        if let super::walkthrough::WalkthroughState::Error(ref err) = self.walkthrough_state {
+            ui.add_space(4.0);
+            egui::Frame::new()
+                .fill(theme.diff_removed_bg())
+                .corner_radius(4.0)
+                .inner_margin(egui::Margin::symmetric(12, 8))
+                .show(ui, |ui| {
+                    ui.label(
+                        RichText::new(format!(
+                            "{} Organize failed: {err}",
+                            egui_nerdfonts::regular::WARNING
+                        ))
+                        .color(theme.diff_removed_text())
+                        .font(typography::proportional(typography::XS)),
+                    );
+                });
+            ui.add_space(4.0);
+        }
+    }
+
+    /// Get the walkthrough-ordered file indices when a walkthrough is active.
+    /// Returns (group_label, Vec<file_diff_index>) pairs, or None if no walkthrough.
+    fn walkthrough_file_order(&self) -> Option<Vec<(&str, Vec<usize>)>> {
+        let wt = match &self.walkthrough_state {
+            super::walkthrough::WalkthroughState::Ready(wt) => wt,
+            _ => return None,
+        };
+
+        let mut groups: Vec<(&str, Vec<usize>)> = Vec::new();
+        let mut seen_indices: rustc_hash::FxHashSet<usize> = rustc_hash::FxHashSet::default();
+
+        for group in &wt.groups {
+            let mut file_indices = Vec::new();
+            for path in &group.files {
+                if let Some(idx) = self.file_diffs.iter().position(|d| d.path == *path) {
+                    if seen_indices.insert(idx) {
+                        file_indices.push(idx);
+                    }
+                }
+            }
+            if !file_indices.is_empty() {
+                groups.push((&group.label, file_indices));
+            }
+        }
+
+        // Append any files not mentioned by the AI into an "Other" group
+        let mut other = Vec::new();
+        for (i, _) in self.file_diffs.iter().enumerate() {
+            if !seen_indices.contains(&i) {
+                other.push(i);
+            }
+        }
+        if !other.is_empty() {
+            groups.push(("Other changes", other));
+        }
+
+        if groups.is_empty() {
+            None
+        } else {
+            Some(groups)
         }
     }
 

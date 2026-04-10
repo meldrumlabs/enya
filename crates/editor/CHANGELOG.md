@@ -11,6 +11,8 @@ All notable changes to the Enya editor will be documented in this file.
 - **Auto-advance on review**: Pressing `v` to mark a file as viewed automatically jumps to the next unreviewed file, making it fast to fly through a file list.
 - **Cmd+Enter / Escape for comments**: Comment compose inputs now support `Cmd+Enter` (`Ctrl+Enter` on Linux) to submit and `Escape` to cancel, in both floating and inline comment modes.
 - **Auto-save workspace on quit**: The workspace layout (including PR review panes) is now automatically saved when the app exits, so pane arrangement persists across restarts without needing to manually save.
+- **Merge pull request controls**: A "Merge" button with dropdown in the PR detail tab bar lets you merge directly from the review pane. Supports all three GitHub merge strategies — squash and merge, create a merge commit, and rebase and merge — with a radio-button strategy picker and confirmation step. The button is enabled when the PR is open, mergeable, and you have a token.
+- **AI review walkthrough**: A "Walkthrough" button in the PR detail view sends the diff to an LLM which returns a structured narrative: a 2-3 sentence PR summary, files grouped by logical concern (e.g. "Data model", "API layer", "Tests") in suggested review order, and per-file one-liner annotations. The file tree reorders into labeled groups and each diff shows its annotation. Uses Claude Code CLI via ACP; gracefully stubs on WASM.
 
 ### Fixed
 
