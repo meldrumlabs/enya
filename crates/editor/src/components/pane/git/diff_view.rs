@@ -420,9 +420,7 @@ impl PrReviewPane {
                         if let Some(ref insight) = item.insight {
                             render_floating_insight(&mut card_ui, theme, insight);
                             // Add separator if there are also comments below
-                            if item.thread.is_some()
-                                || !item.drafts.is_empty()
-                                || item.is_composing
+                            if item.thread.is_some() || !item.drafts.is_empty() || item.is_composing
                             {
                                 card_ui.add_space(4.0);
                                 let sep_rect = card_ui.available_rect_before_wrap();
@@ -439,9 +437,8 @@ impl PrReviewPane {
                         }
 
                         // Render comment/draft/compose content (if any)
-                        let has_comment_content = item.thread.is_some()
-                            || !item.drafts.is_empty()
-                            || item.is_composing;
+                        let has_comment_content =
+                            item.thread.is_some() || !item.drafts.is_empty() || item.is_composing;
                         if has_comment_content {
                             let card_action = render_floating_card(
                                 &mut card_ui,
@@ -671,10 +668,7 @@ fn build_floating_items(
     for draft in file_drafts {
         if !seen_lines.contains(&draft.line) {
             seen_lines.insert(draft.line);
-            let insight = file_insights
-                .iter()
-                .find(|i| i.line == draft.line)
-                .cloned();
+            let insight = file_insights.iter().find(|i| i.line == draft.line).cloned();
             items.push(FloatingItem {
                 line_num: draft.line,
                 line_idx: line_y_positions
@@ -769,8 +763,7 @@ fn layout_floating_cards(
             if is_insight_only {
                 60.0 // compact insight card
             } else {
-                let comment_count =
-                    item.thread.as_ref().map(|t| t.comments.len()).unwrap_or(0);
+                let comment_count = item.thread.as_ref().map(|t| t.comments.len()).unwrap_or(0);
                 let draft_count = item.drafts.len();
                 let compose_height = if item.is_composing { 100.0 } else { 0.0 };
                 let insight_height = if item.insight.is_some() { 40.0 } else { 0.0 };

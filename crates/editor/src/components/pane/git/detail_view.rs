@@ -394,8 +394,7 @@ impl PrReviewPane {
                     );
                     if organize_btn.clicked() {
                         if is_ready {
-                            self.walkthrough_state =
-                                super::walkthrough::WalkthroughState::Idle;
+                            self.walkthrough_state = super::walkthrough::WalkthroughState::Idle;
                         } else {
                             self.request_walkthrough();
                         }
