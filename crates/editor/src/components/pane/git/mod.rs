@@ -146,6 +146,9 @@ pub struct PrReviewPane {
     comment_input: String,
     /// Tracks which comment threads are collapsed, keyed by (file_path, line_number).
     collapsed_threads: rustc_hash::FxHashSet<(String, usize)>,
+    /// Measured card heights from the previous frame, keyed by line_num.
+    /// Used by floating-comment layout to avoid card overlap.
+    floating_card_heights: rustc_hash::FxHashMap<usize, f32>,
     submitting_review: bool,
     submit_error: Option<String>,
     submit_success: Option<String>,
@@ -173,6 +176,10 @@ pub struct PrReviewPane {
     // ── Seen comments ──
     /// Comment IDs that the user has "seen" (by viewing the file containing them).
     seen_comment_ids: rustc_hash::FxHashSet<u64>,
+
+    // ── Per-file reviewed status ──
+    /// File paths the user has marked as "reviewed".
+    reviewed_files: rustc_hash::FxHashSet<String>,
 
     // ── File opener ──
     file_opener: FileOpenerPopup,
@@ -221,6 +228,10 @@ pub struct PrReviewPane {
     http_client: reqwest::Client,
     async_runtime: AsyncRuntime,
     token: Option<String>,
+    /// Counts consecutive frames where the token hasn't changed.
+    /// Auto-fetch is deferred until the token is stable (≥2 frames) so the
+    /// git credential token has a chance to arrive before firing requests.
+    token_stable_frames: u8,
 }
 
 impl PrReviewPane {
@@ -262,6 +273,7 @@ impl PrReviewPane {
             commenting_line: None,
             comment_input: String::new(),
             collapsed_threads: rustc_hash::FxHashSet::default(),
+            floating_card_heights: rustc_hash::FxHashMap::default(),
             submitting_review: false,
             submit_error: None,
             submit_success: None,
@@ -274,6 +286,7 @@ impl PrReviewPane {
             file_tree_scroll_to_selected: false,
             file_panel_collapsed: false,
             seen_comment_ids: rustc_hash::FxHashSet::default(),
+            reviewed_files: rustc_hash::FxHashSet::default(),
             file_opener: FileOpenerPopup::new(),
             repo_root: None,
             pending_open_file_opener: false,
@@ -293,11 +306,25 @@ impl PrReviewPane {
             http_client: reqwest::Client::new(),
             async_runtime,
             token: None,
+            token_stable_frames: 0,
         }
     }
 
     /// Set the GitHub access token. Called each frame from workspace.
     pub fn set_token(&mut self, token: Option<String>) {
+        if token != self.token {
+            // Token changed — reset the stability counter so we don't fire a
+            // request with a token that's about to be replaced (e.g., OAuth
+            // arriving first, then git credential replacing it).
+            self.token_stable_frames = 0;
+            // If we already have an error from a previous token, clear it so
+            // the auto-fetch can retry with the new one.
+            if token.is_some() && self.list_error.is_some() {
+                self.list_error = None;
+            }
+        } else if self.token_stable_frames < 2 {
+            self.token_stable_frames += 1;
+        }
         self.token = token;
     }
 
@@ -389,6 +416,36 @@ impl PrReviewPane {
                 self.seen_comment_ids.insert(comment.id);
             }
         }
+    }
+
+    /// Toggle reviewed status for the currently selected file.
+    /// When marking as reviewed (not un-marking), auto-advances to the next
+    /// unreviewed file so the reviewer can fly through the file list.
+    fn toggle_current_file_reviewed(&mut self) {
+        let Some(file_diff) = self.file_diffs.get(self.selected_file_index) else {
+            return;
+        };
+        let path = file_diff.path.clone();
+        if self.reviewed_files.remove(&path) {
+            // Un-marking — stay on the current file.
+            return;
+        }
+        self.reviewed_files.insert(path);
+
+        // Auto-advance: find the next unreviewed file after the current one,
+        // wrapping around to the beginning if needed.
+        let total = self.file_diffs.len();
+        for offset in 1..total {
+            let idx = (self.selected_file_index + offset) % total;
+            if !self.reviewed_files.contains(&self.file_diffs[idx].path) {
+                self.selected_file_index = idx;
+                self.diff_renderer.reset_for_file_change();
+                self.file_tree_scroll_to_selected = true;
+                self.mark_current_file_comments_seen();
+                return;
+            }
+        }
+        // All files reviewed — stay on current file.
     }
 
     /// Derive the aggregate review state for a PR from preloaded reviews.
@@ -503,6 +560,8 @@ impl PrReviewPane {
         self.draft_comments.clear();
         self.draft_body.clear();
         self.collapsed_threads.clear();
+        self.reviewed_files.clear();
+        self.floating_card_heights.clear();
         self.approve_popup_open = false;
     }
 
@@ -1105,6 +1164,11 @@ impl PrReviewPane {
                     input.consume_key(egui::Modifiers::NONE, egui::Key::X);
                     input.consume_key(egui::Modifiers::NONE, egui::Key::U);
 
+                    // v — toggle current file as reviewed ("viewed")
+                    if input.consume_key(egui::Modifiers::NONE, egui::Key::V) {
+                        self.toggle_current_file_reviewed();
+                    }
+
                     // In detail view: Escape closes search first, then goes back.
                     // h/Backspace/ArrowLeft always go back.
                     if input.consume_key(egui::Modifiers::NONE, egui::Key::Escape) {
@@ -1247,11 +1311,14 @@ impl crate::components::Component for PrReviewPane {
             self.diff_renderer.close_search();
         }
 
-        // Auto-fetch PR list on first render if we have a token
+        // Auto-fetch PR list on first render if we have a stable token.
+        // Wait for token_stable_frames >= 2 so the git credential token has a
+        // chance to arrive and replace the OAuth token before we fire the request.
         if self.pull_requests.is_empty()
             && !self.list_loading
             && self.list_error.is_none()
             && self.token.is_some()
+            && self.token_stable_frames >= 2
             && self.view == PrReviewView::List
         {
             self.fetch_pr_list();

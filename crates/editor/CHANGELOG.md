@@ -4,8 +4,18 @@ All notable changes to the Enya editor will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **Floating comment gutter**: PR review comments now render in a floating gutter to the right of the diff instead of breaking the code flow inline. Comments are anchored to their source line with subtle connector lines, and displaced cards (when comments are on adjacent lines) push downward with visual anchor lines back to the source. The anchor line in the diff gets a subtle accent highlight. Falls back to the original inline layout when the pane is narrower than 700px or in split-view mode.
+- **Per-file reviewed checkmarks**: Press `v` to mark the current file as reviewed. A green checkmark appears in the file tree, and a progress badge ("3/12") shows in the tab bar header — turning green when all files are reviewed. Review state resets when switching PRs.
+- **Auto-advance on review**: Pressing `v` to mark a file as viewed automatically jumps to the next unreviewed file, making it fast to fly through a file list.
+- **Cmd+Enter / Escape for comments**: Comment compose inputs now support `Cmd+Enter` (`Ctrl+Enter` on Linux) to submit and `Escape` to cancel, in both floating and inline comment modes.
+- **Auto-save workspace on quit**: The workspace layout (including PR review panes) is now automatically saved when the app exits, so pane arrangement persists across restarts without needing to manually save.
+
 ### Fixed
 
+- **PR review pane 404 after workspace restore**: On relaunch the OAuth token (which may lack org repo access) would fire the PR list request before the git credential token arrived, getting a 404 that blocked retries. Now auto-fetch waits for the token to stabilize (2 frames) so the git credential has time to arrive, and clears errors when the token changes.
+- **Escape not working in diff viewer opened from unified finder**: The workspace keyboard handler consumed Escape (to "clear focus") before the diff viewer overlay could process it, since the diff viewer wasn't in the modal guard list. Also added the unified finder to the diff viewer's keyboard-disable check for correct layering.
 - **`gg` scroll-to-top broken in PR review pane**: The workspace's `g` leader key handler (for `gd`/`ga`/`gp`) was consuming the `g` key press before the PR review pane's diff renderer could use it for `gg`. Now skipped when the focused pane handles its own navigation.
 - **Mouse wheel scrolling broken in PR diff view**: The `ScrollArea` scroll offset was set each frame but never read back from egui's output, so mouse wheel input was overwritten on the next frame. Both unified and split views now sync the scroll offset back.
 - **PR file tree squashed with long filenames**: The file panel had a fixed 220px width, leaving little room for filenames when combined with indent and stats. Now uses 28% of pane width, clamped between 180–320px.

@@ -62,6 +62,7 @@ impl Workspace {
             || self.tutorial_overlay.is_open()
             || self.plugins_overlay.is_open()
             || self.source_preview.is_open()
+            || self.diff_viewer.is_open()
             || codebase_finder_open
         // Note: agent_panel.is_open() intentionally NOT checked here.
         // The agent panel can be open while viewport has focus (agent_panel_focused is checked separately).
@@ -180,7 +181,10 @@ impl Workspace {
                 return;
             }
 
-            if input.consume_key(egui::Modifiers::NONE, egui::Key::V) && current_focus.is_some() {
+            if !focused_pane_handles_nav
+                && input.consume_key(egui::Modifiers::NONE, egui::Key::V)
+                && current_focus.is_some()
+            {
                 // Check if this is part of a cv sequence
                 if self.leader_keys.is_c_active() {
                     should_cycle_visualization = true;

@@ -24,6 +24,7 @@ enum FileTreeRow {
         depth: usize,
         comment_count: usize,
         unseen_count: usize,
+        reviewed: bool,
     },
 }
 
@@ -34,6 +35,7 @@ fn build_file_tree_rows(
     review_comments: &[PrComment],
     draft_comments: &[DraftComment],
     seen_comment_ids: &rustc_hash::FxHashSet<u64>,
+    reviewed_files: &rustc_hash::FxHashSet<String>,
 ) -> Vec<FileTreeRow> {
     // Collect unique directory prefixes and count files per directory
     let mut dir_files: Vec<(Vec<&str>, usize)> = Vec::new();
@@ -117,6 +119,7 @@ fn build_file_tree_rows(
             depth: dir_parts.len(),
             comment_count: review_count + draft_count,
             unseen_count,
+            reviewed: reviewed_files.contains(filename),
         });
     }
 
@@ -292,6 +295,26 @@ impl PrReviewPane {
                 if self.submitting_review {
                     ui.add_space(4.0);
                     ui.spinner();
+                }
+
+                // Reviewed files progress
+                let reviewed_count = self.reviewed_files.len();
+                let total_files = self.pr_files.len();
+                if reviewed_count > 0 {
+                    ui.add_space(8.0);
+                    let progress_color = if reviewed_count == total_files {
+                        theme.diff_added_gutter()
+                    } else {
+                        theme.text_secondary()
+                    };
+                    ui.label(
+                        RichText::new(format!(
+                            "{} {reviewed_count}/{total_files}",
+                            egui_nerdfonts::regular::CHECK,
+                        ))
+                        .color(progress_color)
+                        .font(typography::proportional(typography::XS)),
+                    );
                 }
 
                 // Draft count badge
@@ -512,11 +535,11 @@ impl PrReviewPane {
                 let view_mode = if self.diff_renderer.split_view() { "split" } else { "stacked" };
                 let hint = if self.file_diffs.len() > 1 {
                     format!(
-                        "c comment \u{2022} ]c/[c threads \u{2022} n/p files \u{2022} j/k scroll \u{2022} gg/G top/bottom \u{2022} s {view_mode} \u{2022} Esc back"
+                        "v viewed \u{2022} n/p files \u{2022} j/k scroll \u{2022} gg/G top/bottom \u{2022} s {view_mode} \u{2022} Esc back"
                     )
                 } else {
                     format!(
-                        "c comment \u{2022} ]c/[c threads \u{2022} j/k scroll \u{2022} gg/G top/bottom \u{2022} s {view_mode} \u{2022} Esc back"
+                        "v viewed \u{2022} j/k scroll \u{2022} gg/G top/bottom \u{2022} s {view_mode} \u{2022} Esc back"
                     )
                 };
                 ui.label(
@@ -658,6 +681,7 @@ impl PrReviewPane {
             &self.review_comments,
             &self.draft_comments,
             &self.seen_comment_ids,
+            &self.reviewed_files,
         );
 
         let mut toggle_dir: Option<String> = None;
@@ -772,6 +796,7 @@ impl PrReviewPane {
                             depth,
                             comment_count,
                             unseen_count,
+                            reviewed,
                         } => {
                             let file = &self.pr_files[*file_index];
                             let is_selected = self
@@ -932,6 +957,24 @@ impl PrReviewPane {
                                 let dot_center = egui::pos2(right_x - 3.0, rect.center().y);
                                 ui.painter()
                                     .circle_filled(dot_center, 3.0, theme.accent_primary());
+                            }
+
+                            // Reviewed checkmark
+                            if *reviewed {
+                                right_x -= 14.0;
+                                let check_galley = ui.painter().layout_no_wrap(
+                                    egui_nerdfonts::regular::CHECK.to_string(),
+                                    typography::proportional(typography::XS),
+                                    theme.diff_added_gutter(),
+                                );
+                                ui.painter().galley(
+                                    egui::pos2(
+                                        right_x,
+                                        rect.center().y - check_galley.size().y / 2.0,
+                                    ),
+                                    check_galley,
+                                    theme.diff_added_gutter(),
+                                );
                             }
                             let _ = right_x;
 
@@ -1540,6 +1583,7 @@ mod tests {
             &[],
             &[],
             &FxHashSet::default(),
+            &FxHashSet::default(),
         );
 
         let names = collect_file_names(&rows);
@@ -1559,6 +1603,7 @@ mod tests {
             &FxHashSet::default(),
             &[],
             &[],
+            &FxHashSet::default(),
             &FxHashSet::default(),
         );
 
@@ -1582,7 +1627,14 @@ mod tests {
         let mut collapsed = FxHashSet::default();
         collapsed.insert("src".to_string());
 
-        let rows = build_file_tree_rows(&files, &collapsed, &[], &[], &FxHashSet::default());
+        let rows = build_file_tree_rows(
+            &files,
+            &collapsed,
+            &[],
+            &[],
+            &FxHashSet::default(),
+            &FxHashSet::default(),
+        );
 
         // src directory should be present but collapsed
         let src_dir = rows
@@ -1611,6 +1663,7 @@ mod tests {
             &[],
             &[],
             &FxHashSet::default(),
+            &FxHashSet::default(),
         );
 
         let dirs = collect_dir_names(&rows);
@@ -1624,7 +1677,14 @@ mod tests {
         let mut collapsed = FxHashSet::default();
         collapsed.insert("a".to_string());
 
-        let rows = build_file_tree_rows(&files, &collapsed, &[], &[], &FxHashSet::default());
+        let rows = build_file_tree_rows(
+            &files,
+            &collapsed,
+            &[],
+            &[],
+            &FxHashSet::default(),
+            &FxHashSet::default(),
+        );
 
         // No files should be visible
         let file_names = collect_file_names(&rows);
@@ -1643,6 +1703,7 @@ mod tests {
             &FxHashSet::default(),
             &[],
             &[],
+            &FxHashSet::default(),
             &FxHashSet::default(),
         );
 
@@ -1669,6 +1730,7 @@ mod tests {
             &FxHashSet::default(),
             &[],
             &[],
+            &FxHashSet::default(),
             &FxHashSet::default(),
         );
 
@@ -1709,6 +1771,7 @@ mod tests {
             &FxHashSet::default(),
             &review_comments,
             &draft_comments,
+            &FxHashSet::default(),
             &FxHashSet::default(),
         );
 
@@ -1762,6 +1825,7 @@ mod tests {
             &FxHashSet::default(),
             &[],
             &[],
+            &FxHashSet::default(),
             &FxHashSet::default(),
         );
         let bar_pr_idx = rows
