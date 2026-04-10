@@ -6,6 +6,7 @@
 mod detail_view;
 mod diff_view;
 mod list_view;
+mod walkthrough;
 
 use rustc_hash::FxHashMap;
 use std::sync::Arc;
@@ -16,8 +17,8 @@ use crate::AsyncRuntime;
 use crate::components::util::file_opener::FileOpenerPopup;
 use crate::components::util::next_id_usize;
 use crate::git::api::{
-    self, CheckRun, DraftComment, IssueComment, PrComment, PrFile, PrReview, PullRequest,
-    ReviewEvent,
+    self, CheckRun, DraftComment, IssueComment, MergeMethod, PrComment, PrFile, PrReview,
+    PullRequest, ReviewEvent,
 };
 use crate::git::diff::FileDiff;
 use crate::git::diff_renderer::{DiffKeyAction, DiffRenderer};
@@ -71,6 +72,7 @@ type PrDetailResult = Result<(PullRequest, Vec<PrFile>, String), String>;
 type PrCommentsResult = Result<(Vec<PrComment>, Vec<IssueComment>, Vec<PrReview>), String>;
 type PrChecksResult = Result<Vec<CheckRun>, String>;
 type PrSubmitResult = Result<(), String>;
+type PrMergeResult = Result<(), String>;
 type SingleCommentResult = Result<PrComment, String>;
 type AvatarResult = (String, Result<Vec<u8>, String>);
 
@@ -100,6 +102,9 @@ pub struct PrReviewPane {
     // GitHub repo info
     owner: String,
     repo: String,
+
+    /// AI model ID from user settings (e.g. "claude-opus-4-6").
+    ai_model: Option<String>,
 
     // Navigation
     view: PrReviewView,
@@ -158,6 +163,26 @@ pub struct PrReviewPane {
     // ── Approve popup ──
     /// Whether the approve message popup is open.
     approve_popup_open: bool,
+
+    // ── Merge ──
+    /// Whether the merge dropdown popup is open.
+    merge_popup_open: bool,
+    /// Selected merge strategy.
+    merge_method: MergeMethod,
+    /// Whether a merge request is in-flight.
+    merging: bool,
+    /// Async result of the merge request.
+    pending_merge: Arc<Mutex<Option<PrMergeResult>>>,
+
+    // ── AI Walkthrough ──
+    /// Current walkthrough state.
+    walkthrough_state: walkthrough::WalkthroughState,
+    /// Receiver for streaming walkthrough AI events (native only).
+    #[cfg(not(target_arch = "wasm32"))]
+    walkthrough_receiver: Option<std::sync::mpsc::Receiver<enya_ai::AgentEvent>>,
+    /// Accumulated text from the walkthrough AI response (streamed deltas).
+    #[cfg(not(target_arch = "wasm32"))]
+    walkthrough_response_text: String,
 
     // ── Description banner ──
     /// Whether the PR description banner is collapsed in the detail view.
@@ -243,6 +268,7 @@ impl PrReviewPane {
             theme: AppTheme::default(),
             owner: owner.to_string(),
             repo: repo.to_string(),
+            ai_model: None,
             view: PrReviewView::List,
             pull_requests: Vec::new(),
             selected_pr_index: 0,
@@ -280,6 +306,15 @@ impl PrReviewPane {
             pending_submit: Arc::new(Mutex::new(None)),
             pending_single_comment: Arc::new(Mutex::new(None)),
             approve_popup_open: false,
+            merge_popup_open: false,
+            merge_method: MergeMethod::Squash,
+            merging: false,
+            pending_merge: Arc::new(Mutex::new(None)),
+            walkthrough_state: walkthrough::WalkthroughState::Idle,
+            #[cfg(not(target_arch = "wasm32"))]
+            walkthrough_receiver: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            walkthrough_response_text: String::new(),
             description_collapsed: false,
             description_expanded: false,
             collapsed_dirs: rustc_hash::FxHashSet::default(),
@@ -326,6 +361,11 @@ impl PrReviewPane {
             self.token_stable_frames += 1;
         }
         self.token = token;
+    }
+
+    /// Set the AI model ID from user settings.
+    pub fn set_ai_model(&mut self, model: Option<String>) {
+        self.ai_model = model;
     }
 
     /// Set whether this pane is the focused tile. Called each frame from workspace.
@@ -563,6 +603,14 @@ impl PrReviewPane {
         self.reviewed_files.clear();
         self.floating_card_heights.clear();
         self.approve_popup_open = false;
+        self.merge_popup_open = false;
+        self.merging = false;
+        self.walkthrough_state = walkthrough::WalkthroughState::Idle;
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.walkthrough_receiver = None;
+            self.walkthrough_response_text.clear();
+        }
     }
 
     pub fn open_pr(&mut self, number: u32) {
@@ -788,6 +836,69 @@ impl PrReviewPane {
         });
     }
 
+    /// Merge the current pull request.
+    pub(crate) fn merge_pull(&mut self) {
+        let Some(token) = &self.token else {
+            return;
+        };
+        let Some(pr) = &self.current_pr else {
+            return;
+        };
+
+        self.merging = true;
+        self.submit_error = None;
+        self.submit_success = None;
+
+        let client = self.http_client.clone();
+        let token = token.clone();
+        let owner = self.owner.clone();
+        let repo = self.repo.clone();
+        let number = pr.number;
+        let merge_method = self.merge_method;
+        let pending = Arc::clone(&self.pending_merge);
+
+        self.async_runtime.spawn(async move {
+            let result =
+                api::merge_pull(&client, &token, &owner, &repo, number, None, merge_method).await;
+            *pending.lock() = Some(result);
+        });
+    }
+
+    /// Request an AI-powered review walkthrough for the current PR.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) fn request_walkthrough(&mut self) {
+        let Some(pr) = &self.current_pr else {
+            return;
+        };
+        if matches!(
+            self.walkthrough_state,
+            walkthrough::WalkthroughState::Loading
+        ) {
+            return; // Already in progress
+        }
+
+        let prompt =
+            walkthrough::build_walkthrough_prompt(&pr.title, pr.body.as_deref(), &self.file_diffs);
+
+        self.walkthrough_state = walkthrough::WalkthroughState::Loading;
+        self.walkthrough_response_text.clear();
+
+        let receiver = walkthrough::spawn_walkthrough_request(
+            &self.async_runtime,
+            prompt,
+            self.ai_model.as_deref(),
+        );
+        self.walkthrough_receiver = Some(receiver);
+    }
+
+    /// WASM stub — walkthrough not available in browser.
+    #[cfg(target_arch = "wasm32")]
+    pub(crate) fn request_walkthrough(&mut self) {
+        self.walkthrough_state = walkthrough::WalkthroughState::Error(
+            "AI walkthrough is not available in the browser".to_string(),
+        );
+    }
+
     /// Poll for async operation results. Called each frame.
     fn poll_results(&mut self, ctx: &egui::Context) {
         // Poll PR list
@@ -944,6 +1055,23 @@ impl PrReviewPane {
             }
         }
 
+        // Poll merge result
+        let merge_result = self.pending_merge.lock().take();
+        if let Some(result) = merge_result {
+            self.merging = false;
+            match result {
+                Ok(()) => {
+                    self.submit_success = Some("Pull request merged".to_string());
+                    self.merge_popup_open = false;
+                    // Refresh the PR list to reflect the merged state
+                    self.fetch_pr_list();
+                }
+                Err(e) => {
+                    self.submit_error = Some(e);
+                }
+            }
+        }
+
         // Poll single comment post
         let single_comment_result = self.pending_single_comment.lock().take();
         if let Some(result) = single_comment_result {
@@ -957,6 +1085,44 @@ impl PrReviewPane {
                 Err(e) => {
                     self.submit_error = Some(e);
                 }
+            }
+        }
+
+        // Poll walkthrough streaming events (native only — ACP not available on WASM)
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(ref receiver) = self.walkthrough_receiver {
+            let mut done = false;
+            while let Ok(event) = receiver.try_recv() {
+                match event {
+                    enya_ai::AgentEvent::TextDelta(text) => {
+                        self.walkthrough_response_text.push_str(&text);
+                    }
+                    enya_ai::AgentEvent::Done { .. } => {
+                        done = true;
+                        break;
+                    }
+                    enya_ai::AgentEvent::Error(e) => {
+                        self.walkthrough_state =
+                            walkthrough::WalkthroughState::Error(format!("AI error: {e}"));
+                        self.walkthrough_receiver = None;
+                        done = false;
+                        break;
+                    }
+                    _ => {}
+                }
+            }
+            if done {
+                let result =
+                    walkthrough::parse_walkthrough_response(&self.walkthrough_response_text);
+                match result {
+                    Ok(wt) => {
+                        self.walkthrough_state = walkthrough::WalkthroughState::Ready(wt);
+                    }
+                    Err(e) => {
+                        self.walkthrough_state = walkthrough::WalkthroughState::Error(e);
+                    }
+                }
+                self.walkthrough_receiver = None;
             }
         }
 

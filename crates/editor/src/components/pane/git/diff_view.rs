@@ -207,22 +207,36 @@ impl PrReviewPane {
             .cloned()
             .collect();
 
+        // Collect AI insights for this file
+        let file_insights: Vec<super::walkthrough::LineInsight> = match &self.walkthrough_state {
+            super::walkthrough::WalkthroughState::Ready(wt) => wt
+                .insights
+                .iter()
+                .filter(|i| i.file == file_diff.path)
+                .cloned()
+                .collect(),
+            _ => Vec::new(),
+        };
+
         let available_width = ui.available_width();
         let has_any_comments =
             !file_threads.is_empty() || !file_drafts.is_empty() || self.commenting_line.is_some();
+        let has_insights = !file_insights.is_empty();
+        let has_any_floating = has_any_comments || has_insights;
         let use_floating =
             available_width >= FLOATING_MIN_WIDTH && !self.diff_renderer.split_view();
 
-        if use_floating && has_any_comments {
+        if use_floating && has_any_floating {
             self.show_diff_with_floating_comments(
                 ui,
                 &file_diff,
                 file_idx,
                 &file_threads,
                 &file_drafts,
+                &file_insights,
             );
         } else if use_floating {
-            // Wide enough but no comments — render diff without any callback, full width
+            // Wide enough but no comments or insights — full width diff
             self.diff_renderer
                 .render_diff(ui, &file_diff, file_idx, theme, None);
             self.process_diff_actions(file_idx);
@@ -242,6 +256,7 @@ impl PrReviewPane {
         file_idx: usize,
         file_threads: &[CommentThread],
         file_drafts: &[DraftComment],
+        file_insights: &[super::walkthrough::LineInsight],
     ) {
         let theme = self.theme;
         let available_width = ui.available_width();
@@ -293,6 +308,7 @@ impl PrReviewPane {
                         commenting_line,
                         file_idx,
                         &line_y_positions,
+                        file_insights,
                     );
 
                     // The gutter column top in screen coords.
@@ -333,10 +349,23 @@ impl PrReviewPane {
                             continue;
                         }
 
+                        let is_insight_only = item.insight.is_some()
+                            && item.thread.is_none()
+                            && item.drafts.is_empty()
+                            && !item.is_composing;
+
+                        // Choose accent color: primary for insight-only, accent for comments
+                        let card_accent = if is_insight_only {
+                            theme.accent_primary()
+                        } else {
+                            accent
+                        };
+
                         // Max height the card can use before hitting the bottom
                         let max_card_h = (gutter_bottom - card_y - 4.0).max(20.0);
 
                         // ── Anchor connector ──
+                        let connector_color = card_accent.gamma_multiply(0.15);
                         let ideal_screen_y = gutter_top + y_offset + card.ideal_y;
                         if (card.actual_y - card.ideal_y).abs() > 4.0 {
                             let anchor_y = ideal_screen_y + line_height / 2.0;
@@ -344,7 +373,7 @@ impl PrReviewPane {
                             clipped_painter.hline(
                                 (gutter_left_edge - 4.0)..=(gutter_left_edge + 6.0),
                                 anchor_y,
-                                egui::Stroke::new(1.0, accent.gamma_multiply(0.15)),
+                                egui::Stroke::new(1.0, connector_color),
                             );
                             let (top, bottom) = if anchor_y < card_center_y {
                                 (anchor_y, card_center_y)
@@ -354,19 +383,19 @@ impl PrReviewPane {
                             clipped_painter.vline(
                                 gutter_left_edge + 6.0,
                                 top..=bottom,
-                                egui::Stroke::new(1.0, accent.gamma_multiply(0.15)),
+                                egui::Stroke::new(1.0, connector_color),
                             );
                             clipped_painter.hline(
                                 (gutter_left_edge + 6.0)..=card_left,
                                 card_center_y,
-                                egui::Stroke::new(1.0, accent.gamma_multiply(0.15)),
+                                egui::Stroke::new(1.0, connector_color),
                             );
                         } else {
                             let anchor_y = card_y + line_height / 2.0;
                             clipped_painter.hline(
                                 (gutter_left_edge - 4.0)..=card_left,
                                 anchor_y,
-                                egui::Stroke::new(1.0, accent.gamma_multiply(0.12)),
+                                egui::Stroke::new(1.0, card_accent.gamma_multiply(0.12)),
                             );
                         }
 
@@ -387,29 +416,54 @@ impl PrReviewPane {
 
                         let card_start_y = card_ui.cursor().top();
 
-                        let card_action = render_floating_card(
-                            &mut card_ui,
-                            theme,
-                            item.thread.as_ref(),
-                            &item.drafts,
-                            item.is_composing,
-                            card.line_num,
-                            card.line_idx,
-                            file_idx,
-                            &file_path,
-                            &mut self.comment_input,
-                            &mut self.collapsed_threads,
-                            &self.avatar_textures,
-                        );
+                        // Render AI insight section (above any comments)
+                        if let Some(ref insight) = item.insight {
+                            render_floating_insight(&mut card_ui, theme, insight);
+                            // Add separator if there are also comments below
+                            if item.thread.is_some() || !item.drafts.is_empty() || item.is_composing
+                            {
+                                card_ui.add_space(4.0);
+                                let sep_rect = card_ui.available_rect_before_wrap();
+                                card_ui.painter().hline(
+                                    sep_rect.x_range(),
+                                    card_ui.cursor().top(),
+                                    egui::Stroke::new(
+                                        0.5,
+                                        theme.border_subtle().gamma_multiply(0.5),
+                                    ),
+                                );
+                                card_ui.add_space(4.0);
+                            }
+                        }
 
-                        if card_action.submit.is_some() {
-                            pending_submit = card_action.submit;
-                        }
-                        if card_action.cancel {
-                            pending_cancel = true;
-                        }
-                        if card_action.start_reply.is_some() {
-                            pending_reply = card_action.start_reply;
+                        // Render comment/draft/compose content (if any)
+                        let has_comment_content =
+                            item.thread.is_some() || !item.drafts.is_empty() || item.is_composing;
+                        if has_comment_content {
+                            let card_action = render_floating_card(
+                                &mut card_ui,
+                                theme,
+                                item.thread.as_ref(),
+                                &item.drafts,
+                                item.is_composing,
+                                card.line_num,
+                                card.line_idx,
+                                file_idx,
+                                &file_path,
+                                &mut self.comment_input,
+                                &mut self.collapsed_threads,
+                                &self.avatar_textures,
+                            );
+
+                            if card_action.submit.is_some() {
+                                pending_submit = card_action.submit;
+                            }
+                            if card_action.cancel {
+                                pending_cancel = true;
+                            }
+                            if card_action.start_reply.is_some() {
+                                pending_reply = card_action.start_reply;
+                            }
                         }
 
                         let card_end_y = card_ui.cursor().top();
@@ -420,14 +474,18 @@ impl PrReviewPane {
                         self.floating_card_heights
                             .insert(card.line_num, actual_card_height);
 
-                        // Thin left accent bar only
+                        // Thin left accent bar
                         let accent_bar = egui::Rect::from_min_size(
                             egui::pos2(card_left, card_y),
                             egui::vec2(3.0, actual_card_height + 4.0),
                         );
                         clipped_painter.set(
                             accent_shape_idx,
-                            egui::Shape::rect_filled(accent_bar, 2.0, accent.gamma_multiply(0.4)),
+                            egui::Shape::rect_filled(
+                                accent_bar,
+                                2.0,
+                                card_accent.gamma_multiply(0.4),
+                            ),
                         );
                     }
 
@@ -536,13 +594,18 @@ impl PrReviewPane {
 // Floating comment helpers
 // =============================================================================
 
-/// An item to be rendered as a floating comment card in the gutter.
+/// An item to be rendered as a floating card in the gutter.
+///
+/// Can be a human comment thread, a draft, a compose input, an AI insight, or
+/// a combination (e.g. an insight on the same line as a comment thread).
 struct FloatingItem {
     line_num: usize,
     line_idx: usize,
     thread: Option<CommentThread>,
     drafts: Vec<DraftComment>,
     is_composing: bool,
+    /// AI walkthrough insight for this line (rendered with distinct style).
+    insight: Option<super::walkthrough::LineInsight>,
 }
 
 /// Resolved Y layout for a floating card.
@@ -553,13 +616,14 @@ struct LayoutCard {
     line_idx: usize,
 }
 
-/// Collect all comment items that need floating cards for this file.
+/// Collect all comment and insight items that need floating cards for this file.
 fn build_floating_items(
     file_threads: &[CommentThread],
     file_drafts: &[DraftComment],
     commenting_line: Option<(usize, usize)>,
     file_idx: usize,
     line_y_positions: &[(usize, usize, f32)],
+    file_insights: &[super::walkthrough::LineInsight],
 ) -> Vec<FloatingItem> {
     let mut items: Vec<FloatingItem> = Vec::new();
     let mut seen_lines: rustc_hash::FxHashSet<usize> = rustc_hash::FxHashSet::default();
@@ -582,6 +646,11 @@ fn build_floating_items(
             .filter(|d| d.line == thread.line)
             .cloned()
             .collect();
+        // Attach insight to the same card if one exists on this line
+        let insight = file_insights
+            .iter()
+            .find(|i| i.line == thread.line)
+            .cloned();
         items.push(FloatingItem {
             line_num: thread.line,
             line_idx: line_y_positions
@@ -592,12 +661,14 @@ fn build_floating_items(
             thread: Some(thread.clone()),
             drafts,
             is_composing: composing_line_num == Some(thread.line),
+            insight,
         });
     }
 
     for draft in file_drafts {
         if !seen_lines.contains(&draft.line) {
             seen_lines.insert(draft.line);
+            let insight = file_insights.iter().find(|i| i.line == draft.line).cloned();
             items.push(FloatingItem {
                 line_num: draft.line,
                 line_idx: line_y_positions
@@ -608,6 +679,7 @@ fn build_floating_items(
                 thread: None,
                 drafts: vec![draft.clone()],
                 is_composing: composing_line_num == Some(draft.line),
+                insight,
             });
         }
     }
@@ -617,14 +689,38 @@ fn build_floating_items(
         if fi == file_idx {
             if let Some((_, ln, _)) = line_y_positions.iter().find(|(idx, _, _)| *idx == li) {
                 if !seen_lines.contains(ln) {
+                    seen_lines.insert(*ln);
+                    let insight = file_insights.iter().find(|i| i.line == *ln).cloned();
                     items.push(FloatingItem {
                         line_num: *ln,
                         line_idx: li,
                         thread: None,
                         drafts: Vec::new(),
                         is_composing: true,
+                        insight,
                     });
                 }
+            }
+        }
+    }
+
+    // Insight-only items (lines with AI insights but no comments/drafts/compose)
+    for insight in file_insights {
+        if !seen_lines.contains(&insight.line) {
+            // Only add if the line exists in the current diff view
+            if let Some(&(idx, _, _)) = line_y_positions
+                .iter()
+                .find(|(_, ln, _)| *ln == insight.line)
+            {
+                seen_lines.insert(insight.line);
+                items.push(FloatingItem {
+                    line_num: insight.line,
+                    line_idx: idx,
+                    thread: None,
+                    drafts: Vec::new(),
+                    is_composing: false,
+                    insight: Some(insight.clone()),
+                });
             }
         }
     }
@@ -660,11 +756,24 @@ fn layout_floating_cards(
         let estimated_height = if let Some(&h) = last_actual_heights.get(&item.line_num) {
             h + 8.0 // small padding
         } else {
-            let comment_count = item.thread.as_ref().map(|t| t.comments.len()).unwrap_or(0);
-            let draft_count = item.drafts.len();
-            let compose_height = if item.is_composing { 100.0 } else { 0.0 };
-            // Generous: ~90px per comment (author line + wrapped body), 60px per draft
-            (comment_count as f32 * 90.0) + (draft_count as f32 * 60.0) + compose_height + 30.0 // line badge + reply button + padding
+            let is_insight_only = item.insight.is_some()
+                && item.thread.is_none()
+                && item.drafts.is_empty()
+                && !item.is_composing;
+            if is_insight_only {
+                60.0 // compact insight card
+            } else {
+                let comment_count = item.thread.as_ref().map(|t| t.comments.len()).unwrap_or(0);
+                let draft_count = item.drafts.len();
+                let compose_height = if item.is_composing { 100.0 } else { 0.0 };
+                let insight_height = if item.insight.is_some() { 40.0 } else { 0.0 };
+                // Generous: ~90px per comment (author line + wrapped body), 60px per draft
+                (comment_count as f32 * 90.0)
+                    + (draft_count as f32 * 60.0)
+                    + compose_height
+                    + insight_height
+                    + 30.0 // line badge + reply button + padding
+            }
         };
 
         let actual_y = ideal_y.max(prev_bottom + CARD_GAP);
@@ -895,6 +1004,39 @@ fn render_floating_card(
     }
 
     action
+}
+
+/// Render an AI insight inside a floating card.
+///
+/// Uses a distinct visual style (sparkle icon, colored kind label) to
+/// differentiate from human comments.
+fn render_floating_insight(
+    ui: &mut egui::Ui,
+    theme: AppTheme,
+    insight: &super::walkthrough::LineInsight,
+) {
+    use super::walkthrough::InsightKind;
+
+    let (kind_label, kind_color) = match insight.kind {
+        InsightKind::KeyChange => ("Key change", theme.accent_primary()),
+        InsightKind::Concern => ("Concern", theme.diff_removed_text()),
+        InsightKind::Suggestion => ("Suggestion", theme.diff_added_text()),
+        InsightKind::Context => ("Context", theme.text_secondary()),
+    };
+
+    ui.label(
+        RichText::new(kind_label)
+            .color(kind_color)
+            .font(typography::proportional(typography::XS))
+            .strong(),
+    );
+    ui.add_space(2.0);
+    ui.label(
+        RichText::new(&insight.text)
+            .color(theme.text_primary().gamma_multiply(0.85))
+            .font(typography::proportional(typography::XS)),
+    );
+    ui.add_space(4.0);
 }
 
 /// Render a single comment body inside a floating card (compact layout).
