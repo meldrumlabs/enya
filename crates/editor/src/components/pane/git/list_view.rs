@@ -444,11 +444,65 @@ impl PrReviewPane {
                         );
                     }
 
-                    // ── Bottom line: author + time + stats ──
+                    // ── Bottom line: avatar + author + time + stats ──
 
                     let mut bx = rect.left() + left_pad + icon_galley.size().x + 6.0;
 
-                    // Author
+                    // Author avatar (circular)
+                    let avatar_size = 14.0;
+                    let avatar_radius = avatar_size / 2.0;
+                    let avatar_center =
+                        egui::pos2(bx + avatar_radius, bottom_line_y + avatar_radius - 1.0);
+                    if let Some(texture) = self.avatar_textures.get(&pr.user.login) {
+                        let mut mesh = egui::Mesh::with_texture(texture.id());
+                        let segments: u32 = 20;
+                        mesh.vertices.push(egui::epaint::Vertex {
+                            pos: avatar_center,
+                            uv: egui::pos2(0.5, 0.5),
+                            color: egui::Color32::WHITE,
+                        });
+                        for i in 0..=segments {
+                            let angle = std::f32::consts::TAU * i as f32 / segments as f32;
+                            let (sin, cos) = angle.sin_cos();
+                            mesh.vertices.push(egui::epaint::Vertex {
+                                pos: avatar_center
+                                    + egui::vec2(cos * avatar_radius, sin * avatar_radius),
+                                uv: egui::pos2(0.5 + cos * 0.5, 0.5 + sin * 0.5),
+                                color: egui::Color32::WHITE,
+                            });
+                            if i > 0 {
+                                mesh.indices.push(0);
+                                mesh.indices.push(i);
+                                mesh.indices.push(i + 1);
+                            }
+                        }
+                        ui.painter().add(egui::Shape::mesh(mesh));
+                    } else {
+                        // Fallback: circle with first initial
+                        let letter = pr
+                            .user
+                            .login
+                            .chars()
+                            .next()
+                            .unwrap_or('?')
+                            .to_uppercase()
+                            .to_string();
+                        ui.painter().circle_filled(
+                            avatar_center,
+                            avatar_radius,
+                            theme.accent_primary().gamma_multiply(0.2),
+                        );
+                        ui.painter().text(
+                            avatar_center,
+                            egui::Align2::CENTER_CENTER,
+                            &letter,
+                            typography::proportional(7.0),
+                            theme.accent_primary(),
+                        );
+                    }
+                    bx += avatar_size + 4.0;
+
+                    // Author name
                     let author_galley = ui.painter().layout_no_wrap(
                         pr.user.login.clone(),
                         typography::proportional(typography::XS),

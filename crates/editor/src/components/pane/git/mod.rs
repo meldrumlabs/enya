@@ -160,9 +160,15 @@ pub struct PrReviewPane {
     pending_submit: Arc<Mutex<Option<PrSubmitResult>>>,
     pending_single_comment: Arc<Mutex<Option<SingleCommentResult>>>,
 
-    // ── Approve popup ──
-    /// Whether the approve message popup is open.
-    approve_popup_open: bool,
+    // ── Submit review panel ──
+    /// Whether the consolidated "Submit Review" panel is open.
+    submit_panel_open: bool,
+    /// Timestamp when the last success/error flash started (for animated button feedback).
+    flash_start: Option<crate::util::Instant>,
+    /// The flash type: true = success (green), false = error (red).
+    flash_is_success: bool,
+    /// Whether the auto-surface prompt has been dismissed for this PR.
+    auto_surface_dismissed: bool,
 
     // ── Merge ──
     /// Whether the merge dropdown popup is open.
@@ -184,11 +190,7 @@ pub struct PrReviewPane {
     #[cfg(not(target_arch = "wasm32"))]
     walkthrough_response_text: String,
 
-    // ── Description banner ──
-    /// Whether the PR description banner is collapsed in the detail view.
-    description_collapsed: bool,
-    /// Whether the PR description banner is expanded to show the full body.
-    description_expanded: bool,
+    // (Description banner removed — PR title is in header, full body in Conversation tab)
 
     // ── File tree ──
     /// Collapsed directory paths in the file tree panel.
@@ -305,7 +307,10 @@ impl PrReviewPane {
             submit_success: None,
             pending_submit: Arc::new(Mutex::new(None)),
             pending_single_comment: Arc::new(Mutex::new(None)),
-            approve_popup_open: false,
+            submit_panel_open: false,
+            flash_start: None,
+            flash_is_success: false,
+            auto_surface_dismissed: false,
             merge_popup_open: false,
             merge_method: MergeMethod::Squash,
             merging: false,
@@ -315,8 +320,6 @@ impl PrReviewPane {
             walkthrough_receiver: None,
             #[cfg(not(target_arch = "wasm32"))]
             walkthrough_response_text: String::new(),
-            description_collapsed: false,
-            description_expanded: false,
             collapsed_dirs: rustc_hash::FxHashSet::default(),
             file_tree_scroll_to_selected: false,
             file_panel_collapsed: false,
@@ -423,10 +426,10 @@ impl PrReviewPane {
         self.commenting_line.is_some()
     }
 
-    /// Whether the approve popup is open.
+    /// Whether the submit review panel is open.
     #[doc(hidden)]
-    pub fn is_approve_popup_open(&self) -> bool {
-        self.approve_popup_open
+    pub fn is_submit_panel_open(&self) -> bool {
+        self.submit_panel_open
     }
 
     /// Inject review state for testing. Simulates a completed review submission.
@@ -437,7 +440,7 @@ impl PrReviewPane {
         self.commenting_line = Some((0, 10));
         self.comment_input = "in-progress comment".to_string();
         self.collapsed_threads.insert(("file.rs".to_string(), 5));
-        self.approve_popup_open = true;
+        self.submit_panel_open = true;
     }
 
     /// Rebuild the cached comment threads from `review_comments`.
@@ -602,7 +605,9 @@ impl PrReviewPane {
         self.collapsed_threads.clear();
         self.reviewed_files.clear();
         self.floating_card_heights.clear();
-        self.approve_popup_open = false;
+        self.submit_panel_open = false;
+        self.flash_start = None;
+        self.auto_surface_dismissed = false;
         self.merge_popup_open = false;
         self.merging = false;
         self.walkthrough_state = walkthrough::WalkthroughState::Idle;
@@ -615,8 +620,6 @@ impl PrReviewPane {
 
     pub fn open_pr(&mut self, number: u32) {
         self.clear_review_state();
-        self.description_collapsed = false;
-        self.description_expanded = false;
 
         // Check preload cache first
         if let Some(cached) = self.preload_cache.remove(&number) {
@@ -901,8 +904,9 @@ impl PrReviewPane {
 
     /// Poll for async operation results. Called each frame.
     fn poll_results(&mut self, ctx: &egui::Context) {
-        // Poll PR list
-        if let Some(result) = self.pending_list.lock().take() {
+        // Poll PR list (extract result before borrowing self mutably)
+        let list_result = self.pending_list.lock().take();
+        if let Some(result) = list_result {
             self.list_loading = false;
             match result {
                 Ok(prs) => {
@@ -920,6 +924,8 @@ impl PrReviewPane {
                             .unwrap_or(0);
                     }
                     self.list_error = None;
+                    // Fetch avatars for PR authors
+                    self.fetch_avatars_for_pr_list();
                     // Kick off preloading for the top PRs
                     self.preload_started = false;
                 }
@@ -1041,6 +1047,9 @@ impl PrReviewPane {
             match result {
                 Ok(()) => {
                     self.submit_success = Some("Review submitted successfully".to_string());
+                    self.flash_start = Some(crate::util::Instant::now());
+                    self.flash_is_success = true;
+                    self.submit_panel_open = false;
                     self.draft_comments.clear();
                     self.draft_body.clear();
                     // Refresh comments
@@ -1051,6 +1060,8 @@ impl PrReviewPane {
                 }
                 Err(e) => {
                     self.submit_error = Some(e);
+                    self.flash_start = Some(crate::util::Instant::now());
+                    self.flash_is_success = false;
                 }
             }
         }
@@ -1062,6 +1073,8 @@ impl PrReviewPane {
             match result {
                 Ok(()) => {
                     self.submit_success = Some("Pull request merged".to_string());
+                    self.flash_start = Some(crate::util::Instant::now());
+                    self.flash_is_success = true;
                     self.merge_popup_open = false;
                     // Refresh the PR list to reflect the merged state
                     self.fetch_pr_list();
@@ -1173,6 +1186,32 @@ impl PrReviewPane {
         }
         // Collect from PR author
         if let Some(pr) = &self.current_pr {
+            if !pr.user.avatar_url.is_empty() && !self.avatar_fetched.contains(&pr.user.login) {
+                self.avatar_fetched.insert(pr.user.login.clone());
+                users.push((pr.user.login.clone(), pr.user.avatar_url.clone()));
+            }
+        }
+
+        if users.is_empty() {
+            return;
+        }
+
+        let client = self.http_client.clone();
+        let pending = Arc::clone(&self.pending_avatars);
+
+        self.async_runtime.spawn(async move {
+            for (login, avatar_url) in users {
+                let result = crate::git::auth::fetch_avatar(&client, &avatar_url).await;
+                pending.lock().push((login, result));
+            }
+        });
+    }
+
+    /// Kick off avatar fetches for all unique PR authors in the list view.
+    fn fetch_avatars_for_pr_list(&mut self) {
+        let mut users: Vec<(String, String)> = Vec::new();
+
+        for pr in &self.pull_requests {
             if !pr.user.avatar_url.is_empty() && !self.avatar_fetched.contains(&pr.user.login) {
                 self.avatar_fetched.insert(pr.user.login.clone());
                 users.push((pr.user.login.clone(), pr.user.avatar_url.clone()));
