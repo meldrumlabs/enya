@@ -13,6 +13,36 @@ All notable changes to the Enya editor will be documented in this file.
 - **Auto-save workspace on quit**: The workspace layout (including PR review panes) is now automatically saved when the app exits, so pane arrangement persists across restarts without needing to manually save.
 - **Merge pull request controls**: A "Merge" button with dropdown in the PR detail tab bar lets you merge directly from the review pane. Supports all three GitHub merge strategies — squash and merge, create a merge commit, and rebase and merge — with a radio-button strategy picker and confirmation step. The button is enabled when the PR is open, mergeable, and you have a token.
 - **AI review walkthrough**: A "Walkthrough" button in the PR detail view sends the diff to an LLM which returns a structured narrative: a 2-3 sentence PR summary, files grouped by logical concern (e.g. "Data model", "API layer", "Tests") in suggested review order, and per-file one-liner annotations. The file tree reorders into labeled groups and each diff shows its annotation. Uses Claude Code CLI via ACP; gracefully stubs on WASM.
+- **PR list author avatars**: Each PR row in the list view now shows the author's circular GitHub avatar next to their username. Avatars are fetched asynchronously when the list loads and cached in the same texture cache used by comment avatars. Falls back to a colored circle with the author's initial while loading.
+- **File tree color coding by change type**: Filenames and icons in the PR file tree are now color-coded by change type — green for added files, red for removed, accent for renamed, and default for modified. Icons also change: `+` for added, `−` for removed, `↗` for renamed. Makes the file tree scannable at a glance.
+- **Two-row lean header**: The PR detail view header is now split into two focused rows. Row 1 shows the PR title, author, branch info (`head → base`), CI status, and review state — surfacing critical context without switching tabs. Row 2 has tabs with badges, a visual review progress bar, and consolidated action buttons.
+- **Tab badges**: Tab labels now show contextual counts — comment count on Files, issue comment count on Conversation, and CI status icon on Checks — so you know where attention is needed without switching tabs.
+- **Review progress bar**: A thin 4px progress bar in the header fills as you mark files reviewed, turning green when all files are complete. Replaces the old text-only counter.
+- **Consolidated "Submit Review" panel**: The three separate review buttons (Comment, Request Changes, Approve) are replaced by a single "Submit Review" dropdown that opens a focused panel with a body textarea, draft count, and all three action buttons. Matches GitHub's "Finish your review" pattern.
+- **Auto-surface review submission**: When all files are marked as reviewed, a green banner appears prompting you to submit your review — guiding the workflow without requiring you to find the submit button.
+- **Dim reviewed files**: Files marked as reviewed in the file tree are visually dimmed (both icon and filename), making unreviewed files pop and creating a clear sense of progress.
+- **Success/error flash animation**: Review submission and merge results now flash the Submit Review button green (success) or red (error) with a 1.5s fade-out animation, replacing the tiny toolbar text.
+
+### Changed
+
+- **Breadcrumb file path**: The diff header and keybinding footer now render file paths in breadcrumb style — parent directories are muted, the filename is highlighted and bold. Makes it instantly clear which file you're reviewing.
+- **Floating card drop shadows**: Comment cards in the floating gutter now have a subtle drop shadow, giving them visual depth and reinforcing that they float above the diff.
+- **Styled keybinding footer**: The footer bar now has a subtle elevated background, breadcrumb-style file path, and grouped shortcut hints with the Esc key highlighted in accent color. Separators use dot characters with distinct dimming for cleaner visual rhythm.
+- **Elevated file panel header**: The "Changed Files" header now has a subtle elevated background, folder icon, file count in a pill badge, and a green/red additions-vs-deletions proportional summary bar below it showing PR scope at a glance.
+- **Conversation tab avatars**: Issue comments and the PR description in the Conversation tab now show circular author avatars, matching the Files tab's floating and inline comment rendering. Uses the same cached avatar textures with letter-initial fallback.
+- **Collapsible PR description card**: A slim, collapsible description card sits below the header in the main detail view, visible on all tabs. Shows a chevron + "Description" + author + timestamp; click to expand the full markdown body (height-clamped with hidden scroll). Much lighter than the old frosted-glass banner.
+- **Collapsible PR description in Conversation tab**: The PR description card in the Conversation tab also has a chevron toggle — click the header to collapse/expand the body. Useful for long descriptions that push comments out of view.
+- **Review comments in Conversation tab**: Review comments are now rendered inline in the Conversation tab, grouped by file with thread structure. Each thread shows the file name, line number, quoted diff context line (color-coded by change type), and all comments in the thread with avatars. Replaces the old "N review comments shown inline in Files tab" hint.
+- **PR list header upgrade**: The list header now has a subtle elevated background, a PR icon, the count in a pill badge, and the refresh button right-aligned — matching the detail view's elevated header style.
+- **CI status dots on PR list rows**: Each PR row shows a small green/red dot indicating merge readiness (all checks passing + approved + mergeable) from preloaded data. Enables instant triage without opening each PR.
+- **Mini add/del proportional bar on PR rows**: Each PR row now has a tiny 24px green/red proportional bar next to the +/- stats, showing the balance of additions vs deletions at a glance.
+- **Styled PR list footer**: The keybinding footer now has an elevated background matching the detail view, with grouped shortcut hints and the `/` filter key highlighted in accent color.
+- **Richer empty states**: Empty states (no PRs, sign-in, error) now render the icon inside a subtle background circle for more visual weight.
+- **Pointer cursor on PR list hover**: Hovering a PR row now shows a pointing-hand cursor, signaling clickability.
+
+### Changed
+
+- **Description banner removed**: The collapsible frosted-glass description banner below the tab bar has been removed. The PR title now lives in the header's first row, and the full description body lives in the Conversation tab — eliminating duplicate content and saving vertical space.
 
 ### Fixed
 

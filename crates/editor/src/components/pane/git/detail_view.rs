@@ -127,17 +127,60 @@ fn build_file_tree_rows(
 }
 
 impl PrReviewPane {
+    /// Aggregate CI check status for the header strip.
+    fn aggregate_ci_status(&self) -> (&'static str, egui::Color32) {
+        let theme = self.theme;
+        if self.check_runs.is_empty() {
+            return ("\u{2014}", theme.text_secondary()); // em dash
+        }
+        let all_success = self
+            .check_runs
+            .iter()
+            .all(|c| c.conclusion.as_deref() == Some("success"));
+        let any_failure = self
+            .check_runs
+            .iter()
+            .any(|c| matches!(c.conclusion.as_deref(), Some("failure") | Some("cancelled")));
+        if all_success {
+            ("\u{2713}", theme.diff_added_text()) // checkmark
+        } else if any_failure {
+            ("\u{2717}", theme.diff_removed_text()) // X
+        } else {
+            ("\u{25CB}", theme.diff_hunk_text()) // circle (pending)
+        }
+    }
+
+    /// Compute aggregate review state from the current PR's reviews.
+    fn compute_review_state(&self) -> Option<super::ReviewState> {
+        if self.reviews.is_empty() {
+            return None;
+        }
+        let mut per_user: rustc_hash::FxHashMap<&str, &str> = rustc_hash::FxHashMap::default();
+        for r in &self.reviews {
+            match r.state.as_str() {
+                "APPROVED" | "CHANGES_REQUESTED" => {
+                    per_user.insert(&r.user.login, &r.state);
+                }
+                _ => {}
+            }
+        }
+        if per_user.is_empty() {
+            return None;
+        }
+        if per_user.values().any(|s| *s == "CHANGES_REQUESTED") {
+            Some(super::ReviewState::ChangesRequested)
+        } else {
+            Some(super::ReviewState::Approved)
+        }
+    }
+
     /// Render the PR detail view.
     pub(super) fn show_detail_view(&mut self, ui: &mut egui::Ui) {
         let theme = self.theme;
 
-        // Tab bar: back + #number + tabs + review actions
+        // ── Row 1: PR identity + context ────────────────────────────────
         ui.add_space(4.0);
-        let mut clicked_event: Option<ReviewEvent> = None;
         let mut go_back = false;
-        let mut approve_btn_anchor = egui::Rect::NOTHING;
-        let mut merge_btn_anchor = egui::Rect::NOTHING;
-        let mut do_merge = false;
         ui.horizontal(|ui| {
             ui.add_space(8.0);
 
@@ -155,56 +198,152 @@ impl PrReviewPane {
                 go_back = true;
             }
 
-            // PR number + open in GitHub button
             if let Some(pr) = &self.current_pr {
-                ui.label(
-                    RichText::new(format!("#{}", pr.number))
-                        .color(theme.accent_primary())
-                        .font(typography::monospace(typography::SM)),
-                );
+                // Right-side metadata (title is already in the pane tab label)
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.add_space(12.0);
 
-                let open_btn = ui.add(
-                    egui::Button::new(
-                        RichText::new(egui_nerdfonts::regular::EXTERNAL_LINK)
-                            .size(typography::SM)
-                            .color(theme.text_secondary()),
-                    )
-                    .fill(egui::Color32::TRANSPARENT)
-                    .stroke(egui::Stroke::NONE),
-                );
-                if open_btn.clicked() {
-                    let url = format!(
-                        "https://github.com/{}/{}/pull/{}",
-                        self.owner, self.repo, pr.number
+                    // Open in GitHub
+                    let open_btn = ui.add(
+                        egui::Button::new(
+                            RichText::new(egui_nerdfonts::regular::EXTERNAL_LINK)
+                                .size(typography::SM)
+                                .color(theme.text_secondary()),
+                        )
+                        .fill(egui::Color32::TRANSPARENT)
+                        .stroke(egui::Stroke::NONE),
                     );
-                    ui.ctx().open_url(egui::OpenUrl::new_tab(&url));
-                }
-                open_btn.on_hover_text("Open in GitHub");
+                    if open_btn.clicked() {
+                        let url = format!(
+                            "https://github.com/{}/{}/pull/{}",
+                            self.owner, self.repo, pr.number
+                        );
+                        ui.ctx().open_url(egui::OpenUrl::new_tab(&url));
+                    }
+                    open_btn.on_hover_text("Open in GitHub");
+
+                    ui.add_space(4.0);
+
+                    // Review state
+                    // Review state (only show when there's an actual review)
+                    let review_state = self.compute_review_state();
+                    if let Some(state) = review_state {
+                        let (review_label, review_color) = match state {
+                            super::ReviewState::Approved => ("Approved", theme.diff_added_text()),
+                            super::ReviewState::ChangesRequested => {
+                                ("Changes", theme.diff_removed_text())
+                            }
+                        };
+                        ui.label(
+                            RichText::new(review_label)
+                                .color(review_color)
+                                .font(typography::proportional(typography::XS)),
+                        );
+                        ui.label(
+                            RichText::new("\u{b7}")
+                                .color(theme.text_secondary().gamma_multiply(0.5))
+                                .font(typography::proportional(typography::XS)),
+                        );
+                    }
+
+                    // CI status
+                    let (ci_icon, ci_color) = self.aggregate_ci_status();
+                    ui.label(
+                        RichText::new(format!("{ci_icon} CI"))
+                            .color(ci_color)
+                            .font(typography::proportional(typography::XS)),
+                    );
+
+                    ui.add_space(8.0);
+
+                    // Branch info
+                    ui.label(
+                        RichText::new(format!(
+                            "{} \u{2192} {}",
+                            pr.head.ref_name, pr.base.ref_name
+                        ))
+                        .color(theme.text_secondary())
+                        .font(typography::monospace(typography::XS)),
+                    );
+
+                    ui.add_space(4.0);
+
+                    // Author
+                    ui.label(
+                        RichText::new(&pr.user.login)
+                            .color(theme.text_secondary())
+                            .font(typography::proportional(typography::XS)),
+                    );
+                });
             }
+        });
+        ui.add_space(2.0);
 
+        // ── Row 2: Tabs + progress + actions ────────────────────────────
+        let mut clicked_event: Option<ReviewEvent> = None;
+        let mut submit_btn_anchor = egui::Rect::NOTHING;
+        let mut merge_btn_anchor = egui::Rect::NOTHING;
+        let mut do_merge = false;
+
+        // Compute tab badges
+        let files_badge = {
+            let count = self.review_comments.len() + self.draft_comments.len();
+            if count > 0 {
+                Some(format!("{count}"))
+            } else {
+                None
+            }
+        };
+        let conv_badge = if !self.issue_comments.is_empty() {
+            Some(format!("{}", self.issue_comments.len()))
+        } else {
+            None
+        };
+        let checks_badge = if !self.check_runs.is_empty() {
+            let (icon, _) = self.aggregate_ci_status();
+            Some(icon.to_string())
+        } else {
+            None
+        };
+
+        ui.horizontal(|ui| {
             ui.add_space(8.0);
 
-            // Tabs
-            render_tab(ui, theme, "Files", DetailTab::Files, &mut self.active_tab);
+            // Tabs with badges
+            render_tab_with_badge(
+                ui,
+                theme,
+                "Files",
+                files_badge.as_deref(),
+                DetailTab::Files,
+                &mut self.active_tab,
+            );
             ui.add_space(8.0);
-            render_tab(
+            render_tab_with_badge(
                 ui,
                 theme,
                 "Conversation",
+                conv_badge.as_deref(),
                 DetailTab::Conversation,
                 &mut self.active_tab,
             );
             ui.add_space(8.0);
-            render_tab(ui, theme, "Checks", DetailTab::Checks, &mut self.active_tab);
+            render_tab_with_badge(
+                ui,
+                theme,
+                "Checks",
+                checks_badge.as_deref(),
+                DetailTab::Checks,
+                &mut self.active_tab,
+            );
 
-            // Review actions on the right
+            // Right side: progress bar + action buttons
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.add_space(12.0);
 
-                let has_content = !self.draft_comments.is_empty() || !self.draft_body.is_empty();
                 let can_submit = self.token.is_some() && !self.submitting_review;
 
-                // Merge (toggles popup for strategy selection)
+                // ── Merge button ──
                 let is_open = self
                     .current_pr
                     .as_ref()
@@ -254,98 +393,71 @@ impl PrReviewPane {
 
                 ui.add_space(4.0);
 
-                // Approve (toggles popup for optional message)
-                let approve_btn = ui.add_enabled(
-                    can_submit,
-                    egui::Button::new(
-                        RichText::new(format!("Approve {}", egui_nerdfonts::regular::CHEVRON_DOWN))
-                            .size(typography::XS)
-                            .color(if can_submit {
-                                theme.diff_added_text()
-                            } else {
-                                theme.text_secondary().gamma_multiply(0.5)
-                            }),
+                // ── Submit Review button (consolidated) ──
+                let draft_count = self.draft_comments.len();
+                let submit_label = if draft_count > 0 {
+                    format!(
+                        "Submit Review ({draft_count}) {}",
+                        egui_nerdfonts::regular::CHEVRON_DOWN
                     )
-                    .fill(if can_submit {
-                        if self.approve_popup_open {
-                            theme.diff_added_bg().gamma_multiply(1.3)
+                } else {
+                    format!("Submit Review {}", egui_nerdfonts::regular::CHEVRON_DOWN)
+                };
+
+                // Flash animation on submit button
+                let flash_alpha = self
+                    .flash_start
+                    .map(|start| {
+                        let elapsed = crate::util::Instant::now()
+                            .duration_since(start)
+                            .as_secs_f32();
+                        if elapsed > 1.5 {
+                            0.0
                         } else {
-                            theme.diff_added_bg()
+                            (1.0 - elapsed / 1.5).powi(2)
                         }
-                    } else {
-                        theme.bg_elevated()
                     })
-                    .stroke(egui::Stroke::new(
-                        1.0,
+                    .unwrap_or(0.0);
+
+                if flash_alpha > 0.0 {
+                    ui.ctx().request_repaint();
+                } else if self.flash_start.is_some() {
+                    self.flash_start = None;
+                }
+
+                let submit_fill = if flash_alpha > 0.0 {
+                    if self.flash_is_success {
+                        theme.diff_added_bg().gamma_multiply(flash_alpha)
+                    } else {
+                        theme.diff_removed_bg().gamma_multiply(flash_alpha)
+                    }
+                } else if self.submit_panel_open {
+                    theme.accent_primary().gamma_multiply(0.15)
+                } else {
+                    theme.bg_elevated()
+                };
+
+                let submit_btn = ui.add_enabled(
+                    can_submit,
+                    egui::Button::new(RichText::new(submit_label).size(typography::XS).color(
                         if can_submit {
-                            theme.diff_added_gutter().gamma_multiply(0.3)
-                        } else {
-                            theme.border_subtle()
-                        },
-                    ))
-                    .corner_radius(4.0),
-                );
-                if approve_btn.clicked() {
-                    self.approve_popup_open = !self.approve_popup_open;
-                }
-                approve_btn_anchor = approve_btn.rect;
-
-                ui.add_space(4.0);
-
-                // Request Changes (needs content)
-                let rc_enabled = has_content && can_submit;
-                let rc_btn = ui.add_enabled(
-                    rc_enabled,
-                    egui::Button::new(RichText::new("Request Changes").size(typography::XS).color(
-                        if rc_enabled {
-                            theme.diff_removed_text()
-                        } else {
-                            theme.text_secondary().gamma_multiply(0.5)
-                        },
-                    ))
-                    .fill(if rc_enabled {
-                        theme.diff_removed_bg()
-                    } else {
-                        theme.bg_elevated()
-                    })
-                    .stroke(egui::Stroke::new(
-                        1.0,
-                        if rc_enabled {
-                            theme.diff_removed_gutter().gamma_multiply(0.3)
-                        } else {
-                            theme.border_subtle()
-                        },
-                    ))
-                    .corner_radius(4.0),
-                );
-                if rc_btn.clicked() {
-                    clicked_event = Some(ReviewEvent::RequestChanges);
-                }
-
-                ui.add_space(4.0);
-
-                // Comment (needs content)
-                let comment_enabled = has_content && can_submit;
-                let comment_btn = ui.add_enabled(
-                    comment_enabled,
-                    egui::Button::new(RichText::new("Comment").size(typography::XS).color(
-                        if comment_enabled {
                             theme.text_primary()
                         } else {
                             theme.text_secondary().gamma_multiply(0.5)
                         },
                     ))
-                    .fill(theme.bg_elevated())
+                    .fill(submit_fill)
                     .stroke(egui::Stroke::new(1.0, theme.border_subtle()))
                     .corner_radius(4.0),
                 );
-                if comment_btn.clicked() {
-                    clicked_event = Some(ReviewEvent::Comment);
+                if submit_btn.clicked() {
+                    self.submit_panel_open = !self.submit_panel_open;
                 }
+                submit_btn_anchor = submit_btn.rect;
 
                 ui.add_space(4.0);
 
-                // Organize (AI review insights)
+                // ── Organize button ──
                 {
                     const BRAILLE_FRAMES: [char; 10] =
                         ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
@@ -407,67 +519,52 @@ impl PrReviewPane {
                     ui.spinner();
                 }
 
-                // Reviewed files progress
+                // ── Review progress bar ──
                 let reviewed_count = self.reviewed_files.len();
                 let total_files = self.pr_files.len();
-                if reviewed_count > 0 {
+                if total_files > 0 {
                     ui.add_space(8.0);
-                    let progress_color = if reviewed_count == total_files {
+                    let fraction = reviewed_count as f32 / total_files as f32;
+                    let bar_width = 60.0;
+                    let bar_height = 4.0;
+                    let (bar_rect, _) = ui.allocate_exact_size(
+                        egui::vec2(bar_width, bar_height),
+                        egui::Sense::hover(),
+                    );
+                    // Track
+                    ui.painter()
+                        .rect_filled(bar_rect, 2.0, theme.border_subtle());
+                    // Fill
+                    let fill_width = (bar_width * fraction).max(0.0);
+                    let fill_rect =
+                        egui::Rect::from_min_size(bar_rect.min, egui::vec2(fill_width, bar_height));
+                    let fill_color = if reviewed_count == total_files {
                         theme.diff_added_gutter()
                     } else {
-                        theme.text_secondary()
+                        theme.accent_primary()
                     };
-                    ui.label(
-                        RichText::new(format!(
-                            "{} {reviewed_count}/{total_files}",
-                            egui_nerdfonts::regular::CHECK,
-                        ))
-                        .color(progress_color)
-                        .font(typography::proportional(typography::XS)),
-                    );
-                }
+                    ui.painter().rect_filled(fill_rect, 2.0, fill_color);
 
-                // Draft count badge
-                let draft_count = self.draft_comments.len();
-                if draft_count > 0 {
-                    ui.add_space(8.0);
+                    ui.add_space(4.0);
                     ui.label(
-                        RichText::new(format!(
-                            "{} {}",
-                            egui_nerdfonts::regular::COMMENT,
-                            draft_count
-                        ))
-                        .color(theme.accent_primary())
-                        .font(typography::proportional(typography::XS)),
-                    );
-                }
-
-                // Success/error messages
-                if let Some(ref msg) = self.submit_success {
-                    ui.add_space(8.0);
-                    ui.label(
-                        RichText::new(format!("{} {msg}", egui_nerdfonts::regular::CHECK))
-                            .color(theme.diff_added_text())
-                            .font(typography::proportional(typography::XS)),
-                    );
-                }
-                if let Some(ref msg) = self.submit_error {
-                    ui.add_space(8.0);
-                    ui.label(
-                        RichText::new(format!("{} {msg}", egui_nerdfonts::regular::X))
-                            .color(theme.diff_removed_text())
+                        RichText::new(format!("{reviewed_count}/{total_files}"))
+                            .color(if reviewed_count == total_files {
+                                theme.diff_added_gutter()
+                            } else {
+                                theme.text_secondary()
+                            })
                             .font(typography::proportional(typography::XS)),
                     );
                 }
             });
         });
 
-        // Approve popup (floating below the Approve button)
-        if self.approve_popup_open {
-            let popup_id = ui.id().with("approve_popup");
+        // ── Submit Review panel (floating popup) ──
+        if self.submit_panel_open {
+            let popup_id = ui.id().with("submit_review_panel");
             let popup_pos = egui::pos2(
-                approve_btn_anchor.right() - 280.0,
-                approve_btn_anchor.bottom() + 4.0,
+                submit_btn_anchor.right() - 320.0,
+                submit_btn_anchor.bottom() + 4.0,
             );
             let area_resp = egui::Area::new(popup_id)
                 .order(egui::Order::Foreground)
@@ -479,26 +576,43 @@ impl PrReviewPane {
                         .corner_radius(6.0)
                         .inner_margin(egui::Margin::same(12))
                         .show(ui, |ui| {
-                            ui.set_width(260.0);
+                            ui.set_width(300.0);
+
                             ui.label(
-                                RichText::new("Approve with message")
+                                RichText::new("Finish your review")
                                     .color(theme.text_primary())
                                     .font(typography::proportional(typography::SM))
                                     .strong(),
                             );
-                            ui.add_space(6.0);
+
+                            let draft_count = self.draft_comments.len();
+                            if draft_count > 0 {
+                                ui.add_space(4.0);
+                                ui.label(
+                                    RichText::new(format!(
+                                        "{draft_count} pending comment{}",
+                                        if draft_count == 1 { "" } else { "s" }
+                                    ))
+                                    .color(theme.text_secondary())
+                                    .font(typography::proportional(typography::XS)),
+                                );
+                            }
+
+                            ui.add_space(8.0);
                             ui.add(
                                 egui::TextEdit::multiline(&mut self.draft_body)
-                                    .hint_text("Leave a comment (optional)")
-                                    .desired_rows(3)
-                                    .desired_width(260.0)
+                                    .hint_text("Leave a comment")
+                                    .desired_rows(4)
+                                    .desired_width(296.0)
                                     .font(typography::proportional(typography::SM)),
                             );
-                            ui.add_space(8.0);
+
+                            ui.add_space(10.0);
                             ui.horizontal(|ui| {
-                                let submit_btn = ui.add(
+                                // Approve (green)
+                                let approve_btn = ui.add(
                                     egui::Button::new(
-                                        RichText::new("Submit Approval")
+                                        RichText::new("Approve")
                                             .size(typography::XS)
                                             .color(theme.diff_added_text()),
                                     )
@@ -509,35 +623,77 @@ impl PrReviewPane {
                                     ))
                                     .corner_radius(4.0),
                                 );
-                                if submit_btn.clicked() {
+                                if approve_btn.clicked() {
                                     clicked_event = Some(ReviewEvent::Approve);
-                                    self.approve_popup_open = false;
+                                    self.submit_panel_open = false;
                                 }
 
-                                let cancel_btn = ui.add(
+                                // Comment (neutral)
+                                let has_content =
+                                    !self.draft_comments.is_empty() || !self.draft_body.is_empty();
+                                let comment_btn = ui.add_enabled(
+                                    has_content,
                                     egui::Button::new(
-                                        RichText::new("Cancel")
-                                            .size(typography::XS)
-                                            .color(theme.text_secondary()),
+                                        RichText::new("Comment").size(typography::XS).color(
+                                            if has_content {
+                                                theme.text_primary()
+                                            } else {
+                                                theme.text_secondary().gamma_multiply(0.5)
+                                            },
+                                        ),
                                     )
-                                    .fill(egui::Color32::TRANSPARENT)
-                                    .stroke(egui::Stroke::NONE),
+                                    .fill(theme.bg_elevated())
+                                    .stroke(egui::Stroke::new(1.0, theme.border_subtle()))
+                                    .corner_radius(4.0),
                                 );
-                                if cancel_btn.clicked() {
-                                    self.approve_popup_open = false;
+                                if comment_btn.clicked() {
+                                    clicked_event = Some(ReviewEvent::Comment);
+                                    self.submit_panel_open = false;
+                                }
+
+                                // Request Changes (red)
+                                let rc_btn = ui.add_enabled(
+                                    has_content,
+                                    egui::Button::new(
+                                        RichText::new("Request Changes")
+                                            .size(typography::XS)
+                                            .color(if has_content {
+                                                theme.diff_removed_text()
+                                            } else {
+                                                theme.text_secondary().gamma_multiply(0.5)
+                                            }),
+                                    )
+                                    .fill(if has_content {
+                                        theme.diff_removed_bg()
+                                    } else {
+                                        theme.bg_elevated()
+                                    })
+                                    .stroke(egui::Stroke::new(
+                                        1.0,
+                                        if has_content {
+                                            theme.diff_removed_gutter().gamma_multiply(0.3)
+                                        } else {
+                                            theme.border_subtle()
+                                        },
+                                    ))
+                                    .corner_radius(4.0),
+                                );
+                                if rc_btn.clicked() {
+                                    clicked_event = Some(ReviewEvent::RequestChanges);
+                                    self.submit_panel_open = false;
                                 }
                             });
                         });
                 });
 
-            // Close popup when clicking outside
+            // Close on outside click
             let popup_rect = area_resp.response.rect;
             if ui.input(|i| i.pointer.any_click())
                 && !popup_rect.contains(ui.input(|i| i.pointer.interact_pos().unwrap_or_default()))
-                && !approve_btn_anchor
+                && !submit_btn_anchor
                     .contains(ui.input(|i| i.pointer.interact_pos().unwrap_or_default()))
             {
-                self.approve_popup_open = false;
+                self.submit_panel_open = false;
             }
         }
 
@@ -730,8 +886,108 @@ impl PrReviewPane {
             egui::Stroke::new(1.0, theme.border_subtle()),
         );
 
-        // ── PR description banner (collapsible) ──
-        self.show_description_banner(ui, theme);
+        // ── Collapsible PR description card ──
+        if let Some(pr) = &self.current_pr {
+            if let Some(body) = &pr.body {
+                if !body.is_empty() {
+                    ui.add_space(2.0);
+                    egui::Frame::new()
+                        .fill(theme.bg_elevated().gamma_multiply(0.4))
+                        .corner_radius(4.0)
+                        .inner_margin(egui::Margin::symmetric(12, 6))
+                        .outer_margin(egui::Margin::symmetric(4, 0))
+                        .show(ui, |ui| {
+                            // Header row: allocate clickable rect, then paint contents
+                            let row_height = 18.0;
+                            let (header_rect, header_response) = ui.allocate_exact_size(
+                                egui::vec2(ui.available_width(), row_height),
+                                egui::Sense::click(),
+                            );
+
+                            // Paint header contents manually on the allocated rect
+                            let mut hx = header_rect.left();
+                            let cy = header_rect.center().y;
+
+                            let chevron = if self.description_collapsed {
+                                egui_nerdfonts::regular::CHEVRON_RIGHT
+                            } else {
+                                egui_nerdfonts::regular::CHEVRON_DOWN
+                            };
+                            let chev_galley = ui.painter().layout_no_wrap(
+                                chevron.to_string(),
+                                typography::proportional(typography::XS),
+                                theme.text_secondary(),
+                            );
+                            ui.painter().galley(
+                                egui::pos2(hx, cy - chev_galley.size().y / 2.0),
+                                chev_galley.clone(),
+                                theme.text_secondary(),
+                            );
+                            hx += chev_galley.size().x + 4.0;
+
+                            let desc_galley = ui.painter().layout_no_wrap(
+                                "Description".to_string(),
+                                typography::proportional(typography::XS),
+                                theme.text_secondary(),
+                            );
+                            ui.painter().galley(
+                                egui::pos2(hx, cy - desc_galley.size().y / 2.0),
+                                desc_galley.clone(),
+                                theme.text_secondary(),
+                            );
+                            hx += desc_galley.size().x + 6.0;
+
+                            let author_galley = ui.painter().layout_no_wrap(
+                                pr.user.login.clone(),
+                                typography::proportional(typography::XS),
+                                theme.text_secondary().gamma_multiply(0.7),
+                            );
+                            ui.painter().galley(
+                                egui::pos2(hx, cy - author_galley.size().y / 2.0),
+                                author_galley.clone(),
+                                theme.text_secondary().gamma_multiply(0.7),
+                            );
+                            hx += author_galley.size().x + 4.0;
+
+                            let time_galley = ui.painter().layout_no_wrap(
+                                format!("\u{b7} {}", relative_time(&pr.created_at)),
+                                typography::proportional(typography::XS),
+                                theme.text_secondary().gamma_multiply(0.5),
+                            );
+                            ui.painter().galley(
+                                egui::pos2(hx, cy - time_galley.size().y / 2.0),
+                                time_galley,
+                                theme.text_secondary().gamma_multiply(0.5),
+                            );
+
+                            if header_response.clicked() {
+                                self.description_collapsed = !self.description_collapsed;
+                            }
+                            if header_response.hovered() {
+                                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                            }
+
+                            // Body (only if expanded)
+                            if !self.description_collapsed {
+                                ui.add_space(4.0);
+                                let max_h = (ui.available_height() * 0.3).clamp(60.0, 200.0);
+                                egui::ScrollArea::vertical()
+                                    .id_salt("pr_desc_main")
+                                    .max_height(max_h)
+                                    .scroll_bar_visibility(
+                                        egui::scroll_area::ScrollBarVisibility::AlwaysHidden,
+                                    )
+                                    .show(ui, |ui| {
+                                        crate::components::overlay::markdown_renderer::render_markdown(
+                                            ui, body, theme,
+                                        );
+                                    });
+                            }
+                        });
+                    ui.add_space(2.0);
+                }
+            }
+        }
 
         // ── AI walkthrough summary banner ──
         self.show_walkthrough_banner(ui, theme);
@@ -777,56 +1033,213 @@ impl PrReviewPane {
             DetailTab::Checks => self.show_checks_tab(ui, theme),
         }
 
+        // ── Auto-surface review submission when all files reviewed ──
+        let all_reviewed = !self.pr_files.is_empty()
+            && self.reviewed_files.len() == self.pr_files.len()
+            && !self.auto_surface_dismissed
+            && !self.submit_panel_open;
+        if all_reviewed {
+            ui.add_space(4.0);
+            egui::Frame::new()
+                .fill(theme.diff_added_bg().gamma_multiply(0.5))
+                .corner_radius(4.0)
+                .inner_margin(egui::Margin::symmetric(12, 6))
+                .outer_margin(egui::Margin::symmetric(8, 0))
+                .show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            RichText::new(format!(
+                                "{} All files reviewed",
+                                egui_nerdfonts::regular::CHECK_CIRCLE,
+                            ))
+                            .color(theme.diff_added_text())
+                            .font(typography::proportional(typography::SM)),
+                        );
+                        ui.add_space(8.0);
+                        let submit_btn = ui.add(
+                            egui::Button::new(
+                                RichText::new("Submit Review")
+                                    .size(typography::XS)
+                                    .color(theme.diff_added_text()),
+                            )
+                            .fill(theme.diff_added_bg())
+                            .stroke(egui::Stroke::new(
+                                1.0,
+                                theme.diff_added_gutter().gamma_multiply(0.3),
+                            ))
+                            .corner_radius(4.0),
+                        );
+                        if submit_btn.clicked() {
+                            self.submit_panel_open = true;
+                        }
+                        let dismiss_btn = ui.add(
+                            egui::Button::new(
+                                RichText::new("Dismiss")
+                                    .size(typography::XS)
+                                    .color(theme.text_secondary()),
+                            )
+                            .fill(egui::Color32::TRANSPARENT)
+                            .stroke(egui::Stroke::NONE),
+                        );
+                        if dismiss_btn.clicked() {
+                            self.auto_surface_dismissed = true;
+                        }
+                    });
+                });
+        }
+
         // Keybinding hints footer
         self.render_keybinding_footer(ui, theme);
     }
 
     /// Render keybinding hints at the bottom of the detail view.
     fn render_keybinding_footer(&self, ui: &mut egui::Ui, theme: AppTheme) {
-        let muted = theme.text_secondary();
-        let separator_color = theme.border_subtle();
-
-        // Separator above footer
-        ui.painter().hline(
-            ui.available_rect_before_wrap().x_range(),
-            ui.cursor().top(),
-            egui::Stroke::new(1.0, separator_color),
+        // Elevated footer bar
+        let footer_rect = egui::Rect::from_min_size(
+            ui.cursor().left_top(),
+            egui::vec2(ui.available_width(), 30.0),
         );
-        ui.add_space(6.0);
+        ui.painter()
+            .rect_filled(footer_rect, 0.0, theme.bg_elevated().gamma_multiply(0.5));
+        ui.painter().hline(
+            footer_rect.x_range(),
+            footer_rect.top(),
+            egui::Stroke::new(1.0, theme.border_subtle()),
+        );
 
-        ui.horizontal(|ui| {
-            ui.add_space(16.0);
-
-            // Current file path
-            if let Some(file_diff) = self.file_diffs.get(self.selected_file_index) {
-                ui.label(
-                    RichText::new(&file_diff.path)
-                        .color(muted)
-                        .font(typography::monospace(typography::SM)),
-                );
-            }
-
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+        ui.allocate_ui_with_layout(
+            egui::vec2(ui.available_width(), 30.0),
+            egui::Layout::left_to_right(egui::Align::Center),
+            |ui| {
                 ui.add_space(16.0);
 
-                let view_mode = if self.diff_renderer.split_view() { "split" } else { "stacked" };
-                let hint = if self.file_diffs.len() > 1 {
-                    format!(
-                        "v viewed \u{2022} n/p files \u{2022} j/k scroll \u{2022} gg/G top/bottom \u{2022} s {view_mode} \u{2022} Esc back"
-                    )
-                } else {
-                    format!(
-                        "v viewed \u{2022} j/k scroll \u{2022} gg/G top/bottom \u{2022} s {view_mode} \u{2022} Esc back"
-                    )
-                };
-                ui.label(
-                    RichText::new(hint)
-                        .color(muted.gamma_multiply(0.7))
-                        .font(typography::proportional(typography::XS)),
-                );
-            });
-        });
-        ui.add_space(8.0);
+                // Current file path (breadcrumb style)
+                if let Some(file_diff) = self.file_diffs.get(self.selected_file_index) {
+                    if let Some(slash_pos) = file_diff.path.rfind('/') {
+                        let parent = &file_diff.path[..=slash_pos];
+                        let filename = &file_diff.path[slash_pos + 1..];
+                        ui.label(
+                            RichText::new(parent)
+                                .color(theme.text_secondary().gamma_multiply(0.5))
+                                .font(typography::monospace(typography::XS)),
+                        );
+                        ui.add_space(-4.0);
+                        ui.label(
+                            RichText::new(filename)
+                                .color(theme.text_secondary())
+                                .font(typography::monospace(typography::XS)),
+                        );
+                    } else {
+                        ui.label(
+                            RichText::new(&file_diff.path)
+                                .color(theme.text_secondary())
+                                .font(typography::monospace(typography::XS)),
+                        );
+                    }
+                }
+
+                // Right-side keybinding hints with grouped styling
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.add_space(16.0);
+
+                    let key_color = theme.text_secondary().gamma_multiply(0.5);
+                    let sep_color = theme.text_secondary().gamma_multiply(0.25);
+                    let accent_key = theme.accent_primary().gamma_multiply(0.6);
+                    let key_font = typography::monospace(typography::XS);
+                    let label_font = typography::proportional(typography::XS);
+
+                    // Esc back (accent — primary escape action)
+                    ui.label(
+                        RichText::new("back")
+                            .color(key_color)
+                            .font(label_font.clone()),
+                    );
+                    ui.label(
+                        RichText::new("Esc")
+                            .color(accent_key)
+                            .font(key_font.clone()),
+                    );
+
+                    ui.label(
+                        RichText::new("\u{2022}")
+                            .color(sep_color)
+                            .font(label_font.clone()),
+                    );
+
+                    // View mode
+                    let view_mode = if self.diff_renderer.split_view() {
+                        "split"
+                    } else {
+                        "stacked"
+                    };
+                    ui.label(
+                        RichText::new(view_mode)
+                            .color(key_color)
+                            .font(label_font.clone()),
+                    );
+                    ui.label(RichText::new("s").color(key_color).font(key_font.clone()));
+
+                    ui.label(
+                        RichText::new("\u{2022}")
+                            .color(sep_color)
+                            .font(label_font.clone()),
+                    );
+
+                    // Scroll
+                    ui.label(
+                        RichText::new("top/bottom")
+                            .color(key_color)
+                            .font(label_font.clone()),
+                    );
+                    ui.label(
+                        RichText::new("gg/G")
+                            .color(key_color)
+                            .font(key_font.clone()),
+                    );
+
+                    ui.label(
+                        RichText::new("\u{2022}")
+                            .color(sep_color)
+                            .font(label_font.clone()),
+                    );
+
+                    ui.label(
+                        RichText::new("scroll")
+                            .color(key_color)
+                            .font(label_font.clone()),
+                    );
+                    ui.label(RichText::new("j/k").color(key_color).font(key_font.clone()));
+
+                    // File navigation (only if multiple files)
+                    if self.file_diffs.len() > 1 {
+                        ui.label(
+                            RichText::new("\u{2022}")
+                                .color(sep_color)
+                                .font(label_font.clone()),
+                        );
+                        ui.label(
+                            RichText::new("files")
+                                .color(key_color)
+                                .font(label_font.clone()),
+                        );
+                        ui.label(RichText::new("n/p").color(key_color).font(key_font.clone()));
+                    }
+
+                    ui.label(
+                        RichText::new("\u{2022}")
+                            .color(sep_color)
+                            .font(label_font.clone()),
+                    );
+
+                    ui.label(
+                        RichText::new("viewed")
+                            .color(key_color)
+                            .font(label_font.clone()),
+                    );
+                    ui.label(RichText::new("v").color(key_color).font(key_font));
+                });
+            },
+        );
     }
 
     /// Render the Files tab — file list + diff view.
@@ -916,40 +1329,120 @@ impl PrReviewPane {
 
     /// Render the file panel (right side in files tab).
     fn show_file_panel(&mut self, ui: &mut egui::Ui, theme: AppTheme) {
-        ui.add_space(8.0);
-        ui.horizontal(|ui| {
-            ui.add_space(8.0);
-            ui.label(
-                RichText::new("Changed Files")
-                    .color(theme.text_primary().gamma_multiply(0.9))
-                    .font(typography::proportional(typography::SM))
-                    .strong(),
-            );
-            ui.add_space(4.0);
-            ui.label(
-                RichText::new(format!("{}", self.pr_files.len()))
-                    .color(theme.text_secondary())
-                    .font(typography::proportional(typography::XS)),
-            );
+        // ── Elevated file panel header ──
+        let header_rect = egui::Rect::from_min_size(
+            ui.cursor().left_top(),
+            egui::vec2(ui.available_width(), 32.0),
+        );
+        ui.painter()
+            .rect_filled(header_rect, 0.0, theme.bg_elevated().gamma_multiply(0.4));
+        ui.painter().hline(
+            header_rect.x_range(),
+            header_rect.bottom(),
+            egui::Stroke::new(1.0, theme.border_subtle().gamma_multiply(0.5)),
+        );
 
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.add_space(4.0);
-                let collapse_btn = ui.add(
-                    egui::Button::new(
-                        RichText::new(egui_nerdfonts::regular::CHEVRON_LEFT)
-                            .size(typography::SM)
-                            .color(theme.text_secondary()),
-                    )
-                    .fill(egui::Color32::TRANSPARENT)
-                    .stroke(egui::Stroke::NONE),
+        ui.allocate_ui_with_layout(
+            egui::vec2(ui.available_width(), 32.0),
+            egui::Layout::left_to_right(egui::Align::Center),
+            |ui| {
+                ui.add_space(8.0);
+
+                // Folder icon
+                ui.label(
+                    RichText::new(egui_nerdfonts::regular::FOLDER_OPEN)
+                        .color(theme.text_secondary().gamma_multiply(0.7))
+                        .size(typography::SM),
                 );
-                if collapse_btn.clicked() {
-                    self.file_panel_collapsed = true;
-                }
-                collapse_btn.on_hover_text("Hide file tree");
-            });
-        });
-        ui.add_space(6.0);
+                ui.add_space(2.0);
+
+                ui.label(
+                    RichText::new("Files")
+                        .color(theme.text_primary().gamma_multiply(0.9))
+                        .font(typography::proportional(typography::SM))
+                        .strong(),
+                );
+                ui.add_space(4.0);
+
+                // Count in a pill badge
+                let count_text = format!("{}", self.pr_files.len());
+                let count_galley = ui.painter().layout_no_wrap(
+                    count_text.clone(),
+                    typography::proportional(typography::XS),
+                    theme.text_secondary(),
+                );
+                let pill_width = count_galley.size().x + 8.0;
+                let pill_height = count_galley.size().y + 2.0;
+                let (pill_rect, _) = ui
+                    .allocate_exact_size(egui::vec2(pill_width, pill_height), egui::Sense::hover());
+                ui.painter().rect_filled(
+                    pill_rect,
+                    pill_height / 2.0,
+                    theme.border_subtle().gamma_multiply(0.5),
+                );
+                ui.painter().galley(
+                    egui::pos2(
+                        pill_rect.center().x - count_galley.size().x / 2.0,
+                        pill_rect.center().y - count_galley.size().y / 2.0,
+                    ),
+                    count_galley,
+                    theme.text_secondary(),
+                );
+
+                // Collapse button (right-aligned)
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.add_space(4.0);
+                    let collapse_btn = ui.add(
+                        egui::Button::new(
+                            RichText::new(egui_nerdfonts::regular::CHEVRON_LEFT)
+                                .size(typography::SM)
+                                .color(theme.text_secondary()),
+                        )
+                        .fill(egui::Color32::TRANSPARENT)
+                        .stroke(egui::Stroke::NONE),
+                    );
+                    if collapse_btn.clicked() {
+                        self.file_panel_collapsed = true;
+                    }
+                    collapse_btn.on_hover_text("Hide file tree");
+                });
+            },
+        );
+
+        // ── Additions/deletions summary bar ──
+        let total_add: u32 = self.pr_files.iter().map(|f| f.additions).sum();
+        let total_del: u32 = self.pr_files.iter().map(|f| f.deletions).sum();
+        let total_changes = total_add + total_del;
+        if total_changes > 0 {
+            ui.add_space(4.0);
+            let bar_width = (ui.available_width() - 16.0).max(20.0);
+            let bar_height = 3.0;
+            let (bar_rect, _) =
+                ui.allocate_exact_size(egui::vec2(bar_width, bar_height), egui::Sense::hover());
+            let bar_rect =
+                egui::Rect::from_min_size(bar_rect.min + egui::vec2(8.0, 0.0), bar_rect.size());
+
+            let add_frac = total_add as f32 / total_changes as f32;
+            let add_width = (bar_width * add_frac).max(0.0);
+
+            // Green portion (additions)
+            let add_rect =
+                egui::Rect::from_min_size(bar_rect.min, egui::vec2(add_width, bar_height));
+            ui.painter()
+                .rect_filled(add_rect, 1.5, theme.diff_added_gutter());
+
+            // Red portion (deletions)
+            let del_rect = egui::Rect::from_min_size(
+                egui::pos2(bar_rect.min.x + add_width, bar_rect.min.y),
+                egui::vec2((bar_width - add_width).max(0.0), bar_height),
+            );
+            ui.painter()
+                .rect_filled(del_rect, 1.5, theme.diff_removed_gutter());
+
+            ui.add_space(2.0);
+        } else {
+            ui.add_space(6.0);
+        }
 
         // Use walkthrough grouped view if active, otherwise normal tree
         let walkthrough_groups = self.walkthrough_file_order();
@@ -1120,18 +1613,28 @@ impl PrReviewPane {
                             let indent = 8.0 + *depth as f32 * 12.0;
                             let mut cx = rect.left() + indent;
 
-                            // File status icon
-                            let icon = if file.status == "removed" {
-                                egui_nerdfonts::regular::FILE_MINUS
-                            } else if file.status == "added" {
-                                egui_nerdfonts::regular::FILE_PLUS
-                            } else {
-                                egui_nerdfonts::regular::FILE_EDIT
+                            // File status icon + color coding by change type
+                            let (icon, status_color) = match file.status.as_str() {
+                                "removed" => (
+                                    egui_nerdfonts::regular::FILE_MINUS,
+                                    theme.diff_removed_gutter(),
+                                ),
+                                "added" => (
+                                    egui_nerdfonts::regular::FILE_PLUS,
+                                    theme.diff_added_gutter(),
+                                ),
+                                "renamed" => (
+                                    egui_nerdfonts::regular::FILE_SYMLINK_FILE,
+                                    theme.accent_primary(),
+                                ),
+                                _ => (egui_nerdfonts::regular::FILE_EDIT, theme.text_secondary()),
                             };
                             let icon_color = if is_selected {
                                 theme.accent_primary()
+                            } else if *reviewed {
+                                status_color.gamma_multiply(0.4)
                             } else {
-                                theme.text_secondary()
+                                status_color
                             };
                             let icon_galley = ui.painter().layout_no_wrap(
                                 icon.to_string(),
@@ -1182,11 +1685,18 @@ impl PrReviewPane {
                                 stats_width += g.size().x + 6.0;
                             }
 
-                            // Filename (just the name, no path)
+                            // Filename — color-coded by change type, dimmed when reviewed
                             let name_color = if is_selected {
                                 theme.text_primary()
+                            } else if *reviewed {
+                                theme.text_secondary().gamma_multiply(0.45)
                             } else {
-                                theme.text_primary().gamma_multiply(0.85)
+                                match file.status.as_str() {
+                                    "added" => theme.diff_added_text(),
+                                    "removed" => theme.diff_removed_text(),
+                                    "renamed" => theme.accent_primary().gamma_multiply(0.85),
+                                    _ => theme.text_primary().gamma_multiply(0.85),
+                                }
                             };
                             let max_name_width =
                                 (rect.right() - 12.0 - cx - stats_width - 6.0).max(20.0);
@@ -1332,10 +1842,12 @@ impl PrReviewPane {
                         accent.gamma_multiply(0.4),
                     );
 
-                    let label_galley = ui.painter().layout_no_wrap(
+                    let label_max_width = (header_rect.width() - 12.0).max(20.0);
+                    let label_galley = ui.painter().layout(
                         (*group_label).to_string(),
                         typography::proportional(typography::XS),
                         accent.gamma_multiply(0.9),
+                        label_max_width,
                     );
                     ui.painter().galley(
                         egui::pos2(
@@ -1394,6 +1906,8 @@ impl PrReviewPane {
                         };
                         let icon_color = if is_selected {
                             accent
+                        } else if is_reviewed {
+                            theme.text_secondary().gamma_multiply(0.4)
                         } else {
                             theme.text_secondary()
                         };
@@ -1413,6 +1927,8 @@ impl PrReviewPane {
                         let display_name = file_path.rsplit('/').next().unwrap_or(file_path);
                         let name_color = if is_selected {
                             theme.text_primary()
+                        } else if is_reviewed {
+                            theme.text_secondary().gamma_multiply(0.45)
                         } else {
                             theme.text_primary().gamma_multiply(0.85)
                         };
@@ -1531,252 +2047,16 @@ impl PrReviewPane {
         }
     }
 
-    /// Render the collapsible PR description banner between the tab bar and tab content.
-    ///
-    /// IMPORTANT: This method must NOT create any focusable widgets (Button, ScrollArea,
-    /// TextEdit, or ui.interact with Sense::click). The pane's `handle_keyboard()` guard
-    /// (`ctx.memory(|m| m.focused().is_some())`) bails out when *any* widget has focus,
-    /// which would permanently break hjkl navigation until focus is cleared.
-    /// All interactivity here uses raw pointer checks instead.
-    fn show_description_banner(&mut self, ui: &mut egui::Ui, theme: AppTheme) {
-        // Only show if the PR has a non-empty body
-        let body = match self.current_pr.as_ref().and_then(|pr| pr.body.as_deref()) {
-            Some(b) if !b.is_empty() => b.to_string(),
-            _ => return,
-        };
-        let pr_author = self
-            .current_pr
-            .as_ref()
-            .map(|pr| pr.user.login.clone())
-            .unwrap_or_default();
-        let pr_created = self
-            .current_pr
-            .as_ref()
-            .map(|pr| pr.created_at.clone())
-            .unwrap_or_default();
-
-        // Frosted-glass banner — semi-transparent surface with a subtle accent
-        // tint, a thin border, and a top-edge highlight for depth.
-        let overlay_bg = theme.overlay_bg();
-        let accent = theme.accent_primary();
-        // Blend: 96% overlay_bg + 4% accent for a very subtle tint
-        let banner_fill = egui::Color32::from_rgba_unmultiplied(
-            ((overlay_bg.r() as u16 * 24 + accent.r() as u16) / 25) as u8,
-            ((overlay_bg.g() as u16 * 24 + accent.g() as u16) / 25) as u8,
-            ((overlay_bg.b() as u16 * 24 + accent.b() as u16) / 25) as u8,
-            overlay_bg.a().min(240), // keep slightly translucent
-        );
-        let border_color = theme.overlay_border().gamma_multiply(0.5);
-        let highlight_color = theme.overlay_highlight();
-
-        // Height limits for the markdown body (not including header).
-        let collapsed_max_h = 80.0;
-        let expanded_max_h = (ui.available_height() * 0.4).max(120.0);
-
-        let frame_resp = egui::Frame::new()
-            .fill(banner_fill)
-            .stroke(egui::Stroke::new(0.5, border_color))
-            .corner_radius(egui::CornerRadius::same(4))
-            .inner_margin(egui::Margin {
-                left: 16,
-                right: 16,
-                top: 8,
-                bottom: 4,
-            })
-            .outer_margin(egui::Margin {
-                left: 4,
-                right: 4,
-                top: 2,
-                bottom: 2,
-            })
-            .show(ui, |ui| {
-                ui.set_width(ui.available_width());
-
-                // ── Header row: chevron + icon + "Description" + author + timestamp ──
-                let header_resp = ui.horizontal(|ui| {
-                    let chevron = if self.description_collapsed {
-                        egui_nerdfonts::regular::CHEVRON_RIGHT
-                    } else {
-                        egui_nerdfonts::regular::CHEVRON_DOWN
-                    };
-                    ui.label(
-                        RichText::new(chevron)
-                            .size(typography::XS)
-                            .color(theme.text_secondary()),
-                    );
-                    ui.label(
-                        RichText::new(egui_nerdfonts::regular::TEXT_BOX)
-                            .color(theme.accent_primary().gamma_multiply(0.7))
-                            .size(typography::SM),
-                    );
-                    ui.label(
-                        RichText::new("Description")
-                            .color(theme.text_primary())
-                            .font(typography::proportional(typography::XS))
-                            .strong(),
-                    );
-                    ui.add_space(6.0);
-                    ui.label(
-                        RichText::new(&pr_author)
-                            .color(theme.text_secondary())
-                            .font(typography::proportional(typography::XS)),
-                    );
-                    ui.label(
-                        RichText::new(relative_time(&pr_created))
-                            .color(theme.text_secondary().gamma_multiply(0.6))
-                            .font(typography::proportional(typography::XS)),
-                    );
-                });
-
-                // ── Body (unless collapsed) ──
-                if !self.description_collapsed {
-                    ui.add_space(4.0);
-
-                    let max_h = if self.description_expanded {
-                        expanded_max_h
-                    } else {
-                        collapsed_max_h
-                    };
-
-                    let available_w = ui.available_width();
-
-                    if self.description_expanded {
-                        // Expanded: use ScrollArea for vertical scrolling.
-                        // Hide scroll bars so no focusable widgets are created —
-                        // mouse-wheel / trackpad scrolling still works.
-                        egui::ScrollArea::vertical()
-                            .id_salt("pr_desc_scroll")
-                            .max_height(max_h)
-                            .scroll_bar_visibility(
-                                egui::scroll_area::ScrollBarVisibility::AlwaysHidden,
-                            )
-                            .show(ui, |ui| {
-                                ui.set_width(available_w);
-                                ui.disable();
-                                crate::components::overlay::markdown_renderer::render_markdown(
-                                    ui, &body, theme,
-                                );
-                            });
-                    } else {
-                        // Collapsed preview: clipped child UI, no scroll.
-                        let child_rect = egui::Rect::from_min_size(
-                            ui.cursor().left_top(),
-                            egui::vec2(available_w, max_h),
-                        );
-                        let mut child_ui = ui.new_child(
-                            egui::UiBuilder::new()
-                                .max_rect(child_rect)
-                                .id_salt("pr_desc_banner"),
-                        );
-                        child_ui.set_clip_rect(child_rect);
-                        child_ui.disable();
-                        crate::components::overlay::markdown_renderer::render_markdown(
-                            &mut child_ui,
-                            &body,
-                            theme,
-                        );
-                        let content_h = child_ui.min_rect().height();
-                        let used_h = content_h.min(max_h);
-                        ui.allocate_space(egui::vec2(available_w, used_h));
-
-                        // Fade-out gradient when content is truncated
-                        if content_h > collapsed_max_h {
-                            let fade_h = 28.0;
-                            let fade_rect = egui::Rect::from_min_max(
-                                egui::pos2(child_rect.left(), child_rect.min.y + used_h - fade_h),
-                                egui::pos2(child_rect.right(), child_rect.min.y + used_h),
-                            );
-                            let fade_top = egui::Color32::from_rgba_unmultiplied(
-                                banner_fill.r(),
-                                banner_fill.g(),
-                                banner_fill.b(),
-                                0,
-                            );
-                            let mesh = {
-                                let mut mesh = egui::Mesh::default();
-                                mesh.colored_vertex(fade_rect.left_top(), fade_top);
-                                mesh.colored_vertex(fade_rect.right_top(), fade_top);
-                                mesh.colored_vertex(fade_rect.right_bottom(), banner_fill);
-                                mesh.colored_vertex(fade_rect.left_bottom(), banner_fill);
-                                mesh.add_triangle(0, 1, 2);
-                                mesh.add_triangle(0, 2, 3);
-                                mesh
-                            };
-                            ui.painter().add(egui::Shape::mesh(mesh));
-                        }
-                    }
-
-                    // Show "more/less" toggle when body is long enough to overflow the
-                    // collapsed height, or when already expanded (so user can collapse back).
-                    let is_clipped = self.description_expanded || body.len() > 200;
-
-                    // "more / less" toggle — rendered as a label, toggled via pointer
-                    if is_clipped {
-                        ui.add_space(2.0);
-                        let toggle_resp = ui.horizontal(|ui| {
-                            ui.add_space(ui.available_width() - 80.0);
-                            let label_text = if self.description_expanded {
-                                format!("less {}", egui_nerdfonts::regular::CHEVRON_UP)
-                            } else {
-                                format!("more {}", egui_nerdfonts::regular::CHEVRON_DOWN)
-                            };
-                            ui.label(
-                                RichText::new(label_text)
-                                    .size(typography::XS)
-                                    .color(theme.accent_primary()),
-                            );
-                        });
-                        let toggle_rect = toggle_resp.response.rect;
-                        if ui.input(|i| i.pointer.any_pressed())
-                            && toggle_rect.contains(
-                                ui.input(|i| i.pointer.interact_pos().unwrap_or_default()),
-                            )
-                        {
-                            self.description_expanded = !self.description_expanded;
-                        }
-                        if toggle_rect
-                            .contains(ui.input(|i| i.pointer.hover_pos().unwrap_or_default()))
-                        {
-                            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-                        }
-                    }
-                }
-
-                // Header click-to-toggle (check after body so body clicks don't toggle)
-                let header_rect = header_resp.response.rect;
-                if ui.input(|i| i.pointer.any_pressed())
-                    && header_rect
-                        .contains(ui.input(|i| i.pointer.interact_pos().unwrap_or_default()))
-                {
-                    self.description_collapsed = !self.description_collapsed;
-                    if self.description_collapsed {
-                        self.description_expanded = false;
-                    }
-                }
-                if header_rect.contains(ui.input(|i| i.pointer.hover_pos().unwrap_or_default())) {
-                    ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-                }
-            });
-
-        // Top-edge highlight glow (frosted glass effect)
-        let frame_rect = frame_resp.response.rect;
-        ui.painter().hline(
-            frame_rect.x_range(),
-            frame_rect.top() + 0.5,
-            egui::Stroke::new(1.0, highlight_color),
-        );
-    }
-
     /// Render the Conversation tab — PR body + issue-level discussion only.
     /// Review comments are shown inline in the Files tab.
-    fn show_conversation_tab(&self, ui: &mut egui::Ui, theme: AppTheme) {
+    fn show_conversation_tab(&mut self, ui: &mut egui::Ui, theme: AppTheme) {
         let has_pr_body = self
             .current_pr
             .as_ref()
             .and_then(|pr| pr.body.as_deref())
             .is_some_and(|b| !b.is_empty());
 
-        if !has_pr_body && self.issue_comments.is_empty() {
+        if !has_pr_body && self.issue_comments.is_empty() && self.review_comments.is_empty() {
             ui.add_space(40.0);
             ui.vertical_centered(|ui| {
                 ui.label(
@@ -1784,17 +2064,6 @@ impl PrReviewPane {
                         .color(theme.text_secondary())
                         .font(typography::proportional(typography::MD)),
                 );
-                if !self.review_comments.is_empty() {
-                    ui.add_space(8.0);
-                    ui.label(
-                        RichText::new(format!(
-                            "{} review comments are shown inline in the Files tab",
-                            self.review_comments.len()
-                        ))
-                        .color(theme.text_secondary())
-                        .font(typography::proportional(typography::XS)),
-                    );
-                }
             });
             return;
         }
@@ -1803,7 +2072,7 @@ impl PrReviewPane {
             .id_salt("pr_conversation")
             .auto_shrink([false, false])
             .show(ui, |ui| {
-                // PR description — distinct from regular comments
+                // ── PR description (collapsible) ──
                 if let Some(pr) = &self.current_pr {
                     if let Some(body) = &pr.body {
                         if !body.is_empty() {
@@ -1815,10 +2084,23 @@ impl PrReviewPane {
                                 .inner_margin(egui::Margin::same(12))
                                 .outer_margin(egui::Margin::symmetric(12, 0))
                                 .show(ui, |ui| {
-                                    ui.horizontal(|ui| {
+                                    // Header row with collapse toggle
+                                    let header_resp = ui.horizontal(|ui| {
+                                        let chevron = if self.conv_description_collapsed {
+                                            egui_nerdfonts::regular::CHEVRON_RIGHT
+                                        } else {
+                                            egui_nerdfonts::regular::CHEVRON_DOWN
+                                        };
+                                        ui.label(
+                                            RichText::new(chevron)
+                                                .size(typography::XS)
+                                                .color(theme.text_secondary()),
+                                        );
                                         ui.label(
                                             RichText::new(egui_nerdfonts::regular::TEXT_BOX)
-                                                .color(theme.accent_primary().gamma_multiply(0.6))
+                                                .color(
+                                                    theme.accent_primary().gamma_multiply(0.6),
+                                                )
                                                 .size(typography::SM),
                                         );
                                         ui.label(
@@ -1828,6 +2110,12 @@ impl PrReviewPane {
                                                 .strong(),
                                         );
                                         ui.add_space(8.0);
+                                        render_comment_avatar(
+                                            ui,
+                                            theme,
+                                            &pr.user.login,
+                                            &self.avatar_textures,
+                                        );
                                         ui.label(
                                             RichText::new(&pr.user.login)
                                                 .color(theme.text_primary())
@@ -1837,20 +2125,45 @@ impl PrReviewPane {
                                         ui.add_space(4.0);
                                         ui.label(
                                             RichText::new(relative_time(&pr.created_at))
-                                                .color(theme.text_secondary().gamma_multiply(0.7))
+                                                .color(
+                                                    theme.text_secondary().gamma_multiply(0.7),
+                                                )
                                                 .font(typography::proportional(typography::XS)),
                                         );
                                     });
-                                    ui.add_space(6.0);
-                                    crate::components::overlay::markdown_renderer::render_markdown(
-                                        ui, body, theme,
-                                    );
+                                    // Toggle on click (use raw pointer — ui.horizontal
+                                    // doesn't allocate with click sense)
+                                    let header_rect = header_resp.response.rect;
+                                    if ui.input(|i| i.pointer.any_pressed())
+                                        && header_rect.contains(
+                                            ui.input(|i| {
+                                                i.pointer.interact_pos().unwrap_or_default()
+                                            }),
+                                        )
+                                    {
+                                        self.conv_description_collapsed =
+                                            !self.conv_description_collapsed;
+                                    }
+                                    if header_rect.contains(
+                                        ui.input(|i| i.pointer.hover_pos().unwrap_or_default()),
+                                    ) {
+                                        ui.ctx()
+                                            .set_cursor_icon(egui::CursorIcon::PointingHand);
+                                    }
+
+                                    // Body (only if not collapsed)
+                                    if !self.conv_description_collapsed {
+                                        ui.add_space(6.0);
+                                        crate::components::overlay::markdown_renderer::render_markdown(
+                                            ui, body, theme,
+                                        );
+                                    }
                                 });
                         }
                     }
                 }
 
-                // Issue comments (PR-level discussion)
+                // ── Issue comments (PR-level discussion) ──
                 for comment in &self.issue_comments {
                     render_comment(
                         ui,
@@ -1858,24 +2171,159 @@ impl PrReviewPane {
                         &comment.user.login,
                         &comment.created_at,
                         &comment.body,
+                        &self.avatar_textures,
                     );
                 }
 
-                // Hint about inline comments
-                if !self.review_comments.is_empty() {
+                // ── Review comments grouped by file ──
+                if !self.cached_threads.is_empty() {
                     ui.add_space(12.0);
                     ui.horizontal(|ui| {
-                        ui.add_space(16.0);
+                        ui.add_space(12.0);
                         ui.label(
                             RichText::new(format!(
-                                "{} {} review comments shown inline in Files tab",
+                                "{} Review Comments",
                                 egui_nerdfonts::regular::COMMENT_TEXT,
-                                self.review_comments.len()
                             ))
-                            .color(theme.text_secondary())
-                            .font(typography::proportional(typography::XS)),
+                            .color(theme.text_primary().gamma_multiply(0.9))
+                            .font(typography::proportional(typography::SM))
+                            .strong(),
+                        );
+                        ui.add_space(4.0);
+                        ui.label(
+                            RichText::new(format!("{}", self.review_comments.len()))
+                                .color(theme.text_secondary())
+                                .font(typography::proportional(typography::XS)),
                         );
                     });
+
+                    for thread in &self.cached_threads {
+                        ui.add_space(8.0);
+                        egui::Frame::new()
+                            .fill(theme.bg_elevated())
+                            .stroke(egui::Stroke::new(1.0, theme.border_subtle()))
+                            .corner_radius(6.0)
+                            .inner_margin(egui::Margin::same(12))
+                            .outer_margin(egui::Margin::symmetric(12, 0))
+                            .show(ui, |ui| {
+                                // File path + line number header
+                                let file_name = thread
+                                    .path
+                                    .rsplit('/')
+                                    .next()
+                                    .unwrap_or(&thread.path);
+                                ui.horizontal(|ui| {
+                                    ui.label(
+                                        RichText::new(
+                                            egui_nerdfonts::regular::FILE_EDIT,
+                                        )
+                                        .color(theme.text_secondary())
+                                        .size(typography::XS),
+                                    );
+                                    ui.label(
+                                        RichText::new(file_name)
+                                            .color(theme.text_primary())
+                                            .font(typography::monospace(typography::XS))
+                                            .strong(),
+                                    );
+                                    ui.label(
+                                        RichText::new(format!("L{}", thread.line))
+                                            .color(theme.text_secondary().gamma_multiply(0.6))
+                                            .font(typography::monospace(typography::XS)),
+                                    );
+                                });
+
+                                // Quoted diff context (if we have the file diff)
+                                if let Some(file_diff) =
+                                    self.file_diffs.iter().find(|d| d.path == thread.path)
+                                {
+                                    // Find the line in the diff that matches thread.line
+                                    let context_line = file_diff.lines.iter().find(|l| {
+                                        l.new_line_num == Some(thread.line)
+                                            || l.old_line_num == Some(thread.line)
+                                    });
+                                    if let Some(line) = context_line {
+                                        ui.add_space(4.0);
+                                        egui::Frame::new()
+                                            .fill(theme.diff_line_number_bg())
+                                            .corner_radius(3.0)
+                                            .inner_margin(egui::Margin::symmetric(8, 4))
+                                            .show(ui, |ui| {
+                                                let prefix = match line.kind {
+                                                    crate::git::diff::DiffLineKind::Addition => {
+                                                        "+"
+                                                    }
+                                                    crate::git::diff::DiffLineKind::Deletion => {
+                                                        "-"
+                                                    }
+                                                    _ => " ",
+                                                };
+                                                let line_color = match line.kind {
+                                                    crate::git::diff::DiffLineKind::Addition => {
+                                                        theme.diff_added_text()
+                                                    }
+                                                    crate::git::diff::DiffLineKind::Deletion => {
+                                                        theme.diff_removed_text()
+                                                    }
+                                                    _ => theme.text_secondary(),
+                                                };
+                                                ui.label(
+                                                    RichText::new(format!(
+                                                        "{prefix} {}",
+                                                        line.content.trim_end()
+                                                    ))
+                                                    .color(line_color)
+                                                    .font(typography::monospace(typography::XS)),
+                                                );
+                                            });
+                                    }
+                                }
+
+                                // Thread comments
+                                for (i, comment) in thread.comments.iter().enumerate() {
+                                    if i > 0 {
+                                        ui.add_space(4.0);
+                                        ui.painter().hline(
+                                            ui.available_rect_before_wrap().x_range(),
+                                            ui.cursor().top(),
+                                            egui::Stroke::new(
+                                                0.5,
+                                                theme.border_subtle().gamma_multiply(0.5),
+                                            ),
+                                        );
+                                    }
+                                    ui.add_space(4.0);
+                                    ui.horizontal(|ui| {
+                                        render_comment_avatar(
+                                            ui,
+                                            theme,
+                                            &comment.user.login,
+                                            &self.avatar_textures,
+                                        );
+                                        ui.label(
+                                            RichText::new(&comment.user.login)
+                                                .color(theme.text_primary())
+                                                .font(typography::proportional(typography::SM))
+                                                .strong(),
+                                        );
+                                        ui.add_space(4.0);
+                                        ui.label(
+                                            RichText::new(relative_time(&comment.created_at))
+                                                .color(
+                                                    theme.text_secondary().gamma_multiply(0.7),
+                                                )
+                                                .font(typography::proportional(typography::XS)),
+                                        );
+                                    });
+                                    ui.add_space(2.0);
+                                    crate::components::overlay::markdown_renderer::render_markdown(
+                                        ui,
+                                        &comment.body,
+                                        theme,
+                                    );
+                                }
+                            });
+                    }
                 }
             });
     }
@@ -1978,11 +2426,12 @@ impl PrReviewPane {
     }
 }
 
-/// Render a tab button.
-fn render_tab(
+/// Render a tab button with an optional badge.
+fn render_tab_with_badge(
     ui: &mut egui::Ui,
     theme: AppTheme,
     label: &str,
+    badge: Option<&str>,
     tab: DetailTab,
     active_tab: &mut DetailTab,
 ) {
@@ -1993,9 +2442,15 @@ fn render_tab(
         theme.text_secondary()
     };
 
+    let display_label = if let Some(badge_text) = badge {
+        format!("{label} {badge_text}")
+    } else {
+        label.to_string()
+    };
+
     let btn = ui.add(
         egui::Button::new(
-            RichText::new(label)
+            RichText::new(display_label)
                 .size(typography::SM)
                 .color(text_color)
                 .strong(),
@@ -2020,7 +2475,70 @@ fn render_tab(
 }
 
 /// Render a single comment.
-fn render_comment(ui: &mut egui::Ui, theme: AppTheme, author: &str, timestamp: &str, body: &str) {
+/// Render a circular avatar (texture or fallback initial) for a comment author.
+fn render_comment_avatar(
+    ui: &mut egui::Ui,
+    theme: AppTheme,
+    login: &str,
+    avatar_textures: &rustc_hash::FxHashMap<String, egui::TextureHandle>,
+) {
+    let avatar_size = 16.0;
+    let (avatar_rect, _) =
+        ui.allocate_exact_size(egui::vec2(avatar_size, avatar_size), egui::Sense::hover());
+    let center = avatar_rect.center();
+    let radius = avatar_size / 2.0;
+
+    if let Some(texture) = avatar_textures.get(login) {
+        let mut mesh = egui::Mesh::with_texture(texture.id());
+        let segments: u32 = 20;
+        mesh.vertices.push(egui::epaint::Vertex {
+            pos: center,
+            uv: egui::pos2(0.5, 0.5),
+            color: egui::Color32::WHITE,
+        });
+        for i in 0..=segments {
+            let angle = std::f32::consts::TAU * i as f32 / segments as f32;
+            let (sin, cos) = angle.sin_cos();
+            mesh.vertices.push(egui::epaint::Vertex {
+                pos: center + egui::vec2(cos * radius, sin * radius),
+                uv: egui::pos2(0.5 + cos * 0.5, 0.5 + sin * 0.5),
+                color: egui::Color32::WHITE,
+            });
+            if i > 0 {
+                mesh.indices.push(0);
+                mesh.indices.push(i);
+                mesh.indices.push(i + 1);
+            }
+        }
+        ui.painter().add(egui::Shape::mesh(mesh));
+    } else {
+        let letter = login
+            .chars()
+            .next()
+            .unwrap_or('?')
+            .to_uppercase()
+            .to_string();
+        ui.painter()
+            .circle_filled(center, radius, theme.accent_primary().gamma_multiply(0.2));
+        ui.painter().text(
+            center,
+            egui::Align2::CENTER_CENTER,
+            &letter,
+            typography::proportional(8.0),
+            theme.accent_primary(),
+        );
+    }
+}
+
+/// Render a single comment with avatar.
+fn render_comment(
+    ui: &mut egui::Ui,
+    theme: AppTheme,
+    author: &str,
+    timestamp: &str,
+    body: &str,
+    avatar_textures: &rustc_hash::FxHashMap<String, egui::TextureHandle>,
+) {
     ui.add_space(8.0);
     egui::Frame::new()
         .fill(theme.bg_elevated())
@@ -2029,8 +2547,9 @@ fn render_comment(ui: &mut egui::Ui, theme: AppTheme, author: &str, timestamp: &
         .inner_margin(egui::Margin::same(12))
         .outer_margin(egui::Margin::symmetric(12, 0))
         .show(ui, |ui| {
-            // Author + timestamp
+            // Avatar + Author + timestamp
             ui.horizontal(|ui| {
+                render_comment_avatar(ui, theme, author, avatar_textures);
                 ui.label(
                     RichText::new(author)
                         .color(theme.text_primary())

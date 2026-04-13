@@ -1233,7 +1233,7 @@ mod pr_review_pane_tests {
         pane.add_draft_comment("file.rs".to_string(), 42, "old comment".to_string());
 
         assert!(pane.has_submit_success());
-        assert!(pane.is_approve_popup_open());
+        assert!(pane.is_submit_panel_open());
         assert!(pane.has_commenting_line());
 
         // Open a different PR (no token set, so no network call)
@@ -1243,7 +1243,7 @@ mod pr_review_pane_tests {
         assert!(!pane.has_submit_success());
         assert!(!pane.has_submit_error());
         assert!(!pane.has_commenting_line());
-        assert!(!pane.is_approve_popup_open());
+        assert!(!pane.is_submit_panel_open());
     }
 
     /// Test that the PR review pane renders without panicking after state clear.
@@ -1288,7 +1288,7 @@ mod pr_review_pane_tests {
         pane.open_pr(1);
 
         assert!(!pane.has_submit_success());
-        assert!(!pane.is_approve_popup_open());
+        assert!(!pane.is_submit_panel_open());
     }
 }
 
