@@ -199,27 +199,7 @@ impl PrReviewPane {
             }
 
             if let Some(pr) = &self.current_pr {
-                // PR number
-                ui.label(
-                    RichText::new(format!("#{}", pr.number))
-                        .color(theme.accent_primary())
-                        .font(typography::monospace(typography::SM)),
-                );
-
-                ui.add_space(4.0);
-
-                // PR title (truncated)
-                ui.add(
-                    egui::Label::new(
-                        RichText::new(&pr.title)
-                            .color(theme.text_primary())
-                            .font(typography::proportional(typography::SM))
-                            .strong(),
-                    )
-                    .truncate(),
-                );
-
-                // Right-side metadata
+                // Right-side metadata (title is already in the pane tab label)
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.add_space(12.0);
 
