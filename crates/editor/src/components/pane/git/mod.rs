@@ -190,7 +190,9 @@ pub struct PrReviewPane {
     #[cfg(not(target_arch = "wasm32"))]
     walkthrough_response_text: String,
 
-    // (Description banner removed — PR title is in header, full body in Conversation tab)
+    // ── Conversation tab ──
+    /// Whether the PR description is collapsed in the Conversation tab.
+    conv_description_collapsed: bool,
 
     // ── File tree ──
     /// Collapsed directory paths in the file tree panel.
@@ -320,6 +322,7 @@ impl PrReviewPane {
             walkthrough_receiver: None,
             #[cfg(not(target_arch = "wasm32"))]
             walkthrough_response_text: String::new(),
+            conv_description_collapsed: false,
             collapsed_dirs: rustc_hash::FxHashSet::default(),
             file_tree_scroll_to_selected: false,
             file_panel_collapsed: false,

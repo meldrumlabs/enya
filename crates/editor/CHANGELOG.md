@@ -30,6 +30,8 @@ All notable changes to the Enya editor will be documented in this file.
 - **Styled keybinding footer**: The footer bar now has a subtle elevated background, breadcrumb-style file path, and grouped shortcut hints with the Esc key highlighted in accent color. Separators use dot characters with distinct dimming for cleaner visual rhythm.
 - **Elevated file panel header**: The "Changed Files" header now has a subtle elevated background, folder icon, file count in a pill badge, and a green/red additions-vs-deletions proportional summary bar below it showing PR scope at a glance.
 - **Conversation tab avatars**: Issue comments and the PR description in the Conversation tab now show circular author avatars, matching the Files tab's floating and inline comment rendering. Uses the same cached avatar textures with letter-initial fallback.
+- **Collapsible PR description in Conversation tab**: The PR description card now has a chevron toggle — click the header to collapse/expand the body. Useful for long descriptions that push comments out of view.
+- **Review comments in Conversation tab**: Review comments are now rendered inline in the Conversation tab, grouped by file with thread structure. Each thread shows the file name, line number, quoted diff context line (color-coded by change type), and all comments in the thread with avatars. Replaces the old "N review comments shown inline in Files tab" hint.
 
 ### Changed
 

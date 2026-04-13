@@ -1965,14 +1965,14 @@ impl PrReviewPane {
 
     /// Render the Conversation tab — PR body + issue-level discussion only.
     /// Review comments are shown inline in the Files tab.
-    fn show_conversation_tab(&self, ui: &mut egui::Ui, theme: AppTheme) {
+    fn show_conversation_tab(&mut self, ui: &mut egui::Ui, theme: AppTheme) {
         let has_pr_body = self
             .current_pr
             .as_ref()
             .and_then(|pr| pr.body.as_deref())
             .is_some_and(|b| !b.is_empty());
 
-        if !has_pr_body && self.issue_comments.is_empty() {
+        if !has_pr_body && self.issue_comments.is_empty() && self.review_comments.is_empty() {
             ui.add_space(40.0);
             ui.vertical_centered(|ui| {
                 ui.label(
@@ -1980,17 +1980,6 @@ impl PrReviewPane {
                         .color(theme.text_secondary())
                         .font(typography::proportional(typography::MD)),
                 );
-                if !self.review_comments.is_empty() {
-                    ui.add_space(8.0);
-                    ui.label(
-                        RichText::new(format!(
-                            "{} review comments are shown inline in the Files tab",
-                            self.review_comments.len()
-                        ))
-                        .color(theme.text_secondary())
-                        .font(typography::proportional(typography::XS)),
-                    );
-                }
             });
             return;
         }
@@ -1999,7 +1988,7 @@ impl PrReviewPane {
             .id_salt("pr_conversation")
             .auto_shrink([false, false])
             .show(ui, |ui| {
-                // PR description — distinct from regular comments
+                // ── PR description (collapsible) ──
                 if let Some(pr) = &self.current_pr {
                     if let Some(body) = &pr.body {
                         if !body.is_empty() {
@@ -2011,10 +2000,23 @@ impl PrReviewPane {
                                 .inner_margin(egui::Margin::same(12))
                                 .outer_margin(egui::Margin::symmetric(12, 0))
                                 .show(ui, |ui| {
-                                    ui.horizontal(|ui| {
+                                    // Header row with collapse toggle
+                                    let header_resp = ui.horizontal(|ui| {
+                                        let chevron = if self.conv_description_collapsed {
+                                            egui_nerdfonts::regular::CHEVRON_RIGHT
+                                        } else {
+                                            egui_nerdfonts::regular::CHEVRON_DOWN
+                                        };
+                                        ui.label(
+                                            RichText::new(chevron)
+                                                .size(typography::XS)
+                                                .color(theme.text_secondary()),
+                                        );
                                         ui.label(
                                             RichText::new(egui_nerdfonts::regular::TEXT_BOX)
-                                                .color(theme.accent_primary().gamma_multiply(0.6))
+                                                .color(
+                                                    theme.accent_primary().gamma_multiply(0.6),
+                                                )
                                                 .size(typography::SM),
                                         );
                                         ui.label(
@@ -2024,7 +2026,6 @@ impl PrReviewPane {
                                                 .strong(),
                                         );
                                         ui.add_space(8.0);
-                                        // Author avatar
                                         render_comment_avatar(
                                             ui,
                                             theme,
@@ -2040,20 +2041,39 @@ impl PrReviewPane {
                                         ui.add_space(4.0);
                                         ui.label(
                                             RichText::new(relative_time(&pr.created_at))
-                                                .color(theme.text_secondary().gamma_multiply(0.7))
+                                                .color(
+                                                    theme.text_secondary().gamma_multiply(0.7),
+                                                )
                                                 .font(typography::proportional(typography::XS)),
                                         );
                                     });
-                                    ui.add_space(6.0);
-                                    crate::components::overlay::markdown_renderer::render_markdown(
-                                        ui, body, theme,
-                                    );
+                                    if header_resp.response.interact(egui::Sense::click()).clicked()
+                                    {
+                                        self.conv_description_collapsed =
+                                            !self.conv_description_collapsed;
+                                    }
+                                    if header_resp
+                                        .response
+                                        .interact(egui::Sense::hover())
+                                        .hovered()
+                                    {
+                                        ui.ctx()
+                                            .set_cursor_icon(egui::CursorIcon::PointingHand);
+                                    }
+
+                                    // Body (only if not collapsed)
+                                    if !self.conv_description_collapsed {
+                                        ui.add_space(6.0);
+                                        crate::components::overlay::markdown_renderer::render_markdown(
+                                            ui, body, theme,
+                                        );
+                                    }
                                 });
                         }
                     }
                 }
 
-                // Issue comments (PR-level discussion)
+                // ── Issue comments (PR-level discussion) ──
                 for comment in &self.issue_comments {
                     render_comment(
                         ui,
@@ -2065,21 +2085,155 @@ impl PrReviewPane {
                     );
                 }
 
-                // Hint about inline comments
-                if !self.review_comments.is_empty() {
+                // ── Review comments grouped by file ──
+                if !self.cached_threads.is_empty() {
                     ui.add_space(12.0);
                     ui.horizontal(|ui| {
-                        ui.add_space(16.0);
+                        ui.add_space(12.0);
                         ui.label(
                             RichText::new(format!(
-                                "{} {} review comments shown inline in Files tab",
+                                "{} Review Comments",
                                 egui_nerdfonts::regular::COMMENT_TEXT,
-                                self.review_comments.len()
                             ))
-                            .color(theme.text_secondary())
-                            .font(typography::proportional(typography::XS)),
+                            .color(theme.text_primary().gamma_multiply(0.9))
+                            .font(typography::proportional(typography::SM))
+                            .strong(),
+                        );
+                        ui.add_space(4.0);
+                        ui.label(
+                            RichText::new(format!("{}", self.review_comments.len()))
+                                .color(theme.text_secondary())
+                                .font(typography::proportional(typography::XS)),
                         );
                     });
+
+                    for thread in &self.cached_threads {
+                        ui.add_space(8.0);
+                        egui::Frame::new()
+                            .fill(theme.bg_elevated())
+                            .stroke(egui::Stroke::new(1.0, theme.border_subtle()))
+                            .corner_radius(6.0)
+                            .inner_margin(egui::Margin::same(12))
+                            .outer_margin(egui::Margin::symmetric(12, 0))
+                            .show(ui, |ui| {
+                                // File path + line number header
+                                let file_name = thread
+                                    .path
+                                    .rsplit('/')
+                                    .next()
+                                    .unwrap_or(&thread.path);
+                                ui.horizontal(|ui| {
+                                    ui.label(
+                                        RichText::new(
+                                            egui_nerdfonts::regular::FILE_EDIT,
+                                        )
+                                        .color(theme.text_secondary())
+                                        .size(typography::XS),
+                                    );
+                                    ui.label(
+                                        RichText::new(file_name)
+                                            .color(theme.text_primary())
+                                            .font(typography::monospace(typography::XS))
+                                            .strong(),
+                                    );
+                                    ui.label(
+                                        RichText::new(format!("L{}", thread.line))
+                                            .color(theme.text_secondary().gamma_multiply(0.6))
+                                            .font(typography::monospace(typography::XS)),
+                                    );
+                                });
+
+                                // Quoted diff context (if we have the file diff)
+                                if let Some(file_diff) =
+                                    self.file_diffs.iter().find(|d| d.path == thread.path)
+                                {
+                                    // Find the line in the diff that matches thread.line
+                                    let context_line = file_diff.lines.iter().find(|l| {
+                                        l.new_line_num == Some(thread.line)
+                                            || l.old_line_num == Some(thread.line)
+                                    });
+                                    if let Some(line) = context_line {
+                                        ui.add_space(4.0);
+                                        egui::Frame::new()
+                                            .fill(theme.diff_line_number_bg())
+                                            .corner_radius(3.0)
+                                            .inner_margin(egui::Margin::symmetric(8, 4))
+                                            .show(ui, |ui| {
+                                                let prefix = match line.kind {
+                                                    crate::git::diff::DiffLineKind::Addition => {
+                                                        "+"
+                                                    }
+                                                    crate::git::diff::DiffLineKind::Deletion => {
+                                                        "-"
+                                                    }
+                                                    _ => " ",
+                                                };
+                                                let line_color = match line.kind {
+                                                    crate::git::diff::DiffLineKind::Addition => {
+                                                        theme.diff_added_text()
+                                                    }
+                                                    crate::git::diff::DiffLineKind::Deletion => {
+                                                        theme.diff_removed_text()
+                                                    }
+                                                    _ => theme.text_secondary(),
+                                                };
+                                                ui.label(
+                                                    RichText::new(format!(
+                                                        "{prefix} {}",
+                                                        line.content.trim_end()
+                                                    ))
+                                                    .color(line_color)
+                                                    .font(typography::monospace(typography::XS)),
+                                                );
+                                            });
+                                    }
+                                }
+
+                                // Thread comments
+                                for (i, comment) in thread.comments.iter().enumerate() {
+                                    if i > 0 {
+                                        ui.add_space(4.0);
+                                        ui.painter().hline(
+                                            ui.available_rect_before_wrap().x_range(),
+                                            ui.cursor().top(),
+                                            egui::Stroke::new(
+                                                0.5,
+                                                theme.border_subtle().gamma_multiply(0.5),
+                                            ),
+                                        );
+                                    }
+                                    ui.add_space(4.0);
+                                    ui.horizontal(|ui| {
+                                        render_comment_avatar(
+                                            ui,
+                                            theme,
+                                            &comment.user.login,
+                                            &self.avatar_textures,
+                                        );
+                                        ui.label(
+                                            RichText::new(&comment.user.login)
+                                                .color(theme.text_primary())
+                                                .font(typography::proportional(typography::SM))
+                                                .strong(),
+                                        );
+                                        ui.add_space(4.0);
+                                        ui.label(
+                                            RichText::new(relative_time(&comment.created_at))
+                                                .color(
+                                                    theme.text_secondary().gamma_multiply(0.7),
+                                                )
+                                                .font(typography::proportional(typography::XS)),
+                                        );
+                                    });
+                                    ui.add_space(2.0);
+                                    crate::components::overlay::markdown_renderer::render_markdown(
+                                        ui,
+                                        &comment.body,
+                                        theme,
+                                    );
+                                }
+                            });
+                    }
                 }
             });
     }
