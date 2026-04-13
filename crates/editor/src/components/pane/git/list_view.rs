@@ -204,56 +204,94 @@ impl PrReviewPane {
             });
         }
 
-        // ── Header bar: count + refresh button ──
+        // ── Header bar: icon + count pill + refresh ──
         let muted = theme.text_secondary();
-        ui.horizontal(|ui| {
-            ui.add_space(16.0);
-            let count_label = if self.filter_query.is_empty() {
-                format!("{} open", self.pull_requests.len())
-            } else {
-                format!(
-                    "{}/{} matched",
-                    filtered_indices.len(),
-                    self.pull_requests.len()
-                )
-            };
-            ui.label(
-                RichText::new(count_label)
-                    .color(muted)
-                    .font(typography::proportional(typography::SM)),
-            );
-
-            ui.add_space(4.0);
-
-            // Refresh button — spinner while loading, icon otherwise
-            if self.list_loading {
-                ui.spinner();
-            } else {
-                let icon_color = if ui.rect_contains_pointer(ui.cursor()) {
-                    theme.accent_primary()
-                } else {
-                    muted.gamma_multiply(0.7)
-                };
-                let refresh_btn = ui.add(
-                    egui::Button::new(
-                        RichText::new(egui_nerdfonts::regular::REFRESH)
-                            .size(typography::SM)
-                            .color(icon_color),
-                    )
-                    .fill(egui::Color32::TRANSPARENT)
-                    .stroke(egui::Stroke::NONE),
-                );
-                if refresh_btn.clicked() {
-                    self.fetch_pr_list();
-                }
-                refresh_btn.on_hover_text("Refresh pull requests (r)");
-            }
-        });
-        ui.add_space(2.0);
+        let header_rect = egui::Rect::from_min_size(
+            ui.cursor().left_top(),
+            egui::vec2(ui.available_width(), 30.0),
+        );
+        ui.painter()
+            .rect_filled(header_rect, 0.0, theme.bg_elevated().gamma_multiply(0.3));
         ui.painter().hline(
-            ui.available_rect_before_wrap().x_range(),
-            ui.cursor().top(),
-            egui::Stroke::new(1.0, theme.border_subtle()),
+            header_rect.x_range(),
+            header_rect.bottom(),
+            egui::Stroke::new(1.0, theme.border_subtle().gamma_multiply(0.5)),
+        );
+
+        ui.allocate_ui_with_layout(
+            egui::vec2(ui.available_width(), 30.0),
+            egui::Layout::left_to_right(egui::Align::Center),
+            |ui| {
+                ui.add_space(12.0);
+
+                // PR icon
+                ui.label(
+                    RichText::new(egui_nerdfonts::regular::GIT_PULL_REQUEST)
+                        .color(theme.diff_added_text().gamma_multiply(0.7))
+                        .size(typography::SM),
+                );
+                ui.add_space(2.0);
+
+                // Count in a pill badge
+                let count_text = if self.filter_query.is_empty() {
+                    format!("{} open", self.pull_requests.len())
+                } else {
+                    format!(
+                        "{}/{} matched",
+                        filtered_indices.len(),
+                        self.pull_requests.len()
+                    )
+                };
+                let count_galley = ui.painter().layout_no_wrap(
+                    count_text,
+                    typography::proportional(typography::XS),
+                    muted,
+                );
+                let pill_w = count_galley.size().x + 10.0;
+                let pill_h = count_galley.size().y + 2.0;
+                let (pill_rect, _) =
+                    ui.allocate_exact_size(egui::vec2(pill_w, pill_h), egui::Sense::hover());
+                ui.painter().rect_filled(
+                    pill_rect,
+                    pill_h / 2.0,
+                    theme.border_subtle().gamma_multiply(0.5),
+                );
+                ui.painter().galley(
+                    egui::pos2(
+                        pill_rect.center().x - count_galley.size().x / 2.0,
+                        pill_rect.center().y - count_galley.size().y / 2.0,
+                    ),
+                    count_galley,
+                    muted,
+                );
+
+                // Refresh button (right-aligned)
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.add_space(8.0);
+                    if self.list_loading {
+                        ui.spinner();
+                    } else {
+                        let icon_color = if ui.rect_contains_pointer(ui.cursor()) {
+                            theme.accent_primary()
+                        } else {
+                            muted.gamma_multiply(0.7)
+                        };
+                        let refresh_btn = ui.add(
+                            egui::Button::new(
+                                RichText::new(egui_nerdfonts::regular::REFRESH)
+                                    .size(typography::SM)
+                                    .color(icon_color),
+                            )
+                            .fill(egui::Color32::TRANSPARENT)
+                            .stroke(egui::Stroke::NONE),
+                        );
+                        if refresh_btn.clicked() {
+                            self.fetch_pr_list();
+                        }
+                        refresh_btn.on_hover_text("Refresh pull requests (r)");
+                    }
+                });
+            },
         );
 
         // PR list — reserve space for the footer keybinding hints
@@ -556,7 +594,7 @@ impl PrReviewPane {
                             del_galley,
                             theme.diff_removed_gutter(),
                         );
-                        rx -= 4.0;
+                        rx -= 6.0;
                     }
 
                     if pr.additions > 0 {
@@ -571,6 +609,36 @@ impl PrReviewPane {
                             egui::pos2(rx, bottom_line_y),
                             add_galley,
                             theme.diff_added_gutter(),
+                        );
+                        rx -= 6.0;
+                    }
+
+                    // Mini proportional add/del bar
+                    let total_changes = pr.additions + pr.deletions;
+                    if total_changes > 0 {
+                        let bar_width = 24.0;
+                        let bar_height = 3.0;
+                        let bar_y = bottom_line_y + 5.0;
+                        rx -= bar_width;
+                        let add_frac = pr.additions as f32 / total_changes as f32;
+                        let add_w = (bar_width * add_frac).max(0.0);
+                        // Green portion
+                        ui.painter().rect_filled(
+                            egui::Rect::from_min_size(
+                                egui::pos2(rx, bar_y),
+                                egui::vec2(add_w, bar_height),
+                            ),
+                            1.0,
+                            theme.diff_added_gutter(),
+                        );
+                        // Red portion
+                        ui.painter().rect_filled(
+                            egui::Rect::from_min_size(
+                                egui::pos2(rx + add_w, bar_y),
+                                egui::vec2((bar_width - add_w).max(0.0), bar_height),
+                            ),
+                            1.0,
+                            theme.diff_removed_gutter(),
                         );
                         rx -= 6.0;
                     }
@@ -598,9 +666,29 @@ impl PrReviewPane {
                         );
                     }
 
+                    // CI status dot (between stats and file count)
+                    if let Some(checks) = self.preloaded_merge_ready.get(&pr.number) {
+                        let dot_color = if *checks {
+                            theme.diff_added_gutter()
+                        } else {
+                            theme.diff_removed_gutter()
+                        };
+                        rx -= 8.0;
+                        ui.painter().circle_filled(
+                            egui::pos2(rx, bottom_line_y + 5.0),
+                            3.0,
+                            dot_color,
+                        );
+                    }
+
                     // Auto-scroll to keep selected row visible when navigating via keyboard
                     if is_selected && self.list_scroll_to_selected {
                         response.scroll_to_me(Some(egui::Align::Center));
+                    }
+
+                    // Pointer cursor on hover
+                    if is_hovered {
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
                     }
 
                     // Handle click — open PR detail
@@ -619,37 +707,106 @@ impl PrReviewPane {
             self.open_pr(number);
         }
 
-        // ── Footer: keybinding hints ──
-        let muted = theme.text_secondary();
+        // ── Footer: keybinding hints (elevated) ──
+        let footer_rect = egui::Rect::from_min_size(
+            ui.cursor().left_top(),
+            egui::vec2(ui.available_width(), 30.0),
+        );
+        ui.painter()
+            .rect_filled(footer_rect, 0.0, theme.bg_elevated().gamma_multiply(0.5));
         ui.painter().hline(
-            ui.available_rect_before_wrap().x_range(),
-            ui.cursor().top(),
+            footer_rect.x_range(),
+            footer_rect.top(),
             egui::Stroke::new(1.0, theme.border_subtle()),
         );
-        ui.add_space(6.0);
-        ui.horizontal(|ui| {
-            ui.add_space(16.0);
-            ui.label(
-                RichText::new(
-                    "/ filter \u{2022} j/k navigate \u{2022} Enter open \u{2022} g/G top/bottom",
-                )
-                .color(muted.gamma_multiply(0.7))
-                .font(typography::proportional(typography::XS)),
-            );
-        });
-        ui.add_space(6.0);
+        ui.allocate_ui_with_layout(
+            egui::vec2(ui.available_width(), 30.0),
+            egui::Layout::left_to_right(egui::Align::Center),
+            |ui| {
+                ui.add_space(16.0);
+
+                let key_color = theme.text_secondary().gamma_multiply(0.5);
+                let sep_color = theme.text_secondary().gamma_multiply(0.25);
+                let accent_key = theme.accent_primary().gamma_multiply(0.6);
+                let key_font = typography::monospace(typography::XS);
+                let label_font = typography::proportional(typography::XS);
+
+                ui.label(RichText::new("/").color(accent_key).font(key_font.clone()));
+                ui.label(
+                    RichText::new("filter")
+                        .color(key_color)
+                        .font(label_font.clone()),
+                );
+                ui.label(
+                    RichText::new("\u{2022}")
+                        .color(sep_color)
+                        .font(label_font.clone()),
+                );
+                ui.label(RichText::new("j/k").color(key_color).font(key_font.clone()));
+                ui.label(
+                    RichText::new("navigate")
+                        .color(key_color)
+                        .font(label_font.clone()),
+                );
+                ui.label(
+                    RichText::new("\u{2022}")
+                        .color(sep_color)
+                        .font(label_font.clone()),
+                );
+                ui.label(
+                    RichText::new("Enter")
+                        .color(key_color)
+                        .font(key_font.clone()),
+                );
+                ui.label(
+                    RichText::new("open")
+                        .color(key_color)
+                        .font(label_font.clone()),
+                );
+                ui.label(
+                    RichText::new("\u{2022}")
+                        .color(sep_color)
+                        .font(label_font.clone()),
+                );
+                ui.label(RichText::new("g/G").color(key_color).font(key_font.clone()));
+                ui.label(
+                    RichText::new("top/bottom")
+                        .color(key_color)
+                        .font(label_font.clone()),
+                );
+                ui.label(
+                    RichText::new("\u{2022}")
+                        .color(sep_color)
+                        .font(label_font.clone()),
+                );
+                ui.label(RichText::new("r").color(key_color).font(key_font));
+                ui.label(RichText::new("refresh").color(key_color).font(label_font));
+            },
+        );
     }
 }
 
-/// Render a centered empty state with icon, title, and subtitle.
+/// Render a centered empty state with icon, title, subtitle, and optional hint.
 fn render_empty_state(ui: &mut egui::Ui, theme: AppTheme, icon: &str, title: &str, subtitle: &str) {
     ui.add_space(60.0);
     ui.vertical_centered(|ui| {
-        ui.label(
-            RichText::new(icon)
-                .color(theme.text_secondary().gamma_multiply(0.5))
-                .size(32.0),
+        // Icon with subtle background circle
+        let icon_size = 40.0;
+        let (icon_rect, _) =
+            ui.allocate_exact_size(egui::vec2(icon_size, icon_size), egui::Sense::hover());
+        ui.painter().circle_filled(
+            icon_rect.center(),
+            icon_size / 2.0,
+            theme.accent_primary().gamma_multiply(0.06),
         );
+        ui.painter().text(
+            icon_rect.center(),
+            egui::Align2::CENTER_CENTER,
+            icon,
+            typography::proportional(24.0),
+            theme.text_secondary().gamma_multiply(0.6),
+        );
+
         ui.add_space(12.0);
         ui.label(
             RichText::new(title)

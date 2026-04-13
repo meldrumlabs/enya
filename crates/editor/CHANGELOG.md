@@ -33,6 +33,12 @@ All notable changes to the Enya editor will be documented in this file.
 - **Collapsible PR description card**: A slim, collapsible description card sits below the header in the main detail view, visible on all tabs. Shows a chevron + "Description" + author + timestamp; click to expand the full markdown body (height-clamped with hidden scroll). Much lighter than the old frosted-glass banner.
 - **Collapsible PR description in Conversation tab**: The PR description card in the Conversation tab also has a chevron toggle — click the header to collapse/expand the body. Useful for long descriptions that push comments out of view.
 - **Review comments in Conversation tab**: Review comments are now rendered inline in the Conversation tab, grouped by file with thread structure. Each thread shows the file name, line number, quoted diff context line (color-coded by change type), and all comments in the thread with avatars. Replaces the old "N review comments shown inline in Files tab" hint.
+- **PR list header upgrade**: The list header now has a subtle elevated background, a PR icon, the count in a pill badge, and the refresh button right-aligned — matching the detail view's elevated header style.
+- **CI status dots on PR list rows**: Each PR row shows a small green/red dot indicating merge readiness (all checks passing + approved + mergeable) from preloaded data. Enables instant triage without opening each PR.
+- **Mini add/del proportional bar on PR rows**: Each PR row now has a tiny 24px green/red proportional bar next to the +/- stats, showing the balance of additions vs deletions at a glance.
+- **Styled PR list footer**: The keybinding footer now has an elevated background matching the detail view, with grouped shortcut hints and the `/` filter key highlighted in accent color.
+- **Richer empty states**: Empty states (no PRs, sign-in, error) now render the icon inside a subtle background circle for more visual weight.
+- **Pointer cursor on PR list hover**: Hovering a PR row now shows a pointing-hand cursor, signaling clickability.
 
 ### Changed
 
