@@ -324,7 +324,7 @@ impl PrReviewPane {
             walkthrough_receiver: None,
             #[cfg(not(target_arch = "wasm32"))]
             walkthrough_response_text: String::new(),
-            description_collapsed: false,
+            description_collapsed: true,
             conv_description_collapsed: false,
             collapsed_dirs: rustc_hash::FxHashSet::default(),
             file_tree_scroll_to_selected: false,
