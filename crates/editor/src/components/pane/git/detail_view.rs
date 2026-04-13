@@ -225,25 +225,26 @@ impl PrReviewPane {
                     ui.add_space(4.0);
 
                     // Review state
+                    // Review state (only show when there's an actual review)
                     let review_state = self.compute_review_state();
-                    let (review_label, review_color) = match review_state {
-                        Some(super::ReviewState::Approved) => ("Approved", theme.diff_added_text()),
-                        Some(super::ReviewState::ChangesRequested) => {
-                            ("Changes", theme.diff_removed_text())
-                        }
-                        None => ("Review", theme.text_secondary()),
-                    };
-                    ui.label(
-                        RichText::new(review_label)
-                            .color(review_color)
-                            .font(typography::proportional(typography::XS)),
-                    );
-
-                    ui.label(
-                        RichText::new("\u{b7}")
-                            .color(theme.text_secondary().gamma_multiply(0.5))
-                            .font(typography::proportional(typography::XS)),
-                    );
+                    if let Some(state) = review_state {
+                        let (review_label, review_color) = match state {
+                            super::ReviewState::Approved => ("Approved", theme.diff_added_text()),
+                            super::ReviewState::ChangesRequested => {
+                                ("Changes", theme.diff_removed_text())
+                            }
+                        };
+                        ui.label(
+                            RichText::new(review_label)
+                                .color(review_color)
+                                .font(typography::proportional(typography::XS)),
+                        );
+                        ui.label(
+                            RichText::new("\u{b7}")
+                                .color(theme.text_secondary().gamma_multiply(0.5))
+                                .font(typography::proportional(typography::XS)),
+                        );
+                    }
 
                     // CI status
                     let (ci_icon, ci_color) = self.aggregate_ci_status();
