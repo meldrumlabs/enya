@@ -916,54 +916,79 @@ impl PrReviewPane {
                         .inner_margin(egui::Margin::symmetric(12, 6))
                         .outer_margin(egui::Margin::symmetric(4, 0))
                         .show(ui, |ui| {
-                            // Header: chevron + "Description" + author + time
-                            let header_resp = ui.horizontal(|ui| {
-                                let chevron = if self.description_collapsed {
-                                    egui_nerdfonts::regular::CHEVRON_RIGHT
-                                } else {
-                                    egui_nerdfonts::regular::CHEVRON_DOWN
-                                };
-                                ui.label(
-                                    RichText::new(chevron)
-                                        .size(typography::XS)
-                                        .color(theme.text_secondary()),
-                                );
-                                ui.label(
-                                    RichText::new("Description")
-                                        .color(theme.text_secondary())
-                                        .font(typography::proportional(typography::XS))
-                                        .strong(),
-                                );
-                                ui.add_space(4.0);
-                                ui.label(
-                                    RichText::new(&pr.user.login)
-                                        .color(theme.text_secondary().gamma_multiply(0.7))
-                                        .font(typography::proportional(typography::XS)),
-                                );
-                                ui.label(
-                                    RichText::new(format!(
-                                        "\u{b7} {}",
-                                        relative_time(&pr.created_at)
-                                    ))
-                                    .color(theme.text_secondary().gamma_multiply(0.5))
-                                    .font(typography::proportional(typography::XS)),
-                                );
-                            });
-                            if header_resp.response.interact(egui::Sense::click()).clicked() {
+                            // Header row: allocate clickable rect, then paint contents
+                            let row_height = 18.0;
+                            let (header_rect, header_response) = ui.allocate_exact_size(
+                                egui::vec2(ui.available_width(), row_height),
+                                egui::Sense::click(),
+                            );
+
+                            // Paint header contents manually on the allocated rect
+                            let mut hx = header_rect.left();
+                            let cy = header_rect.center().y;
+
+                            let chevron = if self.description_collapsed {
+                                egui_nerdfonts::regular::CHEVRON_RIGHT
+                            } else {
+                                egui_nerdfonts::regular::CHEVRON_DOWN
+                            };
+                            let chev_galley = ui.painter().layout_no_wrap(
+                                chevron.to_string(),
+                                typography::proportional(typography::XS),
+                                theme.text_secondary(),
+                            );
+                            ui.painter().galley(
+                                egui::pos2(hx, cy - chev_galley.size().y / 2.0),
+                                chev_galley.clone(),
+                                theme.text_secondary(),
+                            );
+                            hx += chev_galley.size().x + 4.0;
+
+                            let desc_galley = ui.painter().layout_no_wrap(
+                                "Description".to_string(),
+                                typography::proportional(typography::XS),
+                                theme.text_secondary(),
+                            );
+                            ui.painter().galley(
+                                egui::pos2(hx, cy - desc_galley.size().y / 2.0),
+                                desc_galley.clone(),
+                                theme.text_secondary(),
+                            );
+                            hx += desc_galley.size().x + 6.0;
+
+                            let author_galley = ui.painter().layout_no_wrap(
+                                pr.user.login.clone(),
+                                typography::proportional(typography::XS),
+                                theme.text_secondary().gamma_multiply(0.7),
+                            );
+                            ui.painter().galley(
+                                egui::pos2(hx, cy - author_galley.size().y / 2.0),
+                                author_galley.clone(),
+                                theme.text_secondary().gamma_multiply(0.7),
+                            );
+                            hx += author_galley.size().x + 4.0;
+
+                            let time_galley = ui.painter().layout_no_wrap(
+                                format!("\u{b7} {}", relative_time(&pr.created_at)),
+                                typography::proportional(typography::XS),
+                                theme.text_secondary().gamma_multiply(0.5),
+                            );
+                            ui.painter().galley(
+                                egui::pos2(hx, cy - time_galley.size().y / 2.0),
+                                time_galley,
+                                theme.text_secondary().gamma_multiply(0.5),
+                            );
+
+                            if header_response.clicked() {
                                 self.description_collapsed = !self.description_collapsed;
                             }
-                            if header_resp
-                                .response
-                                .interact(egui::Sense::hover())
-                                .hovered()
-                            {
+                            if header_response.hovered() {
                                 ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
                             }
 
                             // Body (only if expanded)
                             if !self.description_collapsed {
                                 ui.add_space(4.0);
-                                // Clamp height to keep it slim
                                 let max_h = (ui.available_height() * 0.3).clamp(60.0, 200.0);
                                 egui::ScrollArea::vertical()
                                     .id_salt("pr_desc_main")
@@ -2125,16 +2150,22 @@ impl PrReviewPane {
                                                 .font(typography::proportional(typography::XS)),
                                         );
                                     });
-                                    if header_resp.response.interact(egui::Sense::click()).clicked()
+                                    // Toggle on click (use raw pointer — ui.horizontal
+                                    // doesn't allocate with click sense)
+                                    let header_rect = header_resp.response.rect;
+                                    if ui.input(|i| i.pointer.any_pressed())
+                                        && header_rect.contains(
+                                            ui.input(|i| {
+                                                i.pointer.interact_pos().unwrap_or_default()
+                                            }),
+                                        )
                                     {
                                         self.conv_description_collapsed =
                                             !self.conv_description_collapsed;
                                     }
-                                    if header_resp
-                                        .response
-                                        .interact(egui::Sense::hover())
-                                        .hovered()
-                                    {
+                                    if header_rect.contains(
+                                        ui.input(|i| i.pointer.hover_pos().unwrap_or_default()),
+                                    ) {
                                         ui.ctx()
                                             .set_cursor_icon(egui::CursorIcon::PointingHand);
                                     }
