@@ -905,6 +905,84 @@ impl PrReviewPane {
             egui::Stroke::new(1.0, theme.border_subtle()),
         );
 
+        // ── Collapsible PR description card ──
+        if let Some(pr) = &self.current_pr {
+            if let Some(body) = &pr.body {
+                if !body.is_empty() {
+                    ui.add_space(2.0);
+                    egui::Frame::new()
+                        .fill(theme.bg_elevated().gamma_multiply(0.4))
+                        .corner_radius(4.0)
+                        .inner_margin(egui::Margin::symmetric(12, 6))
+                        .outer_margin(egui::Margin::symmetric(4, 0))
+                        .show(ui, |ui| {
+                            // Header: chevron + "Description" + author + time
+                            let header_resp = ui.horizontal(|ui| {
+                                let chevron = if self.description_collapsed {
+                                    egui_nerdfonts::regular::CHEVRON_RIGHT
+                                } else {
+                                    egui_nerdfonts::regular::CHEVRON_DOWN
+                                };
+                                ui.label(
+                                    RichText::new(chevron)
+                                        .size(typography::XS)
+                                        .color(theme.text_secondary()),
+                                );
+                                ui.label(
+                                    RichText::new("Description")
+                                        .color(theme.text_secondary())
+                                        .font(typography::proportional(typography::XS))
+                                        .strong(),
+                                );
+                                ui.add_space(4.0);
+                                ui.label(
+                                    RichText::new(&pr.user.login)
+                                        .color(theme.text_secondary().gamma_multiply(0.7))
+                                        .font(typography::proportional(typography::XS)),
+                                );
+                                ui.label(
+                                    RichText::new(format!(
+                                        "\u{b7} {}",
+                                        relative_time(&pr.created_at)
+                                    ))
+                                    .color(theme.text_secondary().gamma_multiply(0.5))
+                                    .font(typography::proportional(typography::XS)),
+                                );
+                            });
+                            if header_resp.response.interact(egui::Sense::click()).clicked() {
+                                self.description_collapsed = !self.description_collapsed;
+                            }
+                            if header_resp
+                                .response
+                                .interact(egui::Sense::hover())
+                                .hovered()
+                            {
+                                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                            }
+
+                            // Body (only if expanded)
+                            if !self.description_collapsed {
+                                ui.add_space(4.0);
+                                // Clamp height to keep it slim
+                                let max_h = (ui.available_height() * 0.3).clamp(60.0, 200.0);
+                                egui::ScrollArea::vertical()
+                                    .id_salt("pr_desc_main")
+                                    .max_height(max_h)
+                                    .scroll_bar_visibility(
+                                        egui::scroll_area::ScrollBarVisibility::AlwaysHidden,
+                                    )
+                                    .show(ui, |ui| {
+                                        crate::components::overlay::markdown_renderer::render_markdown(
+                                            ui, body, theme,
+                                        );
+                                    });
+                            }
+                        });
+                    ui.add_space(2.0);
+                }
+            }
+        }
+
         // ── AI walkthrough summary banner ──
         self.show_walkthrough_banner(ui, theme);
 

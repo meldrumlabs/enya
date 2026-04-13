@@ -190,7 +190,9 @@ pub struct PrReviewPane {
     #[cfg(not(target_arch = "wasm32"))]
     walkthrough_response_text: String,
 
-    // ── Conversation tab ──
+    // ── Description ──
+    /// Whether the PR description card is collapsed in the main detail view.
+    description_collapsed: bool,
     /// Whether the PR description is collapsed in the Conversation tab.
     conv_description_collapsed: bool,
 
@@ -322,6 +324,7 @@ impl PrReviewPane {
             walkthrough_receiver: None,
             #[cfg(not(target_arch = "wasm32"))]
             walkthrough_response_text: String::new(),
+            description_collapsed: false,
             conv_description_collapsed: false,
             collapsed_dirs: rustc_hash::FxHashSet::default(),
             file_tree_scroll_to_selected: false,
