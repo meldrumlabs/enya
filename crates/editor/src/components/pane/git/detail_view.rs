@@ -1758,10 +1758,12 @@ impl PrReviewPane {
                         accent.gamma_multiply(0.4),
                     );
 
-                    let label_galley = ui.painter().layout_no_wrap(
+                    let label_max_width = (header_rect.width() - 12.0).max(20.0);
+                    let label_galley = ui.painter().layout(
                         (*group_label).to_string(),
                         typography::proportional(typography::XS),
                         accent.gamma_multiply(0.9),
+                        label_max_width,
                     );
                     ui.painter().galley(
                         egui::pos2(
