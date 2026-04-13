@@ -1245,40 +1245,120 @@ impl PrReviewPane {
 
     /// Render the file panel (right side in files tab).
     fn show_file_panel(&mut self, ui: &mut egui::Ui, theme: AppTheme) {
-        ui.add_space(8.0);
-        ui.horizontal(|ui| {
-            ui.add_space(8.0);
-            ui.label(
-                RichText::new("Changed Files")
-                    .color(theme.text_primary().gamma_multiply(0.9))
-                    .font(typography::proportional(typography::SM))
-                    .strong(),
-            );
-            ui.add_space(4.0);
-            ui.label(
-                RichText::new(format!("{}", self.pr_files.len()))
-                    .color(theme.text_secondary())
-                    .font(typography::proportional(typography::XS)),
-            );
+        // ── Elevated file panel header ──
+        let header_rect = egui::Rect::from_min_size(
+            ui.cursor().left_top(),
+            egui::vec2(ui.available_width(), 32.0),
+        );
+        ui.painter()
+            .rect_filled(header_rect, 0.0, theme.bg_elevated().gamma_multiply(0.4));
+        ui.painter().hline(
+            header_rect.x_range(),
+            header_rect.bottom(),
+            egui::Stroke::new(1.0, theme.border_subtle().gamma_multiply(0.5)),
+        );
 
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.add_space(4.0);
-                let collapse_btn = ui.add(
-                    egui::Button::new(
-                        RichText::new(egui_nerdfonts::regular::CHEVRON_LEFT)
-                            .size(typography::SM)
-                            .color(theme.text_secondary()),
-                    )
-                    .fill(egui::Color32::TRANSPARENT)
-                    .stroke(egui::Stroke::NONE),
+        ui.allocate_ui_with_layout(
+            egui::vec2(ui.available_width(), 32.0),
+            egui::Layout::left_to_right(egui::Align::Center),
+            |ui| {
+                ui.add_space(8.0);
+
+                // Folder icon
+                ui.label(
+                    RichText::new(egui_nerdfonts::regular::FOLDER_OPEN)
+                        .color(theme.text_secondary().gamma_multiply(0.7))
+                        .size(typography::SM),
                 );
-                if collapse_btn.clicked() {
-                    self.file_panel_collapsed = true;
-                }
-                collapse_btn.on_hover_text("Hide file tree");
-            });
-        });
-        ui.add_space(6.0);
+                ui.add_space(2.0);
+
+                ui.label(
+                    RichText::new("Files")
+                        .color(theme.text_primary().gamma_multiply(0.9))
+                        .font(typography::proportional(typography::SM))
+                        .strong(),
+                );
+                ui.add_space(4.0);
+
+                // Count in a pill badge
+                let count_text = format!("{}", self.pr_files.len());
+                let count_galley = ui.painter().layout_no_wrap(
+                    count_text.clone(),
+                    typography::proportional(typography::XS),
+                    theme.text_secondary(),
+                );
+                let pill_width = count_galley.size().x + 8.0;
+                let pill_height = count_galley.size().y + 2.0;
+                let (pill_rect, _) = ui
+                    .allocate_exact_size(egui::vec2(pill_width, pill_height), egui::Sense::hover());
+                ui.painter().rect_filled(
+                    pill_rect,
+                    pill_height / 2.0,
+                    theme.border_subtle().gamma_multiply(0.5),
+                );
+                ui.painter().galley(
+                    egui::pos2(
+                        pill_rect.center().x - count_galley.size().x / 2.0,
+                        pill_rect.center().y - count_galley.size().y / 2.0,
+                    ),
+                    count_galley,
+                    theme.text_secondary(),
+                );
+
+                // Collapse button (right-aligned)
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.add_space(4.0);
+                    let collapse_btn = ui.add(
+                        egui::Button::new(
+                            RichText::new(egui_nerdfonts::regular::CHEVRON_LEFT)
+                                .size(typography::SM)
+                                .color(theme.text_secondary()),
+                        )
+                        .fill(egui::Color32::TRANSPARENT)
+                        .stroke(egui::Stroke::NONE),
+                    );
+                    if collapse_btn.clicked() {
+                        self.file_panel_collapsed = true;
+                    }
+                    collapse_btn.on_hover_text("Hide file tree");
+                });
+            },
+        );
+
+        // ── Additions/deletions summary bar ──
+        let total_add: u32 = self.pr_files.iter().map(|f| f.additions).sum();
+        let total_del: u32 = self.pr_files.iter().map(|f| f.deletions).sum();
+        let total_changes = total_add + total_del;
+        if total_changes > 0 {
+            ui.add_space(4.0);
+            let bar_width = (ui.available_width() - 16.0).max(20.0);
+            let bar_height = 3.0;
+            let (bar_rect, _) =
+                ui.allocate_exact_size(egui::vec2(bar_width, bar_height), egui::Sense::hover());
+            let bar_rect =
+                egui::Rect::from_min_size(bar_rect.min + egui::vec2(8.0, 0.0), bar_rect.size());
+
+            let add_frac = total_add as f32 / total_changes as f32;
+            let add_width = (bar_width * add_frac).max(0.0);
+
+            // Green portion (additions)
+            let add_rect =
+                egui::Rect::from_min_size(bar_rect.min, egui::vec2(add_width, bar_height));
+            ui.painter()
+                .rect_filled(add_rect, 1.5, theme.diff_added_gutter());
+
+            // Red portion (deletions)
+            let del_rect = egui::Rect::from_min_size(
+                egui::pos2(bar_rect.min.x + add_width, bar_rect.min.y),
+                egui::vec2((bar_width - add_width).max(0.0), bar_height),
+            );
+            ui.painter()
+                .rect_filled(del_rect, 1.5, theme.diff_removed_gutter());
+
+            ui.add_space(2.0);
+        } else {
+            ui.add_space(6.0);
+        }
 
         // Use walkthrough grouped view if active, otherwise normal tree
         let walkthrough_groups = self.walkthrough_file_order();
@@ -1942,6 +2022,13 @@ impl PrReviewPane {
                                                 .strong(),
                                         );
                                         ui.add_space(8.0);
+                                        // Author avatar
+                                        render_comment_avatar(
+                                            ui,
+                                            theme,
+                                            &pr.user.login,
+                                            &self.avatar_textures,
+                                        );
                                         ui.label(
                                             RichText::new(&pr.user.login)
                                                 .color(theme.text_primary())
@@ -1972,6 +2059,7 @@ impl PrReviewPane {
                         &comment.user.login,
                         &comment.created_at,
                         &comment.body,
+                        &self.avatar_textures,
                     );
                 }
 
@@ -2141,7 +2229,70 @@ fn render_tab_with_badge(
 }
 
 /// Render a single comment.
-fn render_comment(ui: &mut egui::Ui, theme: AppTheme, author: &str, timestamp: &str, body: &str) {
+/// Render a circular avatar (texture or fallback initial) for a comment author.
+fn render_comment_avatar(
+    ui: &mut egui::Ui,
+    theme: AppTheme,
+    login: &str,
+    avatar_textures: &rustc_hash::FxHashMap<String, egui::TextureHandle>,
+) {
+    let avatar_size = 16.0;
+    let (avatar_rect, _) =
+        ui.allocate_exact_size(egui::vec2(avatar_size, avatar_size), egui::Sense::hover());
+    let center = avatar_rect.center();
+    let radius = avatar_size / 2.0;
+
+    if let Some(texture) = avatar_textures.get(login) {
+        let mut mesh = egui::Mesh::with_texture(texture.id());
+        let segments: u32 = 20;
+        mesh.vertices.push(egui::epaint::Vertex {
+            pos: center,
+            uv: egui::pos2(0.5, 0.5),
+            color: egui::Color32::WHITE,
+        });
+        for i in 0..=segments {
+            let angle = std::f32::consts::TAU * i as f32 / segments as f32;
+            let (sin, cos) = angle.sin_cos();
+            mesh.vertices.push(egui::epaint::Vertex {
+                pos: center + egui::vec2(cos * radius, sin * radius),
+                uv: egui::pos2(0.5 + cos * 0.5, 0.5 + sin * 0.5),
+                color: egui::Color32::WHITE,
+            });
+            if i > 0 {
+                mesh.indices.push(0);
+                mesh.indices.push(i);
+                mesh.indices.push(i + 1);
+            }
+        }
+        ui.painter().add(egui::Shape::mesh(mesh));
+    } else {
+        let letter = login
+            .chars()
+            .next()
+            .unwrap_or('?')
+            .to_uppercase()
+            .to_string();
+        ui.painter()
+            .circle_filled(center, radius, theme.accent_primary().gamma_multiply(0.2));
+        ui.painter().text(
+            center,
+            egui::Align2::CENTER_CENTER,
+            &letter,
+            typography::proportional(8.0),
+            theme.accent_primary(),
+        );
+    }
+}
+
+/// Render a single comment with avatar.
+fn render_comment(
+    ui: &mut egui::Ui,
+    theme: AppTheme,
+    author: &str,
+    timestamp: &str,
+    body: &str,
+    avatar_textures: &rustc_hash::FxHashMap<String, egui::TextureHandle>,
+) {
     ui.add_space(8.0);
     egui::Frame::new()
         .fill(theme.bg_elevated())
@@ -2150,8 +2301,9 @@ fn render_comment(ui: &mut egui::Ui, theme: AppTheme, author: &str, timestamp: &
         .inner_margin(egui::Margin::same(12))
         .outer_margin(egui::Margin::symmetric(12, 0))
         .show(ui, |ui| {
-            // Author + timestamp
+            // Avatar + Author + timestamp
             ui.horizontal(|ui| {
+                render_comment_avatar(ui, theme, author, avatar_textures);
                 ui.label(
                     RichText::new(author)
                         .color(theme.text_primary())
