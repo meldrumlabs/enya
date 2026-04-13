@@ -62,11 +62,31 @@ impl PrReviewPane {
         ui.add_space(6.0);
         ui.horizontal(|ui| {
             ui.add_space(12.0);
-            ui.label(
-                RichText::new(&file_diff.path)
-                    .color(theme.text_primary())
-                    .font(typography::monospace(typography::SM)),
-            );
+
+            // Breadcrumb-style file path: muted parents, highlighted filename
+            if let Some(slash_pos) = file_diff.path.rfind('/') {
+                let parent = &file_diff.path[..=slash_pos];
+                let filename = &file_diff.path[slash_pos + 1..];
+                ui.label(
+                    RichText::new(parent)
+                        .color(theme.text_secondary().gamma_multiply(0.6))
+                        .font(typography::monospace(typography::SM)),
+                );
+                ui.add_space(-4.0); // tighten gap between parent and filename
+                ui.label(
+                    RichText::new(filename)
+                        .color(theme.text_primary())
+                        .font(typography::monospace(typography::SM))
+                        .strong(),
+                );
+            } else {
+                ui.label(
+                    RichText::new(&file_diff.path)
+                        .color(theme.text_primary())
+                        .font(typography::monospace(typography::SM))
+                        .strong(),
+                );
+            }
 
             ui.add_space(8.0);
 
@@ -400,6 +420,18 @@ impl PrReviewPane {
                         }
 
                         // ── Card content (height-clamped to gutter bottom) ──
+
+                        // Subtle drop shadow for floating card depth
+                        let shadow_rect = egui::Rect::from_min_size(
+                            egui::pos2(card_left + 7.0, card_y + 4.0),
+                            egui::vec2(card_content_width - 12.0, max_card_h),
+                        );
+                        clipped_painter.rect_filled(
+                            shadow_rect,
+                            4.0,
+                            egui::Color32::from_black_alpha(12),
+                        );
+
                         let accent_shape_idx = clipped_painter.add(egui::Shape::Noop);
 
                         let card_rect = egui::Rect::from_min_size(

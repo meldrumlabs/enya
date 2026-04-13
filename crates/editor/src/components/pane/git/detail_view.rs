@@ -1010,50 +1010,152 @@ impl PrReviewPane {
 
     /// Render keybinding hints at the bottom of the detail view.
     fn render_keybinding_footer(&self, ui: &mut egui::Ui, theme: AppTheme) {
-        let muted = theme.text_secondary();
-        let separator_color = theme.border_subtle();
-
-        // Separator above footer
-        ui.painter().hline(
-            ui.available_rect_before_wrap().x_range(),
-            ui.cursor().top(),
-            egui::Stroke::new(1.0, separator_color),
+        // Elevated footer bar
+        let footer_rect = egui::Rect::from_min_size(
+            ui.cursor().left_top(),
+            egui::vec2(ui.available_width(), 30.0),
         );
-        ui.add_space(6.0);
+        ui.painter()
+            .rect_filled(footer_rect, 0.0, theme.bg_elevated().gamma_multiply(0.5));
+        ui.painter().hline(
+            footer_rect.x_range(),
+            footer_rect.top(),
+            egui::Stroke::new(1.0, theme.border_subtle()),
+        );
 
-        ui.horizontal(|ui| {
-            ui.add_space(16.0);
-
-            // Current file path
-            if let Some(file_diff) = self.file_diffs.get(self.selected_file_index) {
-                ui.label(
-                    RichText::new(&file_diff.path)
-                        .color(muted)
-                        .font(typography::monospace(typography::SM)),
-                );
-            }
-
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+        ui.allocate_ui_with_layout(
+            egui::vec2(ui.available_width(), 30.0),
+            egui::Layout::left_to_right(egui::Align::Center),
+            |ui| {
                 ui.add_space(16.0);
 
-                let view_mode = if self.diff_renderer.split_view() { "split" } else { "stacked" };
-                let hint = if self.file_diffs.len() > 1 {
-                    format!(
-                        "v viewed \u{2022} n/p files \u{2022} j/k scroll \u{2022} gg/G top/bottom \u{2022} s {view_mode} \u{2022} Esc back"
-                    )
-                } else {
-                    format!(
-                        "v viewed \u{2022} j/k scroll \u{2022} gg/G top/bottom \u{2022} s {view_mode} \u{2022} Esc back"
-                    )
-                };
-                ui.label(
-                    RichText::new(hint)
-                        .color(muted.gamma_multiply(0.7))
-                        .font(typography::proportional(typography::XS)),
-                );
-            });
-        });
-        ui.add_space(8.0);
+                // Current file path (breadcrumb style)
+                if let Some(file_diff) = self.file_diffs.get(self.selected_file_index) {
+                    if let Some(slash_pos) = file_diff.path.rfind('/') {
+                        let parent = &file_diff.path[..=slash_pos];
+                        let filename = &file_diff.path[slash_pos + 1..];
+                        ui.label(
+                            RichText::new(parent)
+                                .color(theme.text_secondary().gamma_multiply(0.5))
+                                .font(typography::monospace(typography::XS)),
+                        );
+                        ui.add_space(-4.0);
+                        ui.label(
+                            RichText::new(filename)
+                                .color(theme.text_secondary())
+                                .font(typography::monospace(typography::XS)),
+                        );
+                    } else {
+                        ui.label(
+                            RichText::new(&file_diff.path)
+                                .color(theme.text_secondary())
+                                .font(typography::monospace(typography::XS)),
+                        );
+                    }
+                }
+
+                // Right-side keybinding hints with grouped styling
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.add_space(16.0);
+
+                    let key_color = theme.text_secondary().gamma_multiply(0.5);
+                    let sep_color = theme.text_secondary().gamma_multiply(0.25);
+                    let accent_key = theme.accent_primary().gamma_multiply(0.6);
+                    let key_font = typography::monospace(typography::XS);
+                    let label_font = typography::proportional(typography::XS);
+
+                    // Esc back (accent — primary escape action)
+                    ui.label(
+                        RichText::new("back")
+                            .color(key_color)
+                            .font(label_font.clone()),
+                    );
+                    ui.label(
+                        RichText::new("Esc")
+                            .color(accent_key)
+                            .font(key_font.clone()),
+                    );
+
+                    ui.label(
+                        RichText::new("\u{2022}")
+                            .color(sep_color)
+                            .font(label_font.clone()),
+                    );
+
+                    // View mode
+                    let view_mode = if self.diff_renderer.split_view() {
+                        "split"
+                    } else {
+                        "stacked"
+                    };
+                    ui.label(
+                        RichText::new(view_mode)
+                            .color(key_color)
+                            .font(label_font.clone()),
+                    );
+                    ui.label(RichText::new("s").color(key_color).font(key_font.clone()));
+
+                    ui.label(
+                        RichText::new("\u{2022}")
+                            .color(sep_color)
+                            .font(label_font.clone()),
+                    );
+
+                    // Scroll
+                    ui.label(
+                        RichText::new("top/bottom")
+                            .color(key_color)
+                            .font(label_font.clone()),
+                    );
+                    ui.label(
+                        RichText::new("gg/G")
+                            .color(key_color)
+                            .font(key_font.clone()),
+                    );
+
+                    ui.label(
+                        RichText::new("\u{2022}")
+                            .color(sep_color)
+                            .font(label_font.clone()),
+                    );
+
+                    ui.label(
+                        RichText::new("scroll")
+                            .color(key_color)
+                            .font(label_font.clone()),
+                    );
+                    ui.label(RichText::new("j/k").color(key_color).font(key_font.clone()));
+
+                    // File navigation (only if multiple files)
+                    if self.file_diffs.len() > 1 {
+                        ui.label(
+                            RichText::new("\u{2022}")
+                                .color(sep_color)
+                                .font(label_font.clone()),
+                        );
+                        ui.label(
+                            RichText::new("files")
+                                .color(key_color)
+                                .font(label_font.clone()),
+                        );
+                        ui.label(RichText::new("n/p").color(key_color).font(key_font.clone()));
+                    }
+
+                    ui.label(
+                        RichText::new("\u{2022}")
+                            .color(sep_color)
+                            .font(label_font.clone()),
+                    );
+
+                    ui.label(
+                        RichText::new("viewed")
+                            .color(key_color)
+                            .font(label_font.clone()),
+                    );
+                    ui.label(RichText::new("v").color(key_color).font(key_font));
+                });
+            },
+        );
     }
 
     /// Render the Files tab — file list + diff view.

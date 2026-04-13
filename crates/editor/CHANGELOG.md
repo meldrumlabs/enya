@@ -25,6 +25,12 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Changed
 
+- **Breadcrumb file path**: The diff header and keybinding footer now render file paths in breadcrumb style — parent directories are muted, the filename is highlighted and bold. Makes it instantly clear which file you're reviewing.
+- **Floating card drop shadows**: Comment cards in the floating gutter now have a subtle drop shadow, giving them visual depth and reinforcing that they float above the diff.
+- **Styled keybinding footer**: The footer bar now has a subtle elevated background, breadcrumb-style file path, and grouped shortcut hints with the Esc key highlighted in accent color. Separators use dot characters with distinct dimming for cleaner visual rhythm.
+
+### Changed
+
 - **Description banner removed**: The collapsible frosted-glass description banner below the tab bar has been removed. The PR title now lives in the header's first row, and the full description body lives in the Conversation tab — eliminating duplicate content and saving vertical space.
 
 ### Fixed
