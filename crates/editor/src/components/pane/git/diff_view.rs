@@ -6,6 +6,7 @@
 
 use egui::RichText;
 
+use crate::components::overlay::markdown_renderer;
 use crate::git::api::{self, CommentThread, DraftComment, PrComment};
 use crate::git::diff::DiffLine;
 #[cfg(not(target_arch = "wasm32"))]
@@ -167,6 +168,52 @@ impl PrReviewPane {
 
                 ui.add_space(4.0);
 
+                // Show Preview toggle for markdown files
+                let is_markdown = file_diff.path.ends_with(".md")
+                    || file_diff.path.ends_with(".mdx")
+                    || file_diff.path.ends_with(".markdown");
+                if is_markdown {
+                    let icon = if self.markdown_preview {
+                        egui_nerdfonts::regular::EYE
+                    } else {
+                        egui_nerdfonts::regular::EYE_OUTLINE
+                    };
+                    let preview_btn = ui.add(
+                        egui::Button::new(RichText::new(icon).size(typography::SM).color(
+                            if self.markdown_preview {
+                                theme.accent_primary()
+                            } else {
+                                theme.text_secondary()
+                            },
+                        ))
+                        .fill(if self.markdown_preview {
+                            theme.accent_primary().gamma_multiply(0.15)
+                        } else {
+                            theme.bg_elevated()
+                        })
+                        .stroke(egui::Stroke::new(
+                            1.0,
+                            if self.markdown_preview {
+                                theme.accent_primary().gamma_multiply(0.4)
+                            } else {
+                                theme.border_subtle()
+                            },
+                        ))
+                        .corner_radius(4.0),
+                    );
+                    if preview_btn.clicked() {
+                        self.markdown_preview = !self.markdown_preview;
+                        self.markdown_scroll_y = 0.0;
+                    }
+                    preview_btn.on_hover_text(if self.markdown_preview {
+                        "Show diff view"
+                    } else {
+                        "Preview rendered markdown"
+                    });
+
+                    ui.add_space(4.0);
+                }
+
                 let split_label = if self.diff_renderer.split_view() {
                     "Stacked"
                 } else {
@@ -212,6 +259,16 @@ impl PrReviewPane {
         // ── Decide floating vs inline comments ──────────────────────────
         let file_diff = self.file_diffs[self.selected_file_index].clone();
         let file_idx = self.selected_file_index;
+
+        // ── Markdown preview mode ───────────────────────────────────────
+        if self.markdown_preview
+            && (file_diff.path.ends_with(".md")
+                || file_diff.path.ends_with(".mdx")
+                || file_diff.path.ends_with(".markdown"))
+        {
+            self.show_markdown_preview(ui, &file_diff, file_idx);
+            return;
+        }
 
         let file_threads: Vec<_> = self
             .cached_threads
@@ -264,6 +321,69 @@ impl PrReviewPane {
             // Narrow pane — inline comments (original behavior)
             self.show_diff_with_inline_comments(ui, &file_diff, file_idx, &file_threads);
         }
+    }
+
+    /// Render the new file content as rendered markdown in a scrollable area.
+    fn show_markdown_preview(
+        &mut self,
+        ui: &mut egui::Ui,
+        file_diff: &crate::git::diff::FileDiff,
+        file_idx: usize,
+    ) {
+        let theme = self.theme;
+
+        // Use cached content or rebuild if file changed
+        let needs_rebuild = self
+            .markdown_content_cache
+            .as_ref()
+            .is_none_or(|(idx, _)| *idx != file_idx);
+
+        if needs_rebuild {
+            let content = if let Some(ref new_lines) = file_diff.new_file_lines {
+                new_lines.join("\n")
+            } else {
+                file_diff
+                    .lines
+                    .iter()
+                    .filter(|l| {
+                        matches!(
+                            l.kind,
+                            crate::git::diff::DiffLineKind::Context
+                                | crate::git::diff::DiffLineKind::Addition
+                        )
+                    })
+                    .map(|l| l.content.as_str())
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            };
+            self.markdown_content_cache = Some((file_idx, content));
+        }
+
+        let content = &self.markdown_content_cache.as_ref().unwrap().1;
+
+        let scroll_output = egui::ScrollArea::vertical()
+            .auto_shrink([false; 2])
+            .scroll_offset(egui::vec2(0.0, self.markdown_scroll_y))
+            .show(ui, |ui| {
+                let padding = 16.0;
+                let max_width = (ui.available_width() - padding * 2.0).max(1.0);
+                ui.add_space(padding);
+                ui.horizontal(|ui| {
+                    ui.add_space(padding);
+                    ui.allocate_ui_with_layout(
+                        egui::vec2(max_width, 0.0),
+                        egui::Layout::top_down(egui::Align::LEFT),
+                        |ui| {
+                            ui.set_max_width(max_width);
+                            markdown_renderer::render_markdown(ui, content, theme);
+                        },
+                    );
+                });
+                ui.add_space(padding);
+            });
+
+        // Sync scroll offset back so mouse-wheel scrolling works alongside j/k
+        self.markdown_scroll_y = scroll_output.state.offset.y;
     }
 
     /// Floating comments: render diff on the left, comment cards in a gutter on the right.

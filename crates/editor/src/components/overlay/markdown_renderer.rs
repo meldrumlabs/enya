@@ -10,6 +10,8 @@
 //! - Horizontal rules
 //! - Links (rendered as colored text)
 
+use std::hash::{Hash, Hasher};
+
 use egui::{CornerRadius, RichText, Stroke, TextFormat, text::LayoutJob};
 use pulldown_cmark::{Event, HeadingLevel, Options, Parser, Tag, TagEnd};
 
@@ -324,8 +326,23 @@ impl RenderContext {
         let text_secondary = self.theme.text_secondary();
         let lang = self.code_block_lang.as_deref().unwrap_or("");
 
-        // Compute syntax highlighting for the code block content
-        let highlight_data = SyntaxHighlightData::new(text, lang);
+        // Cache syntax highlighting using a content hash to avoid re-running
+        // tree-sitter every frame for the same code block.
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        text.hash(&mut hasher);
+        lang.hash(&mut hasher);
+        let content_hash = hasher.finish();
+        let cache_id = ui.id().with("md_syntax_cache").with(content_hash);
+
+        let highlight_data: SyntaxHighlightData = ui
+            .ctx()
+            .data(|d| d.get_temp::<SyntaxHighlightData>(cache_id))
+            .unwrap_or_else(|| {
+                let data = SyntaxHighlightData::new(text, lang);
+                ui.ctx()
+                    .data_mut(|d| d.insert_temp::<SyntaxHighlightData>(cache_id, data.clone()));
+                data
+            });
 
         // Unique ID for this code block's copy state
         let block_id = ui.id().with("md_code_copy").with(self.code_block_counter);

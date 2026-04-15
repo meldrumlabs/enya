@@ -1455,6 +1455,9 @@ impl PrReviewPane {
             if let Some(diff_idx) = clicked_file {
                 self.selected_file_index = diff_idx;
                 self.mark_current_file_comments_seen();
+                self.markdown_preview = false;
+                self.markdown_scroll_y = 0.0;
+                self.markdown_content_cache = None;
             }
             return;
         }
@@ -1810,6 +1813,9 @@ impl PrReviewPane {
             if let Some(diff_idx) = self.file_diffs.iter().position(|d| d.path == *filename) {
                 self.selected_file_index = diff_idx;
                 self.mark_current_file_comments_seen();
+                self.markdown_preview = false;
+                self.markdown_scroll_y = 0.0;
+                self.markdown_content_cache = None;
             }
         }
     }

@@ -4,6 +4,14 @@ All notable changes to the Enya editor will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **Markdown preview in PR review**: When viewing `.md`, `.mdx`, or `.markdown` files in the PR review diff view, an eye icon toggle appears in the toolbar. Clicking it renders the new file content as formatted markdown (headings, code blocks, lists, links, etc.) instead of the raw diff. Supports `j`/`k` vim-style scrolling, arrow keys, `Ctrl+D`/`Ctrl+U` half-page jumps, and `Shift+G` to jump to bottom. Preview state resets when navigating to another file.
+
+### Changed
+
+- **Cached markdown code block highlighting**: Syntax highlighting for fenced code blocks in rendered markdown is now cached using a content hash, avoiding redundant tree-sitter parsing on every frame. Also caches the reconstructed markdown content string per file to skip repeated diff-line joining.
+
 ## [0.1.4] - 2026-04-13
 
 ### Added
