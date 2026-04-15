@@ -25,6 +25,8 @@ ignore = [
   "RUSTSEC-2017-0008", # serial unmaintained (via ghostty terminal emulation)
   # transitive dependency via structopt/clap_derive - waiting for upstream
   "RUSTSEC-2024-0370", # proc-macro-error unmaintained
+  # rand unsound with custom logger - via deltalake (0.8.5) and tantivy (0.9.2), waiting for upstream bumps
+  "RUSTSEC-2026-0097",
 ]
 
 [bans]
