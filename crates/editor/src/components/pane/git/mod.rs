@@ -212,6 +212,15 @@ pub struct PrReviewPane {
     /// File paths the user has marked as "reviewed".
     reviewed_files: rustc_hash::FxHashSet<String>,
 
+    // ── Markdown preview ──
+    /// Whether markdown preview mode is active (renders the new file content as markdown).
+    markdown_preview: bool,
+    /// Scroll offset for markdown preview (managed manually for j/k keyboard scrolling).
+    markdown_scroll_y: f32,
+    /// Cached markdown content string for the current file (avoids rebuilding every frame).
+    /// Tuple of (file_index, content).
+    markdown_content_cache: Option<(usize, String)>,
+
     // ── File opener ──
     file_opener: FileOpenerPopup,
     /// Repo root for constructing full file paths.
@@ -331,6 +340,9 @@ impl PrReviewPane {
             file_panel_collapsed: false,
             seen_comment_ids: rustc_hash::FxHashSet::default(),
             reviewed_files: rustc_hash::FxHashSet::default(),
+            markdown_preview: false,
+            markdown_scroll_y: 0.0,
+            markdown_content_cache: None,
             file_opener: FileOpenerPopup::new(),
             repo_root: None,
             pending_open_file_opener: false,
@@ -491,6 +503,7 @@ impl PrReviewPane {
                 self.diff_renderer.reset_for_file_change();
                 self.file_tree_scroll_to_selected = true;
                 self.mark_current_file_comments_seen();
+                self.markdown_preview = false;
                 return;
             }
         }
@@ -1396,6 +1409,39 @@ impl PrReviewPane {
                         self.pending_go_back = true;
                     }
 
+                    // When markdown preview is active, handle scroll keys directly
+                    // instead of delegating to the diff renderer.
+                    if self.markdown_preview {
+                        let scroll_step = 40.0;
+                        if input.consume_key(egui::Modifiers::NONE, egui::Key::J) {
+                            self.markdown_scroll_y += scroll_step;
+                        }
+                        if input.consume_key(egui::Modifiers::NONE, egui::Key::K) {
+                            self.markdown_scroll_y =
+                                (self.markdown_scroll_y - scroll_step).max(0.0);
+                        }
+                        if input.consume_key(egui::Modifiers::NONE, egui::Key::D)
+                            && input.modifiers.ctrl
+                        {
+                            self.markdown_scroll_y += 300.0;
+                        }
+                        if input.consume_key(egui::Modifiers::NONE, egui::Key::U)
+                            && input.modifiers.ctrl
+                        {
+                            self.markdown_scroll_y = (self.markdown_scroll_y - 300.0).max(0.0);
+                        }
+                        if input.consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown) {
+                            self.markdown_scroll_y += 60.0;
+                        }
+                        if input.consume_key(egui::Modifiers::NONE, egui::Key::ArrowUp) {
+                            self.markdown_scroll_y = (self.markdown_scroll_y - 60.0).max(0.0);
+                        }
+                        // G = jump to bottom (large offset), gg = jump to top
+                        if input.consume_key(egui::Modifiers::SHIFT, egui::Key::G) {
+                            self.markdown_scroll_y = f32::MAX;
+                        }
+                    }
+
                     // Delegate standard diff keys to renderer
                     let action = self.diff_renderer.handle_keyboard(input);
                     match action {
@@ -1405,12 +1451,18 @@ impl PrReviewPane {
                             self.diff_renderer.reset_for_file_change();
                             self.file_tree_scroll_to_selected = true;
                             self.mark_current_file_comments_seen();
+                            self.markdown_preview = false;
+                            self.markdown_scroll_y = 0.0;
+                            self.markdown_content_cache = None;
                         }
                         DiffKeyAction::PrevFile => {
                             self.selected_file_index = self.selected_file_index.saturating_sub(1);
                             self.diff_renderer.reset_for_file_change();
                             self.file_tree_scroll_to_selected = true;
                             self.mark_current_file_comments_seen();
+                            self.markdown_preview = false;
+                            self.markdown_scroll_y = 0.0;
+                            self.markdown_content_cache = None;
                         }
                         DiffKeyAction::OpenFile => {
                             self.pending_open_file_opener = true;
