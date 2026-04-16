@@ -70,6 +70,12 @@ pub struct PrFile {
     pub deletions: u32,
     #[serde(default)]
     pub changes: u32,
+    /// Per-file unified diff patch (may be absent for binary files).
+    #[serde(default)]
+    pub patch: Option<String>,
+    /// Previous filename when the file was renamed.
+    #[serde(default)]
+    pub previous_filename: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -305,12 +311,16 @@ pub async fn get_pull(
 }
 
 /// Get the raw diff for a pull request.
+///
+/// First tries the diff endpoint. If the diff is too large (HTTP 406),
+/// falls back to reconstructing it from per-file patches via the files endpoint.
 pub async fn get_pull_diff(
     client: &reqwest::Client,
     token: &str,
     owner: &str,
     repo: &str,
     number: u32,
+    files: Option<&[PrFile]>,
 ) -> Result<String, String> {
     let url = format!("{}/repos/{owner}/{repo}/pulls/{number}", github_api_base());
     let mut headers = api_headers(token);
@@ -326,18 +336,82 @@ pub async fn get_pull_diff(
         .await
         .map_err(|e| format!("Request failed: {e}"))?;
 
-    if !resp.status().is_success() {
-        let status = resp.status();
-        let body = resp.text().await.unwrap_or_default();
-        return Err(format!("GitHub API error {status}: {body}"));
+    if resp.status().is_success() {
+        return resp
+            .text()
+            .await
+            .map_err(|e| format!("Read body failed: {e}"));
     }
 
-    resp.text()
-        .await
-        .map_err(|e| format!("Read body failed: {e}"))
+    let status = resp.status();
+
+    // 406 means the diff exceeded GitHub's line limit — reconstruct from per-file patches
+    if status == reqwest::StatusCode::NOT_ACCEPTABLE {
+        log::warn!("PR #{number} diff too large for GitHub API, reconstructing from file patches");
+        return reconstruct_diff_from_files(client, token, owner, repo, number, files).await;
+    }
+
+    let body = resp.text().await.unwrap_or_default();
+    Err(format!("GitHub API error {status}: {body}"))
 }
 
-/// Get the list of files changed in a pull request.
+/// Reconstruct a unified diff from per-file patches returned by the files endpoint.
+async fn reconstruct_diff_from_files(
+    client: &reqwest::Client,
+    token: &str,
+    owner: &str,
+    repo: &str,
+    number: u32,
+    existing_files: Option<&[PrFile]>,
+) -> Result<String, String> {
+    let files = if let Some(f) = existing_files {
+        f.to_vec()
+    } else {
+        get_pull_files(client, token, owner, repo, number).await?
+    };
+
+    let mut diff = String::new();
+    for file in &files {
+        let Some(patch) = &file.patch else {
+            continue;
+        };
+
+        let old_path = file.previous_filename.as_deref().unwrap_or(&file.filename);
+        let new_path = &file.filename;
+
+        let (a_path, b_path) = match file.status.as_str() {
+            "added" => ("/dev/null", new_path.as_str()),
+            "removed" => (old_path, "/dev/null"),
+            _ => (old_path, new_path.as_str()),
+        };
+
+        diff.push_str(&format!("diff --git a/{old_path} b/{new_path}\n"));
+        diff.push_str(&format!(
+            "--- {}\n",
+            if a_path == "/dev/null" {
+                a_path.to_string()
+            } else {
+                format!("a/{a_path}")
+            }
+        ));
+        diff.push_str(&format!(
+            "+++ {}\n",
+            if b_path == "/dev/null" {
+                b_path.to_string()
+            } else {
+                format!("b/{b_path}")
+            }
+        ));
+        diff.push_str(patch);
+        if !patch.ends_with('\n') {
+            diff.push('\n');
+        }
+    }
+
+    Ok(diff)
+}
+
+/// Get the list of files changed in a pull request (paginated, up to 3000 files).
 pub async fn get_pull_files(
     client: &reqwest::Client,
     token: &str,
@@ -345,12 +419,27 @@ pub async fn get_pull_files(
     repo: &str,
     number: u32,
 ) -> Result<Vec<PrFile>, String> {
-    api_get(
-        client,
-        token,
-        &format!("/repos/{owner}/{repo}/pulls/{number}/files?per_page=100"),
-    )
-    .await
+    let mut all_files: Vec<PrFile> = Vec::new();
+    let mut page = 1u32;
+
+    loop {
+        let batch: Vec<PrFile> = api_get(
+            client,
+            token,
+            &format!("/repos/{owner}/{repo}/pulls/{number}/files?per_page=100&page={page}"),
+        )
+        .await?;
+
+        let done = batch.len() < 100;
+        all_files.extend(batch);
+
+        if done || page >= 30 {
+            break;
+        }
+        page += 1;
+    }
+
+    Ok(all_files)
 }
 
 /// Get review comments on a pull request.

@@ -2588,6 +2588,8 @@ mod tests {
             additions: 1,
             deletions: 1,
             changes: 2,
+            patch: None,
+            previous_filename: None,
         }
     }
 

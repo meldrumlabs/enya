@@ -4,6 +4,10 @@ All notable changes to the Enya editor will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Large PR diff fallback**: PRs with diffs exceeding GitHub's 20,000-line API limit (HTTP 406) now gracefully fall back to reconstructing the diff from per-file patches instead of showing an error. Also added pagination to the files endpoint to support PRs with more than 100 changed files.
+
 ### Added
 
 - **Auto-merge fallback for PR merge**: When a direct merge fails due to branch protection or merge queue requirements (HTTP 405), the merge button now automatically falls back to enabling GitHub auto-merge via the GraphQL API. The UI shows "Auto-merge enabled" to distinguish from an immediate merge.
