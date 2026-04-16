@@ -347,9 +347,7 @@ pub async fn get_pull_diff(
 
     // 406 means the diff exceeded GitHub's line limit — reconstruct from per-file patches
     if status == reqwest::StatusCode::NOT_ACCEPTABLE {
-        log::warn!(
-            "PR #{number} diff too large for GitHub API, reconstructing from file patches"
-        );
+        log::warn!("PR #{number} diff too large for GitHub API, reconstructing from file patches");
         return reconstruct_diff_from_files(client, token, owner, repo, number, files).await;
     }
 
@@ -378,10 +376,7 @@ async fn reconstruct_diff_from_files(
             continue;
         };
 
-        let old_path = file
-            .previous_filename
-            .as_deref()
-            .unwrap_or(&file.filename);
+        let old_path = file.previous_filename.as_deref().unwrap_or(&file.filename);
         let new_path = &file.filename;
 
         let (a_path, b_path) = match file.status.as_str() {
@@ -391,8 +386,22 @@ async fn reconstruct_diff_from_files(
         };
 
         diff.push_str(&format!("diff --git a/{old_path} b/{new_path}\n"));
-        diff.push_str(&format!("--- {}\n", if a_path == "/dev/null" { a_path.to_string() } else { format!("a/{a_path}") }));
-        diff.push_str(&format!("+++ {}\n", if b_path == "/dev/null" { b_path.to_string() } else { format!("b/{b_path}") }));
+        diff.push_str(&format!(
+            "--- {}\n",
+            if a_path == "/dev/null" {
+                a_path.to_string()
+            } else {
+                format!("a/{a_path}")
+            }
+        ));
+        diff.push_str(&format!(
+            "+++ {}\n",
+            if b_path == "/dev/null" {
+                b_path.to_string()
+            } else {
+                format!("b/{b_path}")
+            }
+        ));
         diff.push_str(patch);
         if !patch.ends_with('\n') {
             diff.push('\n');
@@ -417,9 +426,7 @@ pub async fn get_pull_files(
         let batch: Vec<PrFile> = api_get(
             client,
             token,
-            &format!(
-                "/repos/{owner}/{repo}/pulls/{number}/files?per_page=100&page={page}"
-            ),
+            &format!("/repos/{owner}/{repo}/pulls/{number}/files?per_page=100&page={page}"),
         )
         .await?;
 

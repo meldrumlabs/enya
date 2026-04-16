@@ -673,7 +673,9 @@ impl PrReviewPane {
                 let result = async {
                     let pr = api::get_pull(&client, &token, &owner, &repo, number).await?;
                     let files = api::get_pull_files(&client, &token, &owner, &repo, number).await?;
-                    let diff = api::get_pull_diff(&client, &token, &owner, &repo, number, Some(&files)).await?;
+                    let diff =
+                        api::get_pull_diff(&client, &token, &owner, &repo, number, Some(&files))
+                            .await?;
                     Ok((pr, files, diff))
                 }
                 .await;
@@ -792,7 +794,9 @@ impl PrReviewPane {
                 let result = async {
                     let pr = api::get_pull(&client, &token, &owner, &repo, number).await?;
                     let files = api::get_pull_files(&client, &token, &owner, &repo, number).await?;
-                    let diff = api::get_pull_diff(&client, &token, &owner, &repo, number, Some(&files)).await?;
+                    let diff =
+                        api::get_pull_diff(&client, &token, &owner, &repo, number, Some(&files))
+                            .await?;
                     let mut file_diffs = crate::git::diff::parse_diff_into_files(&diff);
                     file_diffs.sort_by(|a, b| a.path.cmp(&b.path));
                     let review_comments =
