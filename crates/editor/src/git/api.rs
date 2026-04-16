@@ -23,6 +23,8 @@ fn github_api_base() -> &'static str {
 #[derive(Debug, Clone, Deserialize)]
 pub struct PullRequest {
     pub number: u32,
+    /// GraphQL node ID, needed for the auto-merge mutation.
+    pub node_id: String,
     pub title: String,
     pub body: Option<String>,
     pub state: String,
@@ -529,16 +531,30 @@ impl MergeMethod {
     }
 }
 
+/// Outcome of a merge attempt.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MergeOutcome {
+    /// The PR was merged immediately.
+    Merged,
+    /// Direct merge was blocked (e.g. merge queue); auto-merge was enabled instead.
+    AutoMergeEnabled,
+}
+
 /// Merge a pull request via PUT /repos/{owner}/{repo}/pulls/{number}/merge.
+///
+/// If the direct merge returns 405 (merge queue / branch protection), this
+/// automatically falls back to enabling auto-merge via the GraphQL API.
+#[allow(clippy::too_many_arguments)]
 pub async fn merge_pull(
     client: &reqwest::Client,
     token: &str,
     owner: &str,
     repo: &str,
     number: u32,
+    node_id: &str,
     commit_title: Option<&str>,
     merge_method: MergeMethod,
-) -> Result<(), String> {
+) -> Result<MergeOutcome, String> {
     let url = format!(
         "{}/repos/{owner}/{repo}/pulls/{number}/merge",
         github_api_base()
@@ -559,10 +575,79 @@ pub async fn merge_pull(
         .await
         .map_err(|e| format!("Request failed: {e}"))?;
 
+    if resp.status().is_success() {
+        return Ok(MergeOutcome::Merged);
+    }
+
+    let status = resp.status();
+    let body = resp.text().await.unwrap_or_default();
+
+    // 405 means the branch is protected by a merge queue or required checks
+    // that prevent direct merging. Fall back to enabling auto-merge.
+    if status == reqwest::StatusCode::METHOD_NOT_ALLOWED {
+        enable_auto_merge(client, token, node_id, commit_title, merge_method).await?;
+        return Ok(MergeOutcome::AutoMergeEnabled);
+    }
+
+    Err(format!("GitHub API error {status}: {body}"))
+}
+
+/// Enable auto-merge on a pull request via the GitHub GraphQL API.
+async fn enable_auto_merge(
+    client: &reqwest::Client,
+    token: &str,
+    node_id: &str,
+    commit_title: Option<&str>,
+    merge_method: MergeMethod,
+) -> Result<(), String> {
+    let graphql_method = match merge_method {
+        MergeMethod::Merge => "MERGE",
+        MergeMethod::Squash => "SQUASH",
+        MergeMethod::Rebase => "REBASE",
+    };
+
+    let title_field = match commit_title {
+        Some(t) => format!(", commitHeadline: {}", serde_json::json!(t)),
+        None => String::new(),
+    };
+
+    let query = format!(
+        r#"mutation {{
+  enablePullRequestAutoMerge(input: {{
+    pullRequestId: "{node_id}",
+    mergeMethod: {graphql_method}{title_field}
+  }}) {{
+    pullRequest {{
+      autoMergeRequest {{
+        enabledAt
+      }}
+    }}
+  }}
+}}"#
+    );
+
+    let url = format!("{}/graphql", github_api_base());
+    let resp = client
+        .post(&url)
+        .headers(api_headers(token))
+        .json(&serde_json::json!({ "query": query }))
+        .send()
+        .await
+        .map_err(|e| format!("GraphQL request failed: {e}"))?;
+
     if !resp.status().is_success() {
         let status = resp.status();
         let body = resp.text().await.unwrap_or_default();
-        return Err(format!("GitHub API error {status}: {body}"));
+        return Err(format!("GitHub GraphQL error {status}: {body}"));
+    }
+
+    let body: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("GraphQL parse failed: {e}"))?;
+
+    if let Some(errors) = body.get("errors") {
+        return Err(format!("GitHub GraphQL errors: {errors}"));
     }
 
     Ok(())

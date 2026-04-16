@@ -72,7 +72,7 @@ type PrDetailResult = Result<(PullRequest, Vec<PrFile>, String), String>;
 type PrCommentsResult = Result<(Vec<PrComment>, Vec<IssueComment>, Vec<PrReview>), String>;
 type PrChecksResult = Result<Vec<CheckRun>, String>;
 type PrSubmitResult = Result<(), String>;
-type PrMergeResult = Result<(), String>;
+type PrMergeResult = Result<api::MergeOutcome, String>;
 type SingleCommentResult = Result<PrComment, String>;
 type AvatarResult = (String, Result<Vec<u8>, String>);
 
@@ -876,12 +876,22 @@ impl PrReviewPane {
         let owner = self.owner.clone();
         let repo = self.repo.clone();
         let number = pr.number;
+        let node_id = pr.node_id.clone();
         let merge_method = self.merge_method;
         let pending = Arc::clone(&self.pending_merge);
 
         self.async_runtime.spawn(async move {
-            let result =
-                api::merge_pull(&client, &token, &owner, &repo, number, None, merge_method).await;
+            let result = api::merge_pull(
+                &client,
+                &token,
+                &owner,
+                &repo,
+                number,
+                &node_id,
+                None,
+                merge_method,
+            )
+            .await;
             *pending.lock() = Some(result);
         });
     }
@@ -1090,8 +1100,12 @@ impl PrReviewPane {
         if let Some(result) = merge_result {
             self.merging = false;
             match result {
-                Ok(()) => {
-                    self.submit_success = Some("Pull request merged".to_string());
+                Ok(outcome) => {
+                    let msg = match outcome {
+                        api::MergeOutcome::Merged => "Pull request merged",
+                        api::MergeOutcome::AutoMergeEnabled => "Auto-merge enabled",
+                    };
+                    self.submit_success = Some(msg.to_string());
                     self.flash_start = Some(crate::util::Instant::now());
                     self.flash_is_success = true;
                     self.merge_popup_open = false;

@@ -6,6 +6,7 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Added
 
+- **Auto-merge fallback for PR merge**: When a direct merge fails due to branch protection or merge queue requirements (HTTP 405), the merge button now automatically falls back to enabling GitHub auto-merge via the GraphQL API. The UI shows "Auto-merge enabled" to distinguish from an immediate merge.
 - **Markdown preview in PR review**: When viewing `.md`, `.mdx`, or `.markdown` files in the PR review diff view, an eye icon toggle appears in the toolbar. Clicking it renders the new file content as formatted markdown (headings, code blocks, lists, links, etc.) instead of the raw diff. Supports `j`/`k` vim-style scrolling, arrow keys, `Ctrl+D`/`Ctrl+U` half-page jumps, and `Shift+G` to jump to bottom. Preview state resets when navigating to another file.
 
 ### Changed
