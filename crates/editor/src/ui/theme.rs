@@ -49,6 +49,14 @@ pub enum AppTheme {
     Neon,
     /// Onyx theme - True dark with gold accent #D4AF37
     Onyx,
+    /// RosePine theme - Muted warmth with soft purple accent #C4A7E7
+    RosePine,
+    /// Everforest theme - Nature-tuned greens for reduced eye strain #A7C080
+    Everforest,
+    /// Catppuccin theme - Pastel engineering with blue accent #89B4FA
+    Catppuccin,
+    /// Arrakis theme - Dune-inspired desert palette with spice orange accent #C27D38
+    Arrakis,
     /// System theme - follows OS light/dark preference, resolves to Light or Dark at runtime
     System,
     /// Custom theme from plugin - carries resolved colors directly
@@ -73,6 +81,10 @@ impl AppTheme {
             Self::Void => "Void",
             Self::Neon => "Neon",
             Self::Onyx => "Onyx",
+            Self::RosePine => "Rosé Pine",
+            Self::Everforest => "Everforest",
+            Self::Catppuccin => "Catppuccin",
+            Self::Arrakis => "Arrakis",
             Self::System => "System",
             Self::Custom(_) => "Custom",
         }
@@ -95,6 +107,10 @@ impl AppTheme {
             Self::Void,
             Self::Neon,
             Self::Onyx,
+            Self::RosePine,
+            Self::Everforest,
+            Self::Catppuccin,
+            Self::Arrakis,
         ]
     }
 
@@ -102,7 +118,9 @@ impl AppTheme {
     pub fn is_dark(&self) -> bool {
         match self {
             Self::Custom(colors) => colors.is_dark,
-            Self::Light | Self::Parchment | Self::Stockholm | Self::Copenhagen => false,
+            Self::Light | Self::Parchment | Self::Stockholm | Self::Copenhagen | Self::Arrakis => {
+                false
+            }
             _ => true,
         }
     }
@@ -137,6 +155,10 @@ impl AppTheme {
             "void" => Some(Self::Void),
             "neon" => Some(Self::Neon),
             "onyx" => Some(Self::Onyx),
+            "rosepine" | "rosé pine" | "rose pine" => Some(Self::RosePine),
+            "everforest" => Some(Self::Everforest),
+            "catppuccin" | "catppuccin mocha" => Some(Self::Catppuccin),
+            "arrakis" | "dune" => Some(Self::Arrakis),
             "system" => Some(Self::System),
             _ => None,
         }
@@ -179,6 +201,10 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(0, 0, 0),            // True OLED black
             Self::Neon => Color32::from_rgb(5, 5, 8),            // Deep near-black
             Self::Onyx => Color32::from_rgb(12, 12, 12),         // True dark neutral
+            Self::RosePine => Color32::from_rgb(25, 23, 36),
+            Self::Everforest => Color32::from_rgb(39, 46, 51),
+            Self::Catppuccin => Color32::from_rgb(30, 30, 46),
+            Self::Arrakis => Color32::from_rgb(20, 18, 14),
             Self::System | Self::Dark => Color32::from_rgb(8, 8, 10), // Obsidian dark
         }
     }
@@ -199,6 +225,10 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(8, 8, 14),           // Near-black with violet tint
             Self::Neon => Color32::from_rgb(12, 10, 16),         // Dark with magenta tint
             Self::Onyx => Color32::from_rgb(18, 18, 16),         // Warm dark surface
+            Self::RosePine => Color32::from_rgb(31, 29, 46),
+            Self::Everforest => Color32::from_rgb(46, 56, 60),
+            Self::Catppuccin => Color32::from_rgb(36, 36, 62),
+            Self::Arrakis => Color32::from_rgb(28, 25, 20),
             Self::System | Self::Dark => Color32::from_rgb(18, 18, 21),
         }
     }
@@ -219,6 +249,10 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(16, 16, 26),         // Dark violet
             Self::Neon => Color32::from_rgb(22, 18, 28),         // Dark magenta
             Self::Onyx => Color32::from_rgb(28, 28, 24),         // Warm elevated
+            Self::RosePine => Color32::from_rgb(38, 35, 58),
+            Self::Everforest => Color32::from_rgb(55, 65, 69),
+            Self::Catppuccin => Color32::from_rgb(49, 50, 68),
+            Self::Arrakis => Color32::from_rgb(38, 34, 28),
             Self::System | Self::Dark => Color32::from_rgb(26, 26, 30),
         }
     }
@@ -239,6 +273,10 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(24, 24, 38),         // Subtle violet lift
             Self::Neon => Color32::from_rgb(32, 26, 40),         // Subtle magenta lift
             Self::Onyx => Color32::from_rgb(38, 38, 32),         // Warm hover
+            Self::RosePine => Color32::from_rgb(48, 44, 68),
+            Self::Everforest => Color32::from_rgb(65, 75, 80),
+            Self::Catppuccin => Color32::from_rgb(59, 60, 78),
+            Self::Arrakis => Color32::from_rgb(48, 42, 34),
             Self::System | Self::Dark => Color32::from_rgb(36, 36, 40),
         }
     }
@@ -259,6 +297,10 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(30, 20, 55),         // Violet tint selected
             Self::Neon => Color32::from_rgb(45, 20, 40),         // Magenta tint selected
             Self::Onyx => Color32::from_rgb(40, 35, 22),         // Gold tint selected
+            Self::RosePine => Color32::from_rgb(42, 39, 64),
+            Self::Everforest => Color32::from_rgb(45, 58, 46),
+            Self::Catppuccin => Color32::from_rgb(30, 39, 64),
+            Self::Arrakis => Color32::from_rgb(40, 34, 22),
             Self::System | Self::Dark => Color32::from_rgb(28, 42, 36), // Emerald tint
         }
     }
@@ -279,6 +321,10 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(10, 10, 18),         // Deep card
             Self::Neon => Color32::from_rgb(15, 12, 20),         // Deep card
             Self::Onyx => Color32::from_rgb(22, 22, 18),         // Warm card
+            Self::RosePine => Color32::from_rgb(28, 26, 42),
+            Self::Everforest => Color32::from_rgb(42, 50, 56),
+            Self::Catppuccin => Color32::from_rgb(33, 33, 54),
+            Self::Arrakis => Color32::from_rgb(24, 22, 18),
             Self::System | Self::Dark => Color32::from_rgb(18, 18, 22),
         }
     }
@@ -299,6 +345,10 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(4, 4, 8),            // Deeper than base
             Self::Neon => Color32::from_rgb(3, 3, 6),            // Deeper than base
             Self::Onyx => Color32::from_rgb(8, 8, 6),            // Deeper than base
+            Self::RosePine => Color32::from_rgb(20, 18, 30),
+            Self::Everforest => Color32::from_rgb(33, 40, 45),
+            Self::Catppuccin => Color32::from_rgb(24, 24, 40),
+            Self::Arrakis => Color32::from_rgb(14, 12, 10),
             Self::System | Self::Dark => Color32::from_rgb(12, 12, 15),
         }
     }
@@ -323,6 +373,10 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(28, 28, 42),         // Subtle violet border
             Self::Neon => Color32::from_rgb(30, 26, 38),         // Subtle magenta border
             Self::Onyx => Color32::from_rgb(35, 35, 30),         // Warm subtle border
+            Self::RosePine => Color32::from_rgb(38, 35, 58),
+            Self::Everforest => Color32::from_rgb(55, 65, 69),
+            Self::Catppuccin => Color32::from_rgb(49, 50, 68),
+            Self::Arrakis => Color32::from_rgb(42, 38, 30),
             Self::System | Self::Dark => Color32::from_rgb(38, 38, 44),
         }
     }
@@ -343,6 +397,10 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(42, 42, 60),         // Default violet border
             Self::Neon => Color32::from_rgb(48, 40, 58),         // Default magenta border
             Self::Onyx => Color32::from_rgb(52, 50, 42),         // Warm default border
+            Self::RosePine => Color32::from_rgb(52, 48, 74),
+            Self::Everforest => Color32::from_rgb(65, 75, 80),
+            Self::Catppuccin => Color32::from_rgb(69, 71, 90),
+            Self::Arrakis => Color32::from_rgb(58, 52, 40),
             Self::System | Self::Dark => Color32::from_rgb(52, 52, 60),
         }
     }
@@ -363,6 +421,10 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(124, 58, 237),       // Electric violet focus #7C3AED
             Self::Neon => Color32::from_rgb(224, 64, 160),       // Hot magenta focus #E040A0
             Self::Onyx => Color32::from_rgb(212, 175, 55),       // Gold focus #D4AF37
+            Self::RosePine => Color32::from_rgb(196, 167, 231),
+            Self::Everforest => Color32::from_rgb(167, 192, 128),
+            Self::Catppuccin => Color32::from_rgb(137, 180, 250),
+            Self::Arrakis => Color32::from_rgb(210, 140, 60),
             Self::System | Self::Dark => Color32::from_rgb(55, 80, 72),
         }
     }
@@ -387,6 +449,10 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(232, 232, 240),   // Cool off-white
             Self::Neon => Color32::from_rgb(232, 232, 240),   // Cool off-white
             Self::Onyx => Color32::from_rgb(220, 216, 204),   // Warm off-white
+            Self::RosePine => Color32::from_rgb(224, 222, 244),
+            Self::Everforest => Color32::from_rgb(211, 198, 170),
+            Self::Catppuccin => Color32::from_rgb(205, 214, 244),
+            Self::Arrakis => Color32::from_rgb(210, 200, 180),
             Self::System | Self::Dark => Color32::from_rgb(248, 248, 252),
         }
     }
@@ -407,6 +473,10 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(148, 148, 168),   // Muted lavender
             Self::Neon => Color32::from_rgb(155, 148, 168),   // Muted pink-gray
             Self::Onyx => Color32::from_rgb(160, 156, 140),   // Warm gray
+            Self::RosePine => Color32::from_rgb(144, 140, 170),
+            Self::Everforest => Color32::from_rgb(133, 146, 137),
+            Self::Catppuccin => Color32::from_rgb(166, 173, 200),
+            Self::Arrakis => Color32::from_rgb(145, 135, 115),
             Self::System | Self::Dark => Color32::from_rgb(158, 158, 168),
         }
     }
@@ -427,6 +497,10 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(92, 92, 112),        // Deep muted
             Self::Neon => Color32::from_rgb(100, 92, 112),       // Deep muted
             Self::Onyx => Color32::from_rgb(100, 98, 88),        // Dark warm gray
+            Self::RosePine => Color32::from_rgb(110, 106, 134),
+            Self::Everforest => Color32::from_rgb(122, 132, 120),
+            Self::Catppuccin => Color32::from_rgb(108, 112, 134),
+            Self::Arrakis => Color32::from_rgb(90, 82, 68),
             Self::System | Self::Dark => Color32::from_rgb(100, 100, 112),
         }
     }
@@ -452,6 +526,10 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(124, 58, 237),        // Electric violet #7C3AED
             Self::Neon => Color32::from_rgb(224, 64, 160),        // Hot magenta #E040A0
             Self::Onyx => Color32::from_rgb(212, 175, 55),        // Gold #D4AF37
+            Self::RosePine => Color32::from_rgb(196, 167, 231),
+            Self::Everforest => Color32::from_rgb(167, 192, 128),
+            Self::Catppuccin => Color32::from_rgb(137, 180, 250),
+            Self::Arrakis => Color32::from_rgb(210, 140, 60),
         }
     }
 
@@ -472,6 +550,10 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(167, 139, 250), // Brighter violet #A78BFA
             Self::Neon => Color32::from_rgb(255, 110, 199), // Brighter magenta #FF6EC7
             Self::Onyx => Color32::from_rgb(232, 200, 80), // Brighter gold #E8C850
+            Self::RosePine => Color32::from_rgb(212, 191, 255),
+            Self::Everforest => Color32::from_rgb(184, 212, 156),
+            Self::Catppuccin => Color32::from_rgb(180, 208, 255),
+            Self::Arrakis => Color32::from_rgb(235, 165, 80),
         }
     }
 
@@ -492,6 +574,10 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(22, 15, 45),     // Deep violet bg
             Self::Neon => Color32::from_rgb(35, 15, 30),     // Deep magenta bg
             Self::Onyx => Color32::from_rgb(30, 28, 18),     // Dark gold bg
+            Self::RosePine => Color32::from_rgb(42, 39, 64),
+            Self::Everforest => Color32::from_rgb(45, 58, 46),
+            Self::Catppuccin => Color32::from_rgb(30, 39, 64),
+            Self::Arrakis => Color32::from_rgb(36, 30, 18),
         }
     }
 
@@ -517,6 +603,10 @@ impl AppTheme {
             Self::Void => Color32::from_rgba_premultiplied(124, 58, 237, 30),
             Self::Neon => Color32::from_rgba_premultiplied(224, 64, 160, 30),
             Self::Onyx => Color32::from_rgba_premultiplied(212, 175, 55, 30),
+            Self::RosePine => Color32::from_rgba_premultiplied(196, 167, 231, 30),
+            Self::Everforest => Color32::from_rgba_premultiplied(167, 192, 128, 30),
+            Self::Catppuccin => Color32::from_rgba_premultiplied(137, 180, 250, 30),
+            Self::Arrakis => Color32::from_rgba_premultiplied(210, 140, 60, 30),
         }
     }
 
@@ -537,6 +627,10 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(30, 22, 60),     // Violet selection
             Self::Neon => Color32::from_rgb(45, 20, 40),     // Magenta selection
             Self::Onyx => Color32::from_rgb(38, 34, 22),     // Gold selection
+            Self::RosePine => Color32::from_rgb(48, 45, 72),
+            Self::Everforest => Color32::from_rgb(52, 66, 54),
+            Self::Catppuccin => Color32::from_rgb(36, 46, 72),
+            Self::Arrakis => Color32::from_rgb(42, 36, 22),
         }
     }
 
@@ -560,6 +654,10 @@ impl AppTheme {
             Self::Void => Color32::from_rgba_unmultiplied(0, 0, 0, 245),
             Self::Neon => Color32::from_rgba_unmultiplied(5, 5, 8, 245),
             Self::Onyx => Color32::from_rgba_unmultiplied(12, 12, 12, 245),
+            Self::RosePine => Color32::from_rgba_unmultiplied(25, 23, 36, 245),
+            Self::Everforest => Color32::from_rgba_unmultiplied(39, 46, 51, 245),
+            Self::Catppuccin => Color32::from_rgba_unmultiplied(30, 30, 46, 245),
+            Self::Arrakis => Color32::from_rgba_unmultiplied(20, 18, 14, 245),
             Self::System | Self::Dark => Color32::from_rgba_unmultiplied(14, 14, 16, 245),
         }
     }
@@ -580,6 +678,10 @@ impl AppTheme {
             Self::Void => Color32::from_rgba_unmultiplied(0, 0, 0, 235),
             Self::Neon => Color32::from_rgba_unmultiplied(3, 3, 6, 235),
             Self::Onyx => Color32::from_rgba_unmultiplied(8, 8, 6, 235),
+            Self::RosePine => Color32::from_rgba_unmultiplied(22, 20, 32, 235),
+            Self::Everforest => Color32::from_rgba_unmultiplied(36, 42, 46, 235),
+            Self::Catppuccin => Color32::from_rgba_unmultiplied(26, 26, 40, 235),
+            Self::Arrakis => Color32::from_rgba_unmultiplied(14, 12, 10, 235),
             Self::System | Self::Dark => Color32::from_rgba_unmultiplied(12, 12, 14, 235),
         }
     }
@@ -600,6 +702,10 @@ impl AppTheme {
             Self::Void => Color32::from_rgba_unmultiplied(42, 42, 60, 160),
             Self::Neon => Color32::from_rgba_unmultiplied(48, 40, 58, 160),
             Self::Onyx => Color32::from_rgba_unmultiplied(52, 50, 42, 160),
+            Self::RosePine => Color32::from_rgba_unmultiplied(52, 48, 74, 160),
+            Self::Everforest => Color32::from_rgba_unmultiplied(65, 75, 80, 160),
+            Self::Catppuccin => Color32::from_rgba_unmultiplied(69, 71, 90, 160),
+            Self::Arrakis => Color32::from_rgba_unmultiplied(58, 52, 40, 160),
             Self::System | Self::Dark => Color32::from_rgba_unmultiplied(45, 45, 48, 160),
         }
     }
@@ -646,6 +752,10 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(4, 4, 8),        // Popup void
             Self::Neon => Color32::from_rgb(5, 5, 8),        // Popup neon
             Self::Onyx => Color32::from_rgb(8, 8, 6),        // Popup onyx
+            Self::RosePine => Color32::from_rgb(20, 18, 30),
+            Self::Everforest => Color32::from_rgb(33, 40, 45),
+            Self::Catppuccin => Color32::from_rgb(24, 24, 40),
+            Self::Arrakis => Color32::from_rgb(14, 12, 10),
             Self::System | Self::Dark => Color32::from_rgb(16, 16, 20),
         }
     }
@@ -666,6 +776,10 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(60, 40, 90),     // Violet tint border
             Self::Neon => Color32::from_rgb(70, 40, 65),     // Magenta tint border
             Self::Onyx => Color32::from_rgb(65, 58, 35),     // Gold tint border
+            Self::RosePine => Color32::from_rgb(62, 58, 88),
+            Self::Everforest => Color32::from_rgb(65, 78, 66),
+            Self::Catppuccin => Color32::from_rgb(50, 59, 84),
+            Self::Arrakis => Color32::from_rgb(58, 52, 40),
             Self::System | Self::Dark => Color32::from_rgb(50, 55, 52),
         }
     }
@@ -695,6 +809,10 @@ impl AppTheme {
             Self::Void => Color32::from_rgba_unmultiplied(0, 0, 0, 200),
             Self::Neon => Color32::from_rgba_unmultiplied(3, 3, 5, 200),
             Self::Onyx => Color32::from_rgba_unmultiplied(6, 6, 6, 200),
+            Self::RosePine => Color32::from_rgba_unmultiplied(25, 23, 36, 200),
+            Self::Everforest => Color32::from_rgba_unmultiplied(39, 46, 51, 200),
+            Self::Catppuccin => Color32::from_rgba_unmultiplied(30, 30, 46, 200),
+            Self::Arrakis => Color32::from_rgba_unmultiplied(10, 8, 6, 200),
             Self::System | Self::Dark => Color32::from_rgba_unmultiplied(4, 4, 6, 200),
         }
     }
@@ -720,6 +838,10 @@ impl AppTheme {
             Self::Void => Color32::from_rgba_unmultiplied(0, 0, 0, 210),
             Self::Neon => Color32::from_rgba_unmultiplied(3, 3, 5, 210),
             Self::Onyx => Color32::from_rgba_unmultiplied(6, 6, 6, 210),
+            Self::RosePine => Color32::from_rgba_unmultiplied(25, 23, 36, 210),
+            Self::Everforest => Color32::from_rgba_unmultiplied(39, 46, 51, 210),
+            Self::Catppuccin => Color32::from_rgba_unmultiplied(30, 30, 46, 210),
+            Self::Arrakis => Color32::from_rgba_unmultiplied(10, 8, 6, 210),
             Self::System | Self::Dark => Color32::from_rgba_unmultiplied(4, 4, 6, 210),
         }
     }
@@ -764,6 +886,10 @@ impl AppTheme {
             Self::Void => Some(Color32::from_rgba_unmultiplied(124, 58, 237, 8)),
             Self::Neon => Some(Color32::from_rgba_unmultiplied(224, 64, 160, 8)),
             Self::Onyx => Some(Color32::from_rgba_unmultiplied(212, 175, 55, 8)),
+            Self::RosePine => Some(Color32::from_rgba_unmultiplied(196, 167, 231, 8)),
+            Self::Everforest => Some(Color32::from_rgba_unmultiplied(167, 192, 128, 8)),
+            Self::Catppuccin => Some(Color32::from_rgba_unmultiplied(137, 180, 250, 8)),
+            Self::Arrakis => Some(Color32::from_rgba_unmultiplied(210, 140, 60, 8)),
         }
     }
 
@@ -787,6 +913,10 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(35, 25, 65),     // Violet tint highlight
             Self::Neon => Color32::from_rgb(45, 20, 40),     // Magenta tint highlight
             Self::Onyx => Color32::from_rgb(35, 30, 18),     // Gold tint highlight
+            Self::RosePine => Color32::from_rgb(42, 39, 64),
+            Self::Everforest => Color32::from_rgb(45, 58, 46),
+            Self::Catppuccin => Color32::from_rgb(30, 39, 64),
+            Self::Arrakis => Color32::from_rgb(42, 36, 22),
             Self::System | Self::Dark => Color32::from_rgb(16, 60, 48),
         }
     }
@@ -808,6 +938,10 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(167, 139, 250),    // Bright violet
             Self::Neon => Color32::from_rgb(255, 110, 199),    // Bright magenta
             Self::Onyx => Color32::from_rgb(232, 200, 80),     // Bright gold
+            Self::RosePine => Color32::from_rgb(212, 191, 255),
+            Self::Everforest => Color32::from_rgb(184, 212, 156),
+            Self::Catppuccin => Color32::from_rgb(180, 208, 255),
+            Self::Arrakis => Color32::from_rgb(235, 165, 80),
             Self::System | Self::Dark => Color32::from_rgb(255, 200, 80),
         }
     }
@@ -833,6 +967,10 @@ impl AppTheme {
             Self::Void => Color32::from_rgba_unmultiplied(124, 58, 237, 30),
             Self::Neon => Color32::from_rgba_unmultiplied(224, 64, 160, 30),
             Self::Onyx => Color32::from_rgba_unmultiplied(212, 175, 55, 30),
+            Self::RosePine => Color32::from_rgba_unmultiplied(196, 167, 231, 30),
+            Self::Everforest => Color32::from_rgba_unmultiplied(167, 192, 128, 30),
+            Self::Catppuccin => Color32::from_rgba_unmultiplied(137, 180, 250, 30),
+            Self::Arrakis => Color32::from_rgba_unmultiplied(210, 140, 60, 20),
             Self::System | Self::Dark => Color32::from_rgba_unmultiplied(255, 220, 0, 30),
         }
     }
@@ -857,6 +995,10 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(167, 139, 250),     // Bright violet
             Self::Neon => Color32::from_rgb(255, 110, 199),     // Bright magenta
             Self::Onyx => Color32::from_rgb(232, 200, 80),      // Bright gold
+            Self::RosePine => Color32::from_rgb(196, 167, 231),
+            Self::Everforest => Color32::from_rgb(167, 192, 128),
+            Self::Catppuccin => Color32::from_rgb(203, 166, 247),
+            Self::Arrakis => Color32::from_rgb(145, 135, 115),
             Self::System | Self::Dark => Color32::from_rgb(180, 150, 220),
         }
     }
@@ -882,6 +1024,10 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(96, 165, 250),     // Blue
             Self::Neon => Color32::from_rgb(96, 165, 250),     // Blue
             Self::Onyx => Color32::from_rgb(130, 160, 210),    // Warm blue
+            Self::RosePine => Color32::from_rgb(196, 167, 231),
+            Self::Everforest => Color32::from_rgb(127, 187, 179),
+            Self::Catppuccin => Color32::from_rgb(137, 180, 250),
+            Self::Arrakis => Color32::from_rgb(92, 160, 120),
             Self::System | Self::Dark => Color32::from_rgb(120, 200, 220),
         }
     }
@@ -911,6 +1057,10 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(96, 165, 250),      // Sky blue
             Self::Neon => Color32::from_rgb(96, 165, 250),      // Sky blue
             Self::Onyx => Color32::from_rgb(130, 160, 210),     // Warm blue
+            Self::RosePine => Color32::from_rgb(196, 167, 231),
+            Self::Everforest => Color32::from_rgb(127, 187, 179),
+            Self::Catppuccin => Color32::from_rgb(137, 180, 250),
+            Self::Arrakis => Color32::from_rgb(92, 160, 120),
             Self::System | Self::Dark => Color32::from_rgb(130, 180, 255),
         }
     }
@@ -931,6 +1081,10 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(52, 211, 153),     // Green
             Self::Neon => Color32::from_rgb(52, 211, 153),     // Green
             Self::Onyx => Color32::from_rgb(52, 185, 100),     // Green
+            Self::RosePine => Color32::from_rgb(156, 207, 216),
+            Self::Everforest => Color32::from_rgb(167, 192, 128),
+            Self::Catppuccin => Color32::from_rgb(166, 227, 161),
+            Self::Arrakis => Color32::from_rgb(210, 140, 60),
             Self::System | Self::Dark => Color32::from_rgb(150, 220, 120),
         }
     }
@@ -951,6 +1105,10 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(42, 42, 60),     // Default violet border
             Self::Neon => Color32::from_rgb(48, 40, 58),     // Default magenta border
             Self::Onyx => Color32::from_rgb(52, 50, 42),     // Warm default border
+            Self::RosePine => Color32::from_rgb(52, 48, 74),
+            Self::Everforest => Color32::from_rgb(65, 75, 80),
+            Self::Catppuccin => Color32::from_rgb(69, 71, 90),
+            Self::Arrakis => Color32::from_rgb(58, 52, 40),
             Self::System | Self::Dark => Color32::from_rgb(60, 60, 70),
         }
     }
@@ -971,6 +1129,10 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(8, 8, 14),       // Buffer void
             Self::Neon => Color32::from_rgb(12, 10, 16),     // Buffer neon
             Self::Onyx => Color32::from_rgb(18, 18, 16),     // Buffer onyx
+            Self::RosePine => Color32::from_rgb(28, 26, 42),
+            Self::Everforest => Color32::from_rgb(42, 50, 56),
+            Self::Catppuccin => Color32::from_rgb(33, 33, 54),
+            Self::Arrakis => Color32::from_rgb(24, 22, 18),
             Self::System | Self::Dark => Color32::from_rgb(25, 25, 30),
         }
     }
@@ -991,6 +1153,10 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(0, 0, 0),        // Content bg void
             Self::Neon => Color32::from_rgb(5, 5, 8),        // Content bg neon
             Self::Onyx => Color32::from_rgb(12, 12, 12),     // Content bg onyx
+            Self::RosePine => Color32::from_rgb(25, 23, 36),
+            Self::Everforest => Color32::from_rgb(39, 46, 51),
+            Self::Catppuccin => Color32::from_rgb(30, 30, 46),
+            Self::Arrakis => Color32::from_rgb(20, 18, 14),
             Self::System | Self::Dark => Color32::from_rgb(20, 20, 25),
         }
     }
@@ -1015,6 +1181,10 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(52, 211, 153),    // Green
             Self::Neon => Color32::from_rgb(52, 211, 153),    // Green
             Self::Onyx => Color32::from_rgb(52, 185, 100),    // Green
+            Self::RosePine => Color32::from_rgb(156, 207, 216),
+            Self::Everforest => Color32::from_rgb(167, 192, 128),
+            Self::Catppuccin => Color32::from_rgb(166, 227, 161),
+            Self::Arrakis => Color32::from_rgb(92, 168, 88),
             Self::System | Self::Dark => Color32::from_rgb(34, 197, 94),
         }
     }
@@ -1035,6 +1205,10 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(251, 191, 36),    // Amber
             Self::Neon => Color32::from_rgb(251, 191, 36),    // Amber
             Self::Onyx => Color32::from_rgb(232, 180, 60),    // Warm amber
+            Self::RosePine => Color32::from_rgb(246, 193, 119),
+            Self::Everforest => Color32::from_rgb(219, 188, 127),
+            Self::Catppuccin => Color32::from_rgb(249, 226, 175),
+            Self::Arrakis => Color32::from_rgb(210, 140, 60),
             Self::System | Self::Dark => Color32::from_rgb(251, 176, 45),
         }
     }
@@ -1055,6 +1229,10 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(248, 113, 113),   // Red
             Self::Neon => Color32::from_rgb(248, 113, 113),   // Red
             Self::Onyx => Color32::from_rgb(230, 100, 100),   // Soft red
+            Self::RosePine => Color32::from_rgb(235, 111, 146),
+            Self::Everforest => Color32::from_rgb(230, 126, 128),
+            Self::Catppuccin => Color32::from_rgb(243, 139, 168),
+            Self::Arrakis => Color32::from_rgb(210, 80, 65),
             Self::System | Self::Dark => Color32::from_rgb(239, 82, 82),
         }
     }
@@ -1075,6 +1253,10 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(96, 165, 250),    // Blue
             Self::Neon => Color32::from_rgb(96, 165, 250),    // Blue
             Self::Onyx => Color32::from_rgb(130, 160, 210),   // Warm blue
+            Self::RosePine => Color32::from_rgb(196, 167, 231),
+            Self::Everforest => Color32::from_rgb(127, 187, 179),
+            Self::Catppuccin => Color32::from_rgb(137, 180, 250),
+            Self::Arrakis => Color32::from_rgb(100, 150, 210),
             Self::System | Self::Dark => Color32::from_rgb(82, 146, 255),
         }
     }
@@ -1099,6 +1281,10 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(124, 58, 237),      // Electric violet
             Self::Neon => Color32::from_rgb(224, 64, 160),      // Hot magenta
             Self::Onyx => Color32::from_rgb(212, 175, 55),      // Gold
+            Self::RosePine => Color32::from_rgb(235, 111, 146),
+            Self::Everforest => Color32::from_rgb(230, 126, 128),
+            Self::Catppuccin => Color32::from_rgb(203, 166, 247),
+            Self::Arrakis => Color32::from_rgb(110, 150, 210),
             Self::System | Self::Dark => Color32::from_rgb(198, 146, 255),
         }
     }
@@ -1119,6 +1305,10 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(96, 165, 250),     // Blue
             Self::Neon => Color32::from_rgb(96, 165, 250),     // Blue
             Self::Onyx => Color32::from_rgb(130, 160, 210),    // Warm blue
+            Self::RosePine => Color32::from_rgb(196, 167, 231),
+            Self::Everforest => Color32::from_rgb(127, 187, 179),
+            Self::Catppuccin => Color32::from_rgb(137, 180, 250),
+            Self::Arrakis => Color32::from_rgb(100, 150, 210),
             Self::System | Self::Dark => Color32::from_rgb(110, 190, 248),
         }
     }
@@ -1139,6 +1329,10 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(52, 211, 153),     // Green
             Self::Neon => Color32::from_rgb(52, 211, 153),     // Green
             Self::Onyx => Color32::from_rgb(52, 185, 100),     // Green
+            Self::RosePine => Color32::from_rgb(246, 193, 119),
+            Self::Everforest => Color32::from_rgb(219, 188, 127),
+            Self::Catppuccin => Color32::from_rgb(166, 227, 161),
+            Self::Arrakis => Color32::from_rgb(200, 170, 100),
             Self::System | Self::Dark => Color32::from_rgb(52, 211, 153),
         }
     }
@@ -1159,6 +1353,10 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(148, 148, 168),      // Muted
             Self::Neon => Color32::from_rgb(155, 148, 168),      // Muted
             Self::Onyx => Color32::from_rgb(160, 156, 140),      // Warm muted
+            Self::RosePine => Color32::from_rgb(144, 140, 170),
+            Self::Everforest => Color32::from_rgb(133, 146, 137),
+            Self::Catppuccin => Color32::from_rgb(166, 173, 200),
+            Self::Arrakis => Color32::from_rgb(155, 145, 125),
             Self::System | Self::Dark => Color32::from_rgb(140, 140, 155),
         }
     }
@@ -1179,6 +1377,10 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(85, 85, 104),        // Dark muted
             Self::Neon => Color32::from_rgb(85, 80, 96),         // Dark muted
             Self::Onyx => Color32::from_rgb(88, 85, 72),         // Dark warm
+            Self::RosePine => Color32::from_rgb(110, 106, 134),
+            Self::Everforest => Color32::from_rgb(122, 132, 120),
+            Self::Catppuccin => Color32::from_rgb(108, 112, 134),
+            Self::Arrakis => Color32::from_rgb(90, 82, 68),
             Self::System | Self::Dark => Color32::from_rgb(128, 128, 128),
         }
     }
@@ -1199,6 +1401,10 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(167, 139, 250),   // Bright violet
             Self::Neon => Color32::from_rgb(255, 110, 199),   // Bright magenta
             Self::Onyx => Color32::from_rgb(232, 200, 80),    // Bright gold
+            Self::RosePine => Color32::from_rgb(196, 167, 231),
+            Self::Everforest => Color32::from_rgb(167, 192, 128),
+            Self::Catppuccin => Color32::from_rgb(137, 180, 250),
+            Self::Arrakis => Color32::from_rgb(235, 165, 80),
             Self::System | Self::Dark => Color32::from_rgb(100, 160, 255),
         }
     }
@@ -1219,6 +1425,10 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(184, 160, 232),    // Lighter violet
             Self::Neon => Color32::from_rgb(244, 114, 182),    // Pink
             Self::Onyx => Color32::from_rgb(200, 184, 128),    // Pale gold
+            Self::RosePine => Color32::from_rgb(156, 207, 216),
+            Self::Everforest => Color32::from_rgb(127, 187, 179),
+            Self::Catppuccin => Color32::from_rgb(249, 226, 175),
+            Self::Arrakis => Color32::from_rgb(195, 150, 100),
             Self::System | Self::Dark => Color32::from_rgb(220, 160, 100),
         }
     }
@@ -1239,6 +1449,10 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(248, 113, 113),    // Coral red
             Self::Neon => Color32::from_rgb(251, 146, 60),     // Orange
             Self::Onyx => Color32::from_rgb(184, 152, 112),    // Warm bronze
+            Self::RosePine => Color32::from_rgb(235, 188, 186),
+            Self::Everforest => Color32::from_rgb(214, 153, 182),
+            Self::Catppuccin => Color32::from_rgb(250, 179, 135),
+            Self::Arrakis => Color32::from_rgb(210, 130, 100),
             Self::System | Self::Dark => Color32::from_rgb(220, 120, 120),
         }
     }
@@ -1259,6 +1473,10 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(224, 224, 232),   // Near-white
             Self::Neon => Color32::from_rgb(224, 224, 232),   // Near-white
             Self::Onyx => Color32::from_rgb(212, 208, 196),   // Warm near-white
+            Self::RosePine => Color32::from_rgb(224, 222, 244),
+            Self::Everforest => Color32::from_rgb(211, 198, 170),
+            Self::Catppuccin => Color32::from_rgb(205, 214, 244),
+            Self::Arrakis => Color32::from_rgb(210, 200, 180),
             Self::System | Self::Dark => Color32::from_rgb(220, 220, 220),
         }
     }
@@ -1305,6 +1523,10 @@ impl AppTheme {
             Self::Void => Color32::from_rgba_unmultiplied(148, 148, 168, 120),
             Self::Neon => Color32::from_rgba_unmultiplied(155, 148, 168, 120),
             Self::Onyx => Color32::from_rgba_unmultiplied(160, 156, 140, 120),
+            Self::RosePine => Color32::from_rgba_unmultiplied(144, 140, 170, 120),
+            Self::Everforest => Color32::from_rgba_unmultiplied(133, 146, 137, 120),
+            Self::Catppuccin => Color32::from_rgba_unmultiplied(166, 173, 200, 120),
+            Self::Arrakis => Color32::from_rgba_unmultiplied(145, 135, 115, 80),
             Self::System | Self::Dark => Color32::from_rgba_unmultiplied(140, 140, 160, 120),
         }
     }
@@ -1330,6 +1552,10 @@ impl AppTheme {
             Self::Void => Color32::from_rgba_unmultiplied(124, 58, 237, 160),
             Self::Neon => Color32::from_rgba_unmultiplied(224, 64, 160, 160),
             Self::Onyx => Color32::from_rgba_unmultiplied(212, 175, 55, 160),
+            Self::RosePine => Color32::from_rgba_unmultiplied(196, 167, 231, 140),
+            Self::Everforest => Color32::from_rgba_unmultiplied(167, 192, 128, 140),
+            Self::Catppuccin => Color32::from_rgba_unmultiplied(137, 180, 250, 140),
+            Self::Arrakis => Color32::from_rgba_unmultiplied(210, 140, 60, 140),
             Self::System | Self::Dark => Color32::from_rgba_unmultiplied(180, 180, 200, 160),
         }
     }
@@ -1371,6 +1597,10 @@ impl AppTheme {
             Self::Void => Color32::from_rgba_unmultiplied(0, 0, 0, 250),
             Self::Neon => Color32::from_rgba_unmultiplied(5, 5, 8, 250),
             Self::Onyx => Color32::from_rgba_unmultiplied(12, 12, 12, 250),
+            Self::RosePine => Color32::from_rgba_unmultiplied(25, 23, 36, 250),
+            Self::Everforest => Color32::from_rgba_unmultiplied(39, 46, 51, 250),
+            Self::Catppuccin => Color32::from_rgba_unmultiplied(30, 30, 46, 250),
+            Self::Arrakis => Color32::from_rgba_unmultiplied(20, 18, 14, 250),
             Self::System | Self::Dark => Color32::from_rgba_unmultiplied(15, 15, 15, 250),
         }
     }
@@ -1391,6 +1621,10 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(42, 42, 60),     // Default violet border
             Self::Neon => Color32::from_rgb(48, 40, 58),     // Default magenta border
             Self::Onyx => Color32::from_rgb(52, 50, 42),     // Warm default border
+            Self::RosePine => Color32::from_rgb(52, 48, 74),
+            Self::Everforest => Color32::from_rgb(65, 75, 80),
+            Self::Catppuccin => Color32::from_rgb(69, 71, 90),
+            Self::Arrakis => Color32::from_rgb(58, 52, 40),
             Self::System | Self::Dark => Color32::from_rgb(38, 38, 44),
         }
     }
@@ -1411,6 +1645,10 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(16, 16, 26),     // Elevated void
             Self::Neon => Color32::from_rgb(22, 18, 28),     // Elevated neon
             Self::Onyx => Color32::from_rgb(28, 28, 24),     // Elevated onyx
+            Self::RosePine => Color32::from_rgb(38, 35, 58),
+            Self::Everforest => Color32::from_rgb(55, 65, 69),
+            Self::Catppuccin => Color32::from_rgb(49, 50, 68),
+            Self::Arrakis => Color32::from_rgb(38, 34, 28),
             Self::System | Self::Dark => Color32::from_rgb(26, 26, 30),
         }
     }
@@ -1636,6 +1874,46 @@ impl AppTheme {
                 accent,
                 accent_hover,
             ],
+            Self::RosePine => [
+                bg,
+                Color32::from_rgb(31, 29, 46),
+                Color32::from_rgb(42, 39, 64),
+                Color32::from_rgb(52, 48, 74),
+                Color32::from_rgb(48, 45, 72),
+                Color32::from_rgb(196, 167, 231),
+                accent,
+                accent_hover,
+            ],
+            Self::Everforest => [
+                bg,
+                Color32::from_rgb(46, 56, 60),
+                Color32::from_rgb(45, 58, 46),
+                Color32::from_rgb(65, 75, 80),
+                Color32::from_rgb(52, 66, 54),
+                Color32::from_rgb(167, 192, 128),
+                accent,
+                accent_hover,
+            ],
+            Self::Catppuccin => [
+                bg,
+                Color32::from_rgb(36, 36, 62),
+                Color32::from_rgb(30, 39, 64),
+                Color32::from_rgb(69, 71, 90),
+                Color32::from_rgb(36, 46, 72),
+                Color32::from_rgb(137, 180, 250),
+                accent,
+                accent_hover,
+            ],
+            Self::Arrakis => [
+                bg,
+                Color32::from_rgb(236, 226, 204),
+                Color32::from_rgb(240, 220, 185),
+                Color32::from_rgb(194, 180, 150),
+                Color32::from_rgb(235, 215, 178),
+                Color32::from_rgb(194, 125, 56),
+                accent,
+                accent_hover,
+            ],
             Self::System | Self::Dark => [
                 bg,
                 Color32::from_rgb(20, 28, 25),
@@ -1659,6 +1937,46 @@ impl AppTheme {
         match self {
             Self::Custom(colors) => colors.chart_palette,
             // === Dark Themes ===
+            Self::RosePine => [
+                Color32::from_rgb(196, 167, 231),
+                Color32::from_rgb(156, 207, 216),
+                Color32::from_rgb(246, 193, 119),
+                Color32::from_rgb(235, 111, 146),
+                Color32::from_rgb(235, 188, 186),
+                Color32::from_rgb(49, 116, 143),
+                Color32::from_rgb(246, 193, 119),
+                Color32::from_rgb(144, 140, 170),
+            ],
+            Self::Everforest => [
+                Color32::from_rgb(167, 192, 128),
+                Color32::from_rgb(127, 187, 179),
+                Color32::from_rgb(219, 188, 127),
+                Color32::from_rgb(230, 126, 128),
+                Color32::from_rgb(214, 153, 182),
+                Color32::from_rgb(131, 192, 146),
+                Color32::from_rgb(230, 152, 117),
+                Color32::from_rgb(133, 146, 137),
+            ],
+            Self::Catppuccin => [
+                Color32::from_rgb(137, 180, 250),
+                Color32::from_rgb(166, 227, 161),
+                Color32::from_rgb(249, 226, 175),
+                Color32::from_rgb(203, 166, 247),
+                Color32::from_rgb(250, 179, 135),
+                Color32::from_rgb(148, 226, 213),
+                Color32::from_rgb(243, 139, 168),
+                Color32::from_rgb(116, 199, 236),
+            ],
+            Self::Arrakis => [
+                Color32::from_rgb(194, 125, 56),
+                Color32::from_rgb(76, 128, 72),
+                Color32::from_rgb(65, 105, 155),
+                Color32::from_rgb(140, 95, 70),
+                Color32::from_rgb(160, 75, 55),
+                Color32::from_rgb(85, 130, 110),
+                Color32::from_rgb(168, 100, 38),
+                Color32::from_rgb(120, 105, 80),
+            ],
             Self::System | Self::Dark => [
                 Color32::from_rgb(16, 185, 129),  // Emerald (accent)
                 Color32::from_rgb(110, 190, 248), // Sky blue
@@ -1829,6 +2147,62 @@ impl AppTheme {
                 ]
             }
             // === Dark Themes ===
+            Self::RosePine => [
+                Color32::from_rgb(196, 167, 231),
+                Color32::from_rgb(156, 207, 216),
+                Color32::from_rgb(246, 193, 119),
+                Color32::from_rgb(235, 111, 146),
+                Color32::from_rgb(235, 188, 186),
+                Color32::from_rgb(49, 116, 143),
+                Color32::from_rgb(212, 191, 255),
+                Color32::from_rgb(144, 140, 170),
+                Color32::from_rgb(110, 106, 134),
+                Color32::from_rgb(196, 167, 231),
+                Color32::from_rgb(246, 193, 119),
+                Color32::from_rgb(110, 106, 134),
+            ],
+            Self::Everforest => [
+                Color32::from_rgb(127, 187, 179),
+                Color32::from_rgb(167, 192, 128),
+                Color32::from_rgb(219, 188, 127),
+                Color32::from_rgb(214, 153, 182),
+                Color32::from_rgb(230, 126, 128),
+                Color32::from_rgb(131, 192, 146),
+                Color32::from_rgb(184, 212, 156),
+                Color32::from_rgb(127, 187, 179),
+                Color32::from_rgb(230, 152, 117),
+                Color32::from_rgb(167, 192, 128),
+                Color32::from_rgb(219, 188, 127),
+                Color32::from_rgb(122, 132, 120),
+            ],
+            Self::Catppuccin => [
+                Color32::from_rgb(137, 180, 250),
+                Color32::from_rgb(166, 227, 161),
+                Color32::from_rgb(249, 226, 175),
+                Color32::from_rgb(203, 166, 247),
+                Color32::from_rgb(243, 139, 168),
+                Color32::from_rgb(148, 226, 213),
+                Color32::from_rgb(250, 179, 135),
+                Color32::from_rgb(116, 199, 236),
+                Color32::from_rgb(245, 194, 231),
+                Color32::from_rgb(166, 227, 161),
+                Color32::from_rgb(180, 208, 255),
+                Color32::from_rgb(108, 112, 134),
+            ],
+            Self::Arrakis => [
+                Color32::from_rgb(65, 105, 155),
+                Color32::from_rgb(76, 128, 72),
+                Color32::from_rgb(194, 125, 56),
+                Color32::from_rgb(140, 95, 70),
+                Color32::from_rgb(176, 58, 46),
+                Color32::from_rgb(85, 130, 110),
+                Color32::from_rgb(168, 100, 38),
+                Color32::from_rgb(70, 90, 140),
+                Color32::from_rgb(160, 75, 55),
+                Color32::from_rgb(76, 128, 72),
+                Color32::from_rgb(194, 125, 56),
+                Color32::from_rgb(165, 150, 125),
+            ],
             Self::System | Self::Dark => [
                 Color32::from_rgb(96, 165, 250),  // 0: Scan - Sky blue
                 Color32::from_rgb(52, 211, 153),  // 1: Filter - Emerald
@@ -2041,6 +2415,38 @@ impl AppTheme {
                 colors.accent_hover,   // Cyan (using accent hover as substitute)
             ],
             // === Dark Themes ===
+            Self::RosePine => [
+                Color32::from_rgb(235, 111, 146), // Red
+                Color32::from_rgb(156, 207, 216), // Green
+                Color32::from_rgb(246, 193, 119), // Yellow
+                Color32::from_rgb(49, 116, 143),  // Blue
+                Color32::from_rgb(196, 167, 231), // Magenta
+                Color32::from_rgb(156, 207, 216), // Cyan
+            ],
+            Self::Everforest => [
+                Color32::from_rgb(230, 126, 128), // Red
+                Color32::from_rgb(167, 192, 128), // Green
+                Color32::from_rgb(219, 188, 127), // Yellow
+                Color32::from_rgb(127, 187, 179), // Blue
+                Color32::from_rgb(214, 153, 182), // Magenta
+                Color32::from_rgb(131, 192, 146), // Cyan
+            ],
+            Self::Catppuccin => [
+                Color32::from_rgb(243, 139, 168), // Red
+                Color32::from_rgb(166, 227, 161), // Green
+                Color32::from_rgb(249, 226, 175), // Yellow
+                Color32::from_rgb(137, 180, 250), // Blue
+                Color32::from_rgb(203, 166, 247), // Magenta
+                Color32::from_rgb(148, 226, 213), // Cyan
+            ],
+            Self::Arrakis => [
+                Color32::from_rgb(176, 58, 46),  // Red
+                Color32::from_rgb(76, 128, 72),  // Green
+                Color32::from_rgb(194, 125, 56), // Yellow
+                Color32::from_rgb(65, 105, 155), // Blue
+                Color32::from_rgb(140, 95, 70),  // Magenta
+                Color32::from_rgb(85, 130, 110), // Cyan
+            ],
             Self::System | Self::Dark => [
                 Color32::from_rgb(248, 113, 133), // Red - Soft coral
                 Color32::from_rgb(52, 211, 153),  // Green - Emerald (accent-inspired)
@@ -2164,6 +2570,10 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(167, 139, 250),                // Bright violet
             Self::Neon => Color32::from_rgb(168, 85, 247),                 // Purple
             Self::Onyx => Color32::from_rgb(184, 152, 112),                // Bronze
+            Self::RosePine => Color32::from_rgb(196, 167, 231),
+            Self::Everforest => Color32::from_rgb(214, 153, 182),
+            Self::Catppuccin => Color32::from_rgb(203, 166, 247),
+            Self::Arrakis => Color32::from_rgb(195, 150, 100),
 
             // Light themes - muted markers
             Self::Parchment => Color32::from_rgb(139, 92, 246), // Purple
@@ -2193,6 +2603,10 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(96, 165, 250),   // Blue
             Self::Neon => Color32::from_rgb(96, 165, 250),   // Blue
             Self::Onyx => Color32::from_rgb(130, 160, 210),  // Warm blue
+            Self::RosePine => Color32::from_rgb(196, 167, 231),
+            Self::Everforest => Color32::from_rgb(127, 187, 179),
+            Self::Catppuccin => Color32::from_rgb(137, 180, 250),
+            Self::Arrakis => Color32::from_rgb(100, 150, 210),
             Self::System | Self::Dark => Color32::from_rgb(100, 149, 237),
         }
     }
@@ -2213,6 +2627,10 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(251, 191, 36),     // Amber
             Self::Neon => Color32::from_rgb(251, 191, 36),     // Amber
             Self::Onyx => Color32::from_rgb(232, 180, 60),     // Warm amber
+            Self::RosePine => Color32::from_rgb(246, 193, 119),
+            Self::Everforest => Color32::from_rgb(219, 188, 127),
+            Self::Catppuccin => Color32::from_rgb(249, 226, 175),
+            Self::Arrakis => Color32::from_rgb(210, 140, 60),
             Self::System | Self::Dark => Color32::from_rgb(255, 165, 0),
         }
     }
@@ -2233,6 +2651,10 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(248, 113, 113),     // Red
             Self::Neon => Color32::from_rgb(248, 113, 113),     // Red
             Self::Onyx => Color32::from_rgb(230, 100, 100),     // Soft red
+            Self::RosePine => Color32::from_rgb(235, 111, 146),
+            Self::Everforest => Color32::from_rgb(230, 126, 128),
+            Self::Catppuccin => Color32::from_rgb(243, 139, 168),
+            Self::Arrakis => Color32::from_rgb(210, 80, 65),
             Self::System | Self::Dark => Color32::from_rgb(220, 53, 69),
         }
     }
@@ -2253,6 +2675,10 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(92, 92, 112),       // Deep muted
             Self::Neon => Color32::from_rgb(100, 92, 112),      // Deep muted
             Self::Onyx => Color32::from_rgb(100, 98, 88),       // Dark warm gray
+            Self::RosePine => Color32::from_rgb(110, 106, 134),
+            Self::Everforest => Color32::from_rgb(122, 132, 120),
+            Self::Catppuccin => Color32::from_rgb(108, 112, 134),
+            Self::Arrakis => Color32::from_rgb(90, 82, 68),
             Self::System | Self::Dark => Color32::GRAY,
         }
     }
@@ -2277,6 +2703,10 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(18, 25, 35),     // Cool violet-green tint
             Self::Neon => Color32::from_rgb(20, 30, 25),     // Cyan-green tint
             Self::Onyx => Color32::from_rgb(18, 30, 20),     // Added bg onyx
+            Self::RosePine => Color32::from_rgb(22, 30, 35),
+            Self::Everforest => Color32::from_rgb(30, 42, 34),
+            Self::Catppuccin => Color32::from_rgb(25, 35, 30),
+            Self::Arrakis => Color32::from_rgb(18, 32, 22),
             Self::System | Self::Dark => Color32::from_rgb(19, 35, 26),
         }
     }
@@ -2297,6 +2727,10 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(32, 18, 35),     // Violet-red tint
             Self::Neon => Color32::from_rgb(38, 18, 28),     // Magenta-red tint
             Self::Onyx => Color32::from_rgb(35, 20, 18),     // Removed bg onyx
+            Self::RosePine => Color32::from_rgb(38, 22, 30),
+            Self::Everforest => Color32::from_rgb(45, 30, 32),
+            Self::Catppuccin => Color32::from_rgb(40, 25, 30),
+            Self::Arrakis => Color32::from_rgb(38, 20, 18),
             Self::System | Self::Dark => Color32::from_rgb(40, 22, 24),
         }
     }
@@ -2317,6 +2751,10 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(38, 68, 88),     // Violet-teal word
             Self::Neon => Color32::from_rgb(35, 88, 68),     // Cyan-green word
             Self::Onyx => Color32::from_rgb(38, 75, 48),     // Added word onyx
+            Self::RosePine => Color32::from_rgb(38, 78, 72),
+            Self::Everforest => Color32::from_rgb(50, 88, 55),
+            Self::Catppuccin => Color32::from_rgb(42, 85, 60),
+            Self::Arrakis => Color32::from_rgb(35, 75, 42),
             Self::System | Self::Dark => Color32::from_rgb(42, 95, 65),
         }
     }
@@ -2337,6 +2775,10 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(88, 42, 75),      // Violet-red word
             Self::Neon => Color32::from_rgb(105, 42, 62),     // Magenta-red word
             Self::Onyx => Color32::from_rgb(92, 45, 42),      // Removed word onyx
+            Self::RosePine => Color32::from_rgb(90, 44, 58),
+            Self::Everforest => Color32::from_rgb(100, 55, 55),
+            Self::Catppuccin => Color32::from_rgb(98, 50, 60),
+            Self::Arrakis => Color32::from_rgb(88, 38, 32),
             Self::System | Self::Dark => Color32::from_rgb(100, 42, 46),
         }
     }
@@ -2357,6 +2799,10 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(120, 190, 210), // Lavender-teal text
             Self::Neon => Color32::from_rgb(80, 230, 180), // Bright cyan-green text
             Self::Onyx => Color32::from_rgb(52, 185, 100), // Added text onyx
+            Self::RosePine => Color32::from_rgb(156, 207, 216),
+            Self::Everforest => Color32::from_rgb(167, 192, 128),
+            Self::Catppuccin => Color32::from_rgb(166, 227, 161),
+            Self::Arrakis => Color32::from_rgb(92, 168, 88),
             Self::System | Self::Dark => Color32::from_rgb(126, 231, 135),
         }
     }
@@ -2377,6 +2823,10 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(200, 130, 220), // Lavender-pink text
             Self::Neon => Color32::from_rgb(255, 95, 150), // Hot pink text
             Self::Onyx => Color32::from_rgb(230, 100, 100), // Removed text onyx
+            Self::RosePine => Color32::from_rgb(235, 111, 146),
+            Self::Everforest => Color32::from_rgb(230, 126, 128),
+            Self::Catppuccin => Color32::from_rgb(243, 139, 168),
+            Self::Arrakis => Color32::from_rgb(210, 80, 65),
             Self::System | Self::Dark => Color32::from_rgb(255, 123, 114),
         }
     }
@@ -2397,6 +2847,10 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(92, 92, 112),       // Context text void
             Self::Neon => Color32::from_rgb(100, 92, 112),      // Context text neon
             Self::Onyx => Color32::from_rgb(100, 98, 88),       // Context text onyx
+            Self::RosePine => Color32::from_rgb(110, 106, 134),
+            Self::Everforest => Color32::from_rgb(122, 132, 120),
+            Self::Catppuccin => Color32::from_rgb(108, 112, 134),
+            Self::Arrakis => Color32::from_rgb(90, 82, 68),
             Self::System | Self::Dark => Color32::from_rgb(145, 152, 161),
         }
     }
@@ -2417,6 +2871,10 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(120, 190, 210), // Lavender-teal gutter
             Self::Neon => Color32::from_rgb(80, 230, 180), // Bright cyan gutter
             Self::Onyx => Color32::from_rgb(52, 185, 100), // Added gutter onyx
+            Self::RosePine => Color32::from_rgb(156, 207, 216),
+            Self::Everforest => Color32::from_rgb(167, 192, 128),
+            Self::Catppuccin => Color32::from_rgb(166, 227, 161),
+            Self::Arrakis => Color32::from_rgb(92, 168, 88),
             Self::System | Self::Dark => Color32::from_rgb(63, 185, 80),
         }
     }
@@ -2437,6 +2895,10 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(200, 130, 220), // Lavender-pink gutter
             Self::Neon => Color32::from_rgb(255, 95, 150), // Hot pink gutter
             Self::Onyx => Color32::from_rgb(230, 100, 100), // Removed gutter onyx
+            Self::RosePine => Color32::from_rgb(235, 111, 146),
+            Self::Everforest => Color32::from_rgb(230, 126, 128),
+            Self::Catppuccin => Color32::from_rgb(243, 139, 168),
+            Self::Arrakis => Color32::from_rgb(210, 80, 65),
             Self::System | Self::Dark => Color32::from_rgb(248, 81, 73),
         }
     }
@@ -2457,6 +2919,10 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(85, 85, 104),       // Line number void
             Self::Neon => Color32::from_rgb(85, 80, 96),        // Line number neon
             Self::Onyx => Color32::from_rgb(88, 85, 72),        // Line number onyx
+            Self::RosePine => Color32::from_rgb(96, 92, 118),
+            Self::Everforest => Color32::from_rgb(108, 118, 108),
+            Self::Catppuccin => Color32::from_rgb(96, 100, 120),
+            Self::Arrakis => Color32::from_rgb(75, 68, 55),
             Self::System | Self::Dark => Color32::from_rgb(72, 79, 88),
         }
     }
@@ -2477,6 +2943,10 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(4, 4, 8),        // Line number bg void
             Self::Neon => Color32::from_rgb(3, 3, 6),        // Line number bg neon
             Self::Onyx => Color32::from_rgb(8, 8, 6),        // Line number bg onyx
+            Self::RosePine => Color32::from_rgb(20, 18, 30),
+            Self::Everforest => Color32::from_rgb(33, 40, 45),
+            Self::Catppuccin => Color32::from_rgb(24, 24, 40),
+            Self::Arrakis => Color32::from_rgb(14, 12, 10),
             Self::System | Self::Dark => Color32::from_rgb(13, 17, 23),
         }
     }
@@ -2497,6 +2967,10 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(22, 15, 45),     // Hunk bg void
             Self::Neon => Color32::from_rgb(35, 15, 30),     // Hunk bg neon
             Self::Onyx => Color32::from_rgb(30, 28, 18),     // Hunk bg onyx
+            Self::RosePine => Color32::from_rgb(42, 39, 64),
+            Self::Everforest => Color32::from_rgb(45, 58, 46),
+            Self::Catppuccin => Color32::from_rgb(30, 39, 64),
+            Self::Arrakis => Color32::from_rgb(42, 36, 22),
             Self::System | Self::Dark => Color32::from_rgb(22, 27, 46),
         }
     }
@@ -2517,6 +2991,10 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(124, 58, 237),   // Hunk text void
             Self::Neon => Color32::from_rgb(224, 64, 160),   // Hunk text neon
             Self::Onyx => Color32::from_rgb(212, 175, 55),   // Hunk text onyx
+            Self::RosePine => Color32::from_rgb(196, 167, 231),
+            Self::Everforest => Color32::from_rgb(127, 187, 179),
+            Self::Catppuccin => Color32::from_rgb(137, 180, 250),
+            Self::Arrakis => Color32::from_rgb(235, 165, 80),
             Self::System | Self::Dark => Color32::from_rgb(121, 184, 255),
         }
     }
@@ -2537,6 +3015,10 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(232, 232, 240),     // File header void
             Self::Neon => Color32::from_rgb(232, 232, 240),     // File header neon
             Self::Onyx => Color32::from_rgb(220, 216, 204),     // File header onyx
+            Self::RosePine => Color32::from_rgb(224, 222, 244),
+            Self::Everforest => Color32::from_rgb(211, 198, 170),
+            Self::Catppuccin => Color32::from_rgb(205, 214, 244),
+            Self::Arrakis => Color32::from_rgb(210, 200, 180),
             Self::System | Self::Dark => Color32::from_rgb(201, 209, 217),
         }
     }
@@ -2557,6 +3039,10 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(8, 8, 14),       // File header bg void
             Self::Neon => Color32::from_rgb(12, 10, 16),     // File header bg neon
             Self::Onyx => Color32::from_rgb(18, 18, 16),     // File header bg onyx
+            Self::RosePine => Color32::from_rgb(28, 26, 42),
+            Self::Everforest => Color32::from_rgb(42, 50, 56),
+            Self::Catppuccin => Color32::from_rgb(33, 33, 54),
+            Self::Arrakis => Color32::from_rgb(28, 25, 20),
             Self::System | Self::Dark => Color32::from_rgb(22, 27, 34),
         }
     }
@@ -2577,6 +3063,10 @@ impl AppTheme {
             Self::Void => Color32::from_rgba_premultiplied(170, 120, 230, 180),
             Self::Neon => Color32::from_rgba_premultiplied(230, 100, 180, 180),
             Self::Onyx => Color32::from_rgba_premultiplied(212, 175, 55, 180),
+            Self::RosePine => Color32::from_rgba_premultiplied(220, 160, 50, 180),
+            Self::Everforest => Color32::from_rgba_premultiplied(200, 160, 60, 180),
+            Self::Catppuccin => Color32::from_rgba_premultiplied(225, 180, 80, 180),
+            Self::Arrakis => Color32::from_rgba_premultiplied(210, 140, 60, 180),
             Self::System | Self::Dark => Color32::from_rgba_premultiplied(230, 160, 0, 180),
         }
     }
@@ -2597,6 +3087,10 @@ impl AppTheme {
             Self::Void => Color32::from_rgba_premultiplied(130, 90, 190, 100),
             Self::Neon => Color32::from_rgba_premultiplied(180, 75, 140, 100),
             Self::Onyx => Color32::from_rgba_premultiplied(170, 140, 40, 100),
+            Self::RosePine => Color32::from_rgba_premultiplied(180, 130, 40, 100),
+            Self::Everforest => Color32::from_rgba_premultiplied(165, 130, 40, 100),
+            Self::Catppuccin => Color32::from_rgba_premultiplied(190, 150, 60, 100),
+            Self::Arrakis => Color32::from_rgba_premultiplied(180, 120, 50, 100),
             Self::System | Self::Dark => Color32::from_rgba_premultiplied(180, 140, 0, 100),
         }
     }

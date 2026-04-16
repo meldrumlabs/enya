@@ -157,6 +157,10 @@ impl PluginHost for EditorPluginHost {
             AppTheme::Void => "void",
             AppTheme::Neon => "neon",
             AppTheme::Onyx => "onyx",
+            AppTheme::RosePine => "rosepine",
+            AppTheme::Everforest => "everforest",
+            AppTheme::Catppuccin => "catppuccin",
+            AppTheme::Arrakis => "arrakis",
             AppTheme::System => "system",
         }
     }

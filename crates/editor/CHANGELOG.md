@@ -8,6 +8,7 @@ All notable changes to the Enya editor will be documented in this file.
 
 - **Auto-merge fallback for PR merge**: When a direct merge fails due to branch protection or merge queue requirements (HTTP 405), the merge button now automatically falls back to enabling GitHub auto-merge via the GraphQL API. The UI shows "Auto-merge enabled" to distinguish from an immediate merge.
 - **Markdown preview in PR review**: When viewing `.md`, `.mdx`, or `.markdown` files in the PR review diff view, an eye icon toggle appears in the toolbar. Clicking it renders the new file content as formatted markdown (headings, code blocks, lists, links, etc.) instead of the raw diff. Supports `j`/`k` vim-style scrolling, arrow keys, `Ctrl+D`/`Ctrl+U` half-page jumps, and `Shift+G` to jump to bottom. Preview state resets when navigating to another file.
+- **6 new premium themes**: Added 5 dark themes — Kanagawa (Japanese ink painting with warm indigo), Rosé Pine (muted warmth with soft purple), Everforest (nature-tuned greens for reduced eye strain), Catppuccin Mocha (pastel engineering with blue accent), and Vesper (monochrome with warm peach) — plus Arrakis, a Dune-inspired light theme with warm sand base and spice orange accent. All themes have carefully tuned palettes for diff readability and Rust syntax highlighting.
 
 ### Changed
 
