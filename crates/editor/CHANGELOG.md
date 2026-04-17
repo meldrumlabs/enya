@@ -7,11 +7,13 @@ All notable changes to the Enya editor will be documented in this file.
 ### Fixed
 
 - **Large PR diff fallback**: PRs with diffs exceeding GitHub's 20,000-line API limit (HTTP 406) now gracefully fall back to reconstructing the diff from per-file patches instead of showing an error. Also added pagination to the files endpoint to support PRs with more than 100 changed files.
+- **PR review `/` filter intercepted by viewport**: Pressing `/` in the PR review pane now correctly activates the pane's own filter/search instead of opening the workspace viewport filter. Both `Key::Slash` and `Text("/")` events are consumed at the pane level so they don't leak to workspace handlers.
 
 ### Added
 
 - **Auto-merge fallback for PR merge**: When a direct merge fails due to branch protection or merge queue requirements (HTTP 405), the merge button now automatically falls back to enabling GitHub auto-merge via the GraphQL API. The UI shows "Auto-merge enabled" to distinguish from an immediate merge.
 - **Markdown preview in PR review**: When viewing `.md`, `.mdx`, or `.markdown` files in the PR review diff view, an eye icon toggle appears in the toolbar. Clicking it renders the new file content as formatted markdown (headings, code blocks, lists, links, etc.) instead of the raw diff. Supports `j`/`k` vim-style scrolling, arrow keys, `Ctrl+D`/`Ctrl+U` half-page jumps, and `Shift+G` to jump to bottom. Preview state resets when navigating to another file.
+- **PR list comment counts**: Each PR row now shows the total number of review + discussion comments next to the timestamp, giving quick insight into activity level without opening the PR.
 - **6 new premium themes**: Added 5 dark themes — Kanagawa (Japanese ink painting with warm indigo), Rosé Pine (muted warmth with soft purple), Everforest (nature-tuned greens for reduced eye strain), Catppuccin Mocha (pastel engineering with blue accent), and Vesper (monochrome with warm peach) — plus Arrakis, a Dune-inspired light theme with warm sand base and spice orange accent. All themes have carefully tuned palettes for diff readability and Rust syntax highlighting.
 
 ### Changed

@@ -1067,6 +1067,32 @@ impl Workspace {
             None
         };
 
+        // When the focused pane handles its own navigation (e.g. PR review pane),
+        // the viewport filter's always-present TextEdit in the toolbar may hold
+        // stale focus and swallow j/k as text input before the pane can consume
+        // them.  Only surrender that specific widget — clearing ALL focus would
+        // break the command palette, finders, and other overlays.
+        {
+            let pane_handles_nav = self
+                .behavior
+                .focused_tile()
+                .and_then(|tid| self.viewport_tree.tiles.get(tid))
+                .and_then(|tile| {
+                    if let egui_tiles::Tile::Pane(pane) = tile {
+                        Some(pane.handles_own_navigation())
+                    } else {
+                        None
+                    }
+                })
+                .unwrap_or(false);
+            if pane_handles_nav {
+                let filter_id = egui::Id::new("viewport_filter_inline");
+                if ctx.memory(|m| m.focused()) == Some(filter_id) {
+                    ctx.memory_mut(|mem| mem.surrender_focus(filter_id));
+                }
+            }
+        }
+
         {
             // Main area with toolbar and viewport
             egui::CentralPanel::default().show_inside(ui, |ui| {
@@ -1624,6 +1650,21 @@ impl Workspace {
         // Don't intercept '/' when any text widget has focus (e.g., SQL pane input)
         let text_widget_focused = ctx.memory(|mem| mem.focused().is_some());
 
+        // Check if the focused pane handles its own navigation (e.g. PR review pane
+        // uses '/' for its own filter). Skip the viewport filter shortcut in that case.
+        let focused_pane_handles_nav = self
+            .behavior
+            .focused_tile()
+            .and_then(|tile_id| self.viewport_tree.tiles.get(tile_id))
+            .and_then(|tile| {
+                if let egui_tiles::Tile::Pane(pane) = tile {
+                    Some(pane.handles_own_navigation())
+                } else {
+                    None
+                }
+            })
+            .unwrap_or(false);
+
         if !self.which_key.is_open()
             && !self.unified_finder.is_open()
             && !self.command_palette.is_open()
@@ -1636,6 +1677,7 @@ impl Workspace {
             && !self.agent_mode_active
             && !self.is_visual_multi_mode()
             && !text_widget_focused
+            && !focused_pane_handles_nav
         {
             ctx.input_mut(|input| {
                 // Check for '/' character in text input (works across keyboard layouts)
@@ -1653,7 +1695,9 @@ impl Workspace {
             });
         }
 
-        // Handle ? key for which-key overlay (don't intercept when text widget has focus)
+        // Handle ? key for which-key overlay (don't intercept when text widget has focus
+        // or when the focused pane handles its own navigation — some layouts report '/'
+        // as Shift+Slash which collides with the '?' shortcut)
         if !self.which_key.is_open()
             && !self.unified_finder.is_open()
             && !self.command_palette.is_open()
@@ -1664,6 +1708,7 @@ impl Workspace {
             && !codebase_finder_open
             && !self.agent_mode_active
             && !text_widget_focused
+            && !focused_pane_handles_nav
         {
             ctx.input_mut(|input| {
                 // Check for '?' character in text input (works across keyboard layouts)

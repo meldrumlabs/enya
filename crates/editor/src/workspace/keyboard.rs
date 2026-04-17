@@ -642,7 +642,11 @@ impl Workspace {
             }
 
             // ? - open which-key help overlay (Shift+/ on US keyboards)
-            if input.consume_key(egui::Modifiers::SHIFT, egui::Key::Slash) {
+            // Skip when focused pane handles its own navigation — the pane owns
+            // '/' for its filter/search and some layouts report '/' as Shift+Slash.
+            if !focused_pane_handles_nav
+                && input.consume_key(egui::Modifiers::SHIFT, egui::Key::Slash)
+            {
                 should_open_which_key = true;
                 consumed = true;
                 return;
