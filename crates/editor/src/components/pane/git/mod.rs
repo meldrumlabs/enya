@@ -133,6 +133,8 @@ pub struct PrReviewPane {
     preloaded_reviews: FxHashMap<u32, Vec<PrReview>>,
     /// Preloaded merge-readiness: all checks pass, approved, mergeable, not draft.
     preloaded_merge_ready: FxHashMap<u32, bool>,
+    /// Preloaded comment counts (review + issue comments) keyed by PR number.
+    preloaded_comment_counts: FxHashMap<u32, usize>,
     selected_file_index: usize,
     active_tab: DetailTab,
     detail_loading: bool,
@@ -301,6 +303,7 @@ impl PrReviewPane {
             reviews: Vec::new(),
             preloaded_reviews: FxHashMap::default(),
             preloaded_merge_ready: FxHashMap::default(),
+            preloaded_comment_counts: FxHashMap::default(),
             selected_file_index: 0,
             active_tab: DetailTab::Files,
             detail_loading: false,
@@ -999,6 +1002,12 @@ impl PrReviewPane {
                             is_approved && all_checks_pass && mergeable && !preloaded.pr.draft;
                         self.preloaded_merge_ready.insert(number, merge_ready);
 
+                        // Comment count
+                        // Comment count
+                        let comment_count =
+                            preloaded.review_comments.len() + preloaded.issue_comments.len();
+                        self.preloaded_comment_counts.insert(number, comment_count);
+
                         self.preloaded_reviews
                             .insert(number, preloaded.reviews.clone());
                         self.preload_cache.insert(number, preloaded);
@@ -1284,8 +1293,13 @@ impl PrReviewPane {
             return;
         }
 
-        // Don't consume keys if a text input is focused (e.g. comment input, filter bar)
-        if ctx.memory(|m| m.focused().is_some()) {
+        // When a text input we own is active, handle only Escape/Enter/Cmd+Enter
+        // and skip normal vim keys. We check our own state rather than
+        // ctx.memory(focused) which is too broad (spinners, buttons, etc.).
+        let has_text_input = self.filter_active
+            || self.commenting_line.is_some()
+            || self.diff_renderer.search_active();
+        if has_text_input {
             let esc = ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape));
             if esc {
                 if self.filter_active {
@@ -1297,6 +1311,9 @@ impl PrReviewPane {
                 } else if self.commenting_line.is_some() {
                     self.commenting_line = None;
                     self.comment_input.clear();
+                }
+                if let Some(id) = ctx.memory(|m| m.focused()) {
+                    ctx.memory_mut(|mem| mem.surrender_focus(id));
                 }
             }
             // Cmd+Enter (or Ctrl+Enter) — submit comment while typing
@@ -1326,9 +1343,27 @@ impl PrReviewPane {
                     ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter));
                 if enter {
                     self.filter_active = false;
+                    if let Some(id) = ctx.memory(|m| m.focused()) {
+                        ctx.memory_mut(|mem| mem.surrender_focus(id));
+                    }
                 }
             }
             return;
+        }
+
+        // If a widget has focus (e.g. command palette, finder, comment input
+        // in another pane), don't steal its key events.  The one exception is
+        // the viewport filter TextEdit in the toolbar — it's always rendered
+        // and can grab stale focus, so we clear it and proceed.
+        let viewport_filter_id = egui::Id::new("viewport_filter_inline");
+        if let Some(focused) = ctx.memory(|m| m.focused()) {
+            if focused == viewport_filter_id {
+                ctx.memory_mut(|mem| mem.surrender_focus(viewport_filter_id));
+            } else {
+                // Some other text input (command palette, finder, etc.) has
+                // focus — don't consume keys, let the overlay handle them.
+                return;
+            }
         }
 
         ctx.input_mut(|input| {
@@ -1384,8 +1419,17 @@ impl PrReviewPane {
                         self.pending_refresh = true;
                     }
 
-                    // / — activate filter
-                    if input.consume_key(egui::Modifiers::NONE, egui::Key::Slash) {
+                    // / — activate filter (consume both Key::Slash and Text("/")
+                    // so the workspace viewport filter doesn't steal the event)
+                    let slash_key = input.consume_key(egui::Modifiers::NONE, egui::Key::Slash);
+                    let slash_text = input
+                        .events
+                        .iter()
+                        .any(|e| matches!(e, egui::Event::Text(t) if t == "/"));
+                    if slash_key || slash_text {
+                        input
+                            .events
+                            .retain(|e| !matches!(e, egui::Event::Text(t) if t == "/"));
                         self.filter_active = true;
                         self.filter_query.clear();
                         self.selected_pr_index = 0;

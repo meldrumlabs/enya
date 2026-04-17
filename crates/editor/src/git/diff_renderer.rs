@@ -629,12 +629,21 @@ impl DiffRenderer {
     /// Call inside `ctx.input_mut(|i| renderer.handle_keyboard(i))`.
     /// Does NOT handle Escape — callers have different Escape semantics.
     pub fn handle_keyboard(&mut self, input: &mut egui::InputState) -> DiffKeyAction {
-        // Search: open with / or Cmd+F
-        if !self.search_active
-            && (input.consume_key(egui::Modifiers::COMMAND, Key::F)
-                || input.consume_key(egui::Modifiers::NONE, Key::Slash))
-        {
-            self.search_active = true;
+        // Search: open with / or Cmd+F (also consume Text("/") to prevent
+        // the workspace viewport filter from stealing the event)
+        if !self.search_active {
+            let slash_key = input.consume_key(egui::Modifiers::NONE, Key::Slash);
+            let cmd_f = input.consume_key(egui::Modifiers::COMMAND, Key::F);
+            let slash_text = input
+                .events
+                .iter()
+                .any(|e| matches!(e, egui::Event::Text(t) if t == "/"));
+            if slash_key || cmd_f || slash_text {
+                input
+                    .events
+                    .retain(|e| !matches!(e, egui::Event::Text(t) if t == "/"));
+                self.search_active = true;
+            }
         }
 
         // When search is active, Enter/Shift+Enter navigate matches

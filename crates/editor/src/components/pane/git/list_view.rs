@@ -482,7 +482,7 @@ impl PrReviewPane {
                         );
                     }
 
-                    // ── Bottom line: avatar + author + time + stats ──
+                    // ── Bottom line: avatar + author + time + comments + stats ──
 
                     let mut bx = rect.left() + left_pad + icon_galley.size().x + 6.0;
 
@@ -574,9 +574,38 @@ impl PrReviewPane {
                     );
                     ui.painter().galley(
                         egui::pos2(bx, bottom_line_y),
-                        time_galley,
+                        time_galley.clone(),
                         theme.text_secondary().gamma_multiply(0.7),
                     );
+                    bx += time_galley.size().x;
+
+                    // Comment count (if any)
+                    if let Some(&count) = self.preloaded_comment_counts.get(&pr.number) {
+                        if count > 0 {
+                            let sep2 = ui.painter().layout_no_wrap(
+                                format!(" {} ", egui_nerdfonts::regular::CIRCLE_SMALL),
+                                typography::proportional(typography::XS),
+                                theme.text_secondary().gamma_multiply(0.5),
+                            );
+                            ui.painter().galley(
+                                egui::pos2(bx, bottom_line_y),
+                                sep2.clone(),
+                                theme.text_secondary().gamma_multiply(0.5),
+                            );
+                            bx += sep2.size().x;
+
+                            let comment_galley = ui.painter().layout_no_wrap(
+                                format!("{} {}", egui_nerdfonts::regular::COMMENT, count),
+                                typography::proportional(typography::XS),
+                                theme.text_secondary().gamma_multiply(0.7),
+                            );
+                            ui.painter().galley(
+                                egui::pos2(bx, bottom_line_y),
+                                comment_galley,
+                                theme.text_secondary().gamma_multiply(0.7),
+                            );
+                        }
+                    }
 
                     // Stats on the right of the bottom line
                     let mut rx = rect.right() - right_pad;
