@@ -3,7 +3,9 @@
 use egui::RichText;
 use rustc_hash::FxHashSet;
 
-use crate::git::api::{DraftComment, MergeMethod, PrComment, PrFile, ReviewEvent, relative_time};
+use crate::git::api::{
+    CommentThread, DraftComment, MergeMethod, PrComment, PrFile, ReviewEvent, relative_time,
+};
 use crate::ui::theme::AppTheme;
 use crate::ui::typography;
 
@@ -25,10 +27,28 @@ enum FileTreeRow {
         comment_count: usize,
         unseen_count: usize,
         reviewed: bool,
+        /// Path used as key for expansion state.
+        path: String,
+        /// Whether this file's comment list is expanded below.
+        threads_expanded: bool,
+        /// Whether any threads exist to expand.
+        has_threads: bool,
+    },
+    /// A comment thread appearing under an expanded File row.
+    Thread {
+        path: String,
+        line: usize,
+        depth: usize,
+        author: String,
+        snippet: String,
+        count: usize,
+        unseen: bool,
+        resolved: bool,
     },
 }
 
 /// Build a flattened list of tree rows from PR files, respecting collapsed directories.
+#[allow(clippy::too_many_arguments)]
 fn build_file_tree_rows(
     pr_files: &[PrFile],
     collapsed_dirs: &FxHashSet<String>,
@@ -36,6 +56,10 @@ fn build_file_tree_rows(
     draft_comments: &[DraftComment],
     seen_comment_ids: &rustc_hash::FxHashSet<u64>,
     reviewed_files: &rustc_hash::FxHashSet<String>,
+    threads: &[CommentThread],
+    expanded_comment_files: &FxHashSet<String>,
+    resolved_thread_lines: &FxHashSet<(String, usize)>,
+    show_only_unresolved: bool,
 ) -> Vec<FileTreeRow> {
     // Collect unique directory prefixes and count files per directory
     let mut dir_files: Vec<(Vec<&str>, usize)> = Vec::new();
@@ -113,6 +137,9 @@ fn build_file_tree_rows(
             })
             .count();
 
+        let has_threads = threads.iter().any(|t| t.path == *filename);
+        let threads_expanded = expanded_comment_files.contains(filename);
+
         rows.push(FileTreeRow::File {
             file_index: *file_index,
             name: file_name.to_string(),
@@ -120,10 +147,57 @@ fn build_file_tree_rows(
             comment_count: review_count + draft_count,
             unseen_count,
             reviewed: reviewed_files.contains(filename),
+            path: filename.clone(),
+            threads_expanded,
+            has_threads,
         });
+
+        if has_threads && threads_expanded {
+            let thread_depth = dir_parts.len() + 1;
+            let mut file_threads: Vec<&CommentThread> =
+                threads.iter().filter(|t| t.path == *filename).collect();
+            file_threads.sort_by_key(|t| t.line);
+            for thread in file_threads {
+                let resolved = resolved_thread_lines.contains(&(thread.path.clone(), thread.line));
+                if show_only_unresolved && resolved {
+                    continue;
+                }
+                let first = thread.comments.first();
+                let author = first.map(|c| c.user.login.clone()).unwrap_or_default();
+                let snippet = first.map(|c| snippet_of(&c.body)).unwrap_or_default();
+                let unseen = thread
+                    .comments
+                    .iter()
+                    .any(|c| !seen_comment_ids.contains(&c.id));
+                rows.push(FileTreeRow::Thread {
+                    path: thread.path.clone(),
+                    line: thread.line,
+                    depth: thread_depth,
+                    author,
+                    snippet,
+                    count: thread.comments.len(),
+                    unseen,
+                    resolved,
+                });
+            }
+        }
     }
 
     rows
+}
+
+/// Produce a one-line snippet from a comment body for display in the tree.
+fn snippet_of(body: &str) -> String {
+    let trimmed = body.trim();
+    let first_line = trimmed.lines().next().unwrap_or("");
+    let cleaned = first_line.trim_start_matches(['>', '#', '-', '*']).trim();
+    const MAX: usize = 80;
+    if cleaned.chars().count() <= MAX {
+        cleaned.to_string()
+    } else {
+        let truncated: String = cleaned.chars().take(MAX).collect();
+        format!("{truncated}…")
+    }
 }
 
 impl PrReviewPane {
@@ -570,10 +644,8 @@ impl PrReviewPane {
                 .order(egui::Order::Foreground)
                 .fixed_pos(popup_pos)
                 .show(ui.ctx(), |ui| {
-                    egui::Frame::new()
-                        .fill(theme.bg_elevated())
-                        .stroke(egui::Stroke::new(1.0, theme.border_subtle()))
-                        .corner_radius(6.0)
+                    crate::components::util::OverlayStyle::elevated_card(theme)
+                        .frame()
                         .inner_margin(egui::Margin::same(12))
                         .show(ui, |ui| {
                             ui.set_width(300.0);
@@ -708,10 +780,8 @@ impl PrReviewPane {
                 .order(egui::Order::Foreground)
                 .fixed_pos(popup_pos)
                 .show(ui.ctx(), |ui| {
-                    egui::Frame::new()
-                        .fill(theme.bg_elevated())
-                        .stroke(egui::Stroke::new(1.0, theme.border_subtle()))
-                        .corner_radius(6.0)
+                    crate::components::util::OverlayStyle::elevated_card(theme)
+                        .frame()
                         .inner_margin(egui::Margin::same(12))
                         .show(ui, |ui| {
                             ui.set_width(240.0);
@@ -1236,7 +1306,20 @@ impl PrReviewPane {
                             .color(key_color)
                             .font(label_font.clone()),
                     );
-                    ui.label(RichText::new("v").color(key_color).font(key_font));
+                    ui.label(RichText::new("v").color(key_color).font(key_font.clone()));
+
+                    ui.label(
+                        RichText::new("\u{2022}")
+                            .color(sep_color)
+                            .font(label_font.clone()),
+                    );
+
+                    ui.label(
+                        RichText::new("resolve")
+                            .color(key_color)
+                            .font(label_font.clone()),
+                    );
+                    ui.label(RichText::new("R").color(key_color).font(key_font));
                 });
             },
         );
@@ -1389,7 +1472,7 @@ impl PrReviewPane {
                     theme.text_secondary(),
                 );
 
-                // Collapse button (right-aligned)
+                // Right-aligned controls: Unresolved-only filter + collapse
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.add_space(4.0);
                     let collapse_btn = ui.add(
@@ -1405,6 +1488,37 @@ impl PrReviewPane {
                         self.file_panel_collapsed = true;
                     }
                     collapse_btn.on_hover_text("Hide file tree");
+
+                    // Unresolved-only filter — only show when resolution state exists
+                    let has_any_resolved = !self.resolved_thread_lines.is_empty();
+                    if has_any_resolved || self.show_only_unresolved {
+                        ui.add_space(2.0);
+                        let (filter_color, filter_bg) = if self.show_only_unresolved {
+                            (
+                                theme.accent_primary(),
+                                theme.accent_primary().gamma_multiply(0.12),
+                            )
+                        } else {
+                            (theme.text_secondary(), egui::Color32::TRANSPARENT)
+                        };
+                        let filter_btn = ui.add(
+                            egui::Button::new(
+                                RichText::new(format!(
+                                    "{} Unresolved",
+                                    egui_nerdfonts::regular::FILTER_1
+                                ))
+                                .size(typography::XS)
+                                .color(filter_color),
+                            )
+                            .fill(filter_bg)
+                            .corner_radius(3.0)
+                            .stroke(egui::Stroke::NONE),
+                        );
+                        if filter_btn.clicked() {
+                            self.show_only_unresolved = !self.show_only_unresolved;
+                        }
+                        filter_btn.on_hover_text("Show only unresolved comment threads");
+                    }
                 });
             },
         );
@@ -1470,10 +1584,16 @@ impl PrReviewPane {
             &self.draft_comments,
             &self.seen_comment_ids,
             &self.reviewed_files,
+            &self.cached_threads,
+            &self.expanded_comment_files,
+            &self.resolved_thread_lines,
+            self.show_only_unresolved,
         );
 
         let mut toggle_dir: Option<String> = None;
         let mut clicked_file: Option<usize> = None;
+        let mut toggle_threads_for: Option<String> = None;
+        let mut clicked_thread: Option<(String, usize)> = None;
 
         egui::ScrollArea::vertical()
             .id_salt("pr_file_panel")
@@ -1585,6 +1705,9 @@ impl PrReviewPane {
                             comment_count,
                             unseen_count,
                             reviewed,
+                            path: file_path,
+                            threads_expanded,
+                            has_threads,
                         } => {
                             let file = &self.pr_files[*file_index];
                             let is_selected = self
@@ -1743,17 +1866,49 @@ impl PrReviewPane {
                                 );
                             }
 
+                            let mut comment_chip_rect: Option<egui::Rect> = None;
                             if let Some(comment_galley) = comment_galley {
+                                let chip_text_width = comment_galley.size().x;
+                                let chip_text_height = comment_galley.size().y;
                                 right_x -= 6.0;
-                                right_x -= comment_galley.size().x;
+                                right_x -= chip_text_width;
+                                let chip_text_left = right_x;
                                 ui.painter().galley(
                                     egui::pos2(
-                                        right_x,
-                                        rect.center().y - comment_galley.size().y / 2.0,
+                                        chip_text_left,
+                                        rect.center().y - chip_text_height / 2.0,
                                     ),
                                     comment_galley,
                                     theme.accent_primary(),
                                 );
+                                // Leading chevron (expansion indicator) — always visible when there are threads
+                                if *has_threads {
+                                    let chev = if *threads_expanded {
+                                        egui_nerdfonts::regular::CHEVRON_DOWN
+                                    } else {
+                                        egui_nerdfonts::regular::CHEVRON_RIGHT
+                                    };
+                                    let chev_galley = ui.painter().layout_no_wrap(
+                                        chev.to_string(),
+                                        typography::proportional(typography::XS),
+                                        theme.accent_primary().gamma_multiply(0.8),
+                                    );
+                                    right_x -= chev_galley.size().x + 2.0;
+                                    ui.painter().galley(
+                                        egui::pos2(
+                                            right_x,
+                                            rect.center().y - chev_galley.size().y / 2.0,
+                                        ),
+                                        chev_galley,
+                                        theme.accent_primary().gamma_multiply(0.8),
+                                    );
+                                }
+                                let chip_left = right_x - 4.0;
+                                let chip_right = chip_text_left + chip_text_width + 4.0;
+                                comment_chip_rect = Some(egui::Rect::from_min_max(
+                                    egui::pos2(chip_left, rect.top()),
+                                    egui::pos2(chip_right.min(rect.right()), rect.bottom()),
+                                ));
                             }
 
                             // Unseen comment dot indicator
@@ -1789,10 +1944,144 @@ impl PrReviewPane {
                             }
 
                             if response.clicked() {
-                                clicked_file = Some(*file_index);
+                                let click_pos = response
+                                    .interact_pointer_pos()
+                                    .or_else(|| ui.ctx().pointer_interact_pos());
+                                let clicked_chip = match (comment_chip_rect, click_pos) {
+                                    (Some(chip), Some(pos)) if *has_threads => chip.contains(pos),
+                                    _ => false,
+                                };
+                                if clicked_chip {
+                                    toggle_threads_for = Some(file_path.clone());
+                                } else {
+                                    clicked_file = Some(*file_index);
+                                }
                             }
 
                             response.on_hover_text(&file.filename);
+                        }
+                        FileTreeRow::Thread {
+                            path,
+                            line,
+                            depth,
+                            author,
+                            snippet,
+                            count,
+                            unseen,
+                            resolved,
+                        } => {
+                            if is_hovered {
+                                ui.painter().rect_filled(
+                                    rect,
+                                    3.0,
+                                    theme.text_primary().gamma_multiply(0.04),
+                                );
+                            }
+
+                            let indent = 8.0 + *depth as f32 * 12.0;
+                            let mut cx = rect.left() + indent;
+                            let name_y = rect.center().y;
+
+                            // Comment icon (dimmed when resolved)
+                            let icon_color = if *resolved {
+                                theme.text_secondary().gamma_multiply(0.45)
+                            } else {
+                                theme.accent_primary().gamma_multiply(0.85)
+                            };
+                            let icon_galley = ui.painter().layout_no_wrap(
+                                egui_nerdfonts::regular::COMMENT_TEXT.to_string(),
+                                typography::proportional(typography::XS),
+                                icon_color,
+                            );
+                            ui.painter().galley(
+                                egui::pos2(cx, name_y - icon_galley.size().y / 2.0),
+                                icon_galley.clone(),
+                                icon_color,
+                            );
+                            cx += icon_galley.size().x + 4.0;
+
+                            // Line number badge "L42"
+                            let line_text = format!("L{line}");
+                            let line_color = theme.text_secondary().gamma_multiply(0.7);
+                            let line_galley = ui.painter().layout_no_wrap(
+                                line_text,
+                                typography::monospace(typography::XS),
+                                line_color,
+                            );
+                            ui.painter().galley(
+                                egui::pos2(cx, name_y - line_galley.size().y / 2.0),
+                                line_galley.clone(),
+                                line_color,
+                            );
+                            cx += line_galley.size().x + 6.0;
+
+                            // Reserve right-side space for count badge & markers
+                            let mut right_x = rect.right() - 10.0;
+                            if *count > 1 {
+                                let count_text = format!("{count}");
+                                let count_galley = ui.painter().layout_no_wrap(
+                                    count_text,
+                                    typography::proportional(typography::XS),
+                                    theme.text_secondary().gamma_multiply(0.7),
+                                );
+                                right_x -= count_galley.size().x;
+                                ui.painter().galley(
+                                    egui::pos2(right_x, name_y - count_galley.size().y / 2.0),
+                                    count_galley,
+                                    theme.text_secondary().gamma_multiply(0.7),
+                                );
+                                right_x -= 6.0;
+                            }
+                            if *resolved {
+                                let check_galley = ui.painter().layout_no_wrap(
+                                    egui_nerdfonts::regular::CHECK_CIRCLE.to_string(),
+                                    typography::proportional(typography::XS),
+                                    theme.diff_added_gutter().gamma_multiply(0.75),
+                                );
+                                right_x -= check_galley.size().x;
+                                ui.painter().galley(
+                                    egui::pos2(right_x, name_y - check_galley.size().y / 2.0),
+                                    check_galley,
+                                    theme.diff_added_gutter().gamma_multiply(0.75),
+                                );
+                                right_x -= 4.0;
+                            } else if *unseen {
+                                let dot_center = egui::pos2(right_x - 3.0, name_y);
+                                ui.painter()
+                                    .circle_filled(dot_center, 3.0, theme.accent_primary());
+                                right_x -= 10.0;
+                            }
+
+                            // Author + snippet fill remaining width
+                            let body_text = if author.is_empty() {
+                                snippet.clone()
+                            } else {
+                                format!("{author} · {snippet}")
+                            };
+                            let body_color = if *resolved {
+                                theme.text_secondary().gamma_multiply(0.55)
+                            } else {
+                                theme.text_primary().gamma_multiply(0.85)
+                            };
+                            let body_max = (right_x - cx - 4.0).max(20.0);
+                            let body_galley = ui.painter().layout(
+                                body_text,
+                                typography::proportional(typography::XS),
+                                body_color,
+                                body_max,
+                            );
+                            ui.painter().galley(
+                                egui::pos2(cx, name_y - body_galley.size().y / 2.0),
+                                body_galley,
+                                body_color,
+                            );
+
+                            if response.clicked() {
+                                clicked_thread = Some((path.clone(), *line));
+                            }
+                            if is_hovered {
+                                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                            }
                         }
                     }
                 }
@@ -1807,6 +2096,11 @@ impl PrReviewPane {
                 self.collapsed_dirs.insert(dir_path);
             }
         }
+        if let Some(path) = toggle_threads_for {
+            if !self.expanded_comment_files.remove(&path) {
+                self.expanded_comment_files.insert(path);
+            }
+        }
         if let Some(pr_idx) = clicked_file {
             // Resolve pr_files index to file_diffs index by matching path
             let filename = &self.pr_files[pr_idx].filename;
@@ -1817,6 +2111,9 @@ impl PrReviewPane {
                 self.markdown_scroll_y = 0.0;
                 self.markdown_content_cache = None;
             }
+        }
+        if let Some((path, line)) = clicked_thread {
+            self.navigate_to_thread(&path, line);
         }
     }
 
@@ -2630,6 +2927,10 @@ mod tests {
             &[],
             &FxHashSet::default(),
             &FxHashSet::default(),
+            &[],
+            &FxHashSet::default(),
+            &FxHashSet::default(),
+            false,
         );
 
         let names = collect_file_names(&rows);
@@ -2651,6 +2952,10 @@ mod tests {
             &[],
             &FxHashSet::default(),
             &FxHashSet::default(),
+            &[],
+            &FxHashSet::default(),
+            &FxHashSet::default(),
+            false,
         );
 
         let dirs = collect_dir_names(&rows);
@@ -2680,6 +2985,10 @@ mod tests {
             &[],
             &FxHashSet::default(),
             &FxHashSet::default(),
+            &[],
+            &FxHashSet::default(),
+            &FxHashSet::default(),
+            false,
         );
 
         // src directory should be present but collapsed
@@ -2710,6 +3019,10 @@ mod tests {
             &[],
             &FxHashSet::default(),
             &FxHashSet::default(),
+            &[],
+            &FxHashSet::default(),
+            &FxHashSet::default(),
+            false,
         );
 
         let dirs = collect_dir_names(&rows);
@@ -2730,6 +3043,10 @@ mod tests {
             &[],
             &FxHashSet::default(),
             &FxHashSet::default(),
+            &[],
+            &FxHashSet::default(),
+            &FxHashSet::default(),
+            false,
         );
 
         // No files should be visible
@@ -2751,6 +3068,10 @@ mod tests {
             &[],
             &FxHashSet::default(),
             &FxHashSet::default(),
+            &[],
+            &FxHashSet::default(),
+            &FxHashSet::default(),
+            false,
         );
 
         // Tree sorts alphabetically, but file_index should refer back to the
@@ -2778,6 +3099,10 @@ mod tests {
             &[],
             &FxHashSet::default(),
             &FxHashSet::default(),
+            &[],
+            &FxHashSet::default(),
+            &FxHashSet::default(),
+            false,
         );
 
         let src_dir = rows.iter().find_map(|r| match r {
@@ -2819,6 +3144,10 @@ mod tests {
             &draft_comments,
             &FxHashSet::default(),
             &FxHashSet::default(),
+            &[],
+            &FxHashSet::default(),
+            &FxHashSet::default(),
+            false,
         );
 
         let comment_count = rows.iter().find_map(|r| match r {
@@ -2873,6 +3202,10 @@ mod tests {
             &[],
             &FxHashSet::default(),
             &FxHashSet::default(),
+            &[],
+            &FxHashSet::default(),
+            &FxHashSet::default(),
+            false,
         );
         let bar_pr_idx = rows
             .iter()

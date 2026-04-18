@@ -69,11 +69,21 @@ pub(super) enum ReviewState {
 /// Result types for async operations.
 type PrListResult = Result<Vec<PullRequest>, String>;
 type PrDetailResult = Result<(PullRequest, Vec<PrFile>, String), String>;
-type PrCommentsResult = Result<(Vec<PrComment>, Vec<IssueComment>, Vec<PrReview>), String>;
+type PrCommentsResult = Result<
+    (
+        Vec<PrComment>,
+        Vec<IssueComment>,
+        Vec<PrReview>,
+        Vec<api::ReviewThreadState>,
+    ),
+    String,
+>;
 type PrChecksResult = Result<Vec<CheckRun>, String>;
 type PrSubmitResult = Result<(), String>;
 type PrMergeResult = Result<api::MergeOutcome, String>;
 type SingleCommentResult = Result<PrComment, String>;
+/// Result of a thread resolve/unresolve mutation: (thread_node_id, new_resolved_state).
+type PrResolveResult = Result<(String, bool), String>;
 type AvatarResult = (String, Result<Vec<u8>, String>);
 
 /// All preloaded data for a single PR.
@@ -210,6 +220,22 @@ pub struct PrReviewPane {
     /// Comment IDs that the user has "seen" (by viewing the file containing them).
     seen_comment_ids: rustc_hash::FxHashSet<u64>,
 
+    // ── Comment tree entries ──
+    /// Files whose comment thread list is expanded in the file tree sidebar.
+    expanded_comment_files: rustc_hash::FxHashSet<String>,
+
+    // ── Thread resolution ──
+    /// Thread resolution state keyed by (path, line). Populated from GitHub
+    /// GraphQL and locally toggled; merged into cached_threads for rendering.
+    resolved_thread_lines: rustc_hash::FxHashSet<(String, usize)>,
+    /// Thread node IDs keyed by (path, line) — needed to call the GraphQL
+    /// resolve/unresolve mutation.
+    thread_node_ids: FxHashMap<(String, usize), String>,
+    /// Filter toggle: when true, hide resolved threads in the sidebar tree.
+    show_only_unresolved: bool,
+    /// In-flight thread resolve/unresolve result: Ok(node_id, new_state) / Err.
+    pending_resolve: Arc<Mutex<Option<PrResolveResult>>>,
+
     // ── Per-file reviewed status ──
     /// File paths the user has marked as "reviewed".
     reviewed_files: rustc_hash::FxHashSet<String>,
@@ -342,6 +368,11 @@ impl PrReviewPane {
             file_tree_scroll_to_selected: false,
             file_panel_collapsed: false,
             seen_comment_ids: rustc_hash::FxHashSet::default(),
+            expanded_comment_files: rustc_hash::FxHashSet::default(),
+            resolved_thread_lines: rustc_hash::FxHashSet::default(),
+            thread_node_ids: FxHashMap::default(),
+            show_only_unresolved: false,
+            pending_resolve: Arc::new(Mutex::new(None)),
             reviewed_files: rustc_hash::FxHashSet::default(),
             markdown_preview: false,
             markdown_scroll_y: 0.0,
@@ -469,6 +500,23 @@ impl PrReviewPane {
         self.cached_threads = crate::git::api::group_into_threads(&self.review_comments);
     }
 
+    /// Merge GraphQL thread-resolution states into local state. Called after
+    /// the GraphQL reviewThreads query completes.
+    fn apply_thread_states(&mut self, states: Vec<api::ReviewThreadState>) {
+        self.thread_node_ids.clear();
+        // Keep any optimistic in-flight resolves — only overwrite where the
+        // server gave us a concrete answer.
+        for state in states {
+            let key = (state.path.clone(), state.line);
+            self.thread_node_ids.insert(key.clone(), state.thread_id);
+            if state.is_resolved {
+                self.resolved_thread_lines.insert(key);
+            } else {
+                self.resolved_thread_lines.remove(&key);
+            }
+        }
+    }
+
     /// Mark all comments on the currently selected file as "seen".
     fn mark_current_file_comments_seen(&mut self) {
         let Some(file_diff) = self.file_diffs.get(self.selected_file_index) else {
@@ -562,6 +610,101 @@ impl PrReviewPane {
             .await;
             *pending.lock() = Some(result);
         });
+    }
+
+    /// Navigate to a specific comment thread: switch to its file and animate
+    /// the diff scroll to the thread's line. Used by the file-tree thread entries.
+    pub(super) fn navigate_to_thread(&mut self, thread_path: &str, thread_line: usize) {
+        let Some(diff_idx) = self.file_diffs.iter().position(|d| d.path == thread_path) else {
+            return;
+        };
+        if self.selected_file_index != diff_idx {
+            self.selected_file_index = diff_idx;
+            self.diff_renderer.reset_for_file_change();
+            self.mark_current_file_comments_seen();
+            self.markdown_preview = false;
+            self.markdown_scroll_y = 0.0;
+            self.markdown_content_cache = None;
+            self.file_tree_scroll_to_selected = true;
+        }
+        let Some(file_diff) = self.file_diffs.get(self.selected_file_index) else {
+            return;
+        };
+        // Threads are keyed by the new-side line number (GitHub's default for
+        // review comments). Fall back to old-side for deletion-only threads.
+        let target_line_idx = file_diff
+            .lines
+            .iter()
+            .position(|l| l.new_line_num == Some(thread_line))
+            .or_else(|| {
+                file_diff
+                    .lines
+                    .iter()
+                    .position(|l| l.old_line_num == Some(thread_line))
+            });
+        if let Some(idx) = target_line_idx {
+            let target_y = idx as f32 * self.diff_renderer.line_height();
+            self.diff_renderer.animate_scroll_to(target_y);
+        }
+    }
+
+    /// Toggle thread resolution on a given (path, line).
+    /// Updates local state immediately (optimistic) and kicks off the GraphQL
+    /// mutation when a thread node id is known.
+    pub(super) fn toggle_thread_resolved(&mut self, path: String, line: usize) {
+        let key = (path, line);
+        let currently_resolved = self.resolved_thread_lines.contains(&key);
+        let new_resolved = !currently_resolved;
+        if new_resolved {
+            self.resolved_thread_lines.insert(key.clone());
+        } else {
+            self.resolved_thread_lines.remove(&key);
+        }
+
+        // If we have the GraphQL node id, fire the mutation.
+        let Some(node_id) = self.thread_node_ids.get(&key).cloned() else {
+            return;
+        };
+        let Some(token) = &self.token else { return };
+        let client = self.http_client.clone();
+        let token = token.clone();
+        let pending = Arc::clone(&self.pending_resolve);
+        self.async_runtime.spawn(async move {
+            let result = api::set_thread_resolved(&client, &token, &node_id, new_resolved)
+                .await
+                .map(|_| (node_id, new_resolved));
+            *pending.lock() = Some(result);
+        });
+    }
+
+    /// Toggle resolution on the thread nearest to the current cursor/viewport line.
+    pub(super) fn toggle_nearest_thread_resolved(&mut self) {
+        let Some(file_diff) = self.file_diffs.get(self.selected_file_index) else {
+            return;
+        };
+        let file_path = file_diff.path.clone();
+        let file_threads: Vec<(usize, usize)> = self
+            .cached_threads
+            .iter()
+            .filter(|t| t.path == file_path)
+            .filter_map(|t| {
+                file_diff
+                    .lines
+                    .iter()
+                    .position(|l| l.new_line_num == Some(t.line))
+                    .map(|line_idx| (line_idx, t.line))
+            })
+            .collect();
+        if file_threads.is_empty() {
+            return;
+        }
+        let current = self.diff_renderer.current_line_approx();
+        let (_, target_line) = file_threads
+            .iter()
+            .min_by_key(|(line_idx, _)| (*line_idx as i64 - current as i64).abs())
+            .copied()
+            .unwrap_or(file_threads[0]);
+        self.toggle_thread_resolved(file_path, target_line);
     }
 
     /// Jump to the next or previous comment thread in the current file's diff.
@@ -731,7 +874,17 @@ impl PrReviewPane {
                 let issue_comments =
                     api::get_issue_comments(&client, &token, &owner, &repo, number).await?;
                 let reviews = api::get_reviews(&client, &token, &owner, &repo, number).await?;
-                Ok((review_comments, issue_comments, reviews))
+                // Thread resolution state is best-effort — if the GraphQL call
+                // fails (e.g., scoped token without repo access), return an
+                // empty list rather than failing the whole fetch.
+                let thread_states =
+                    api::get_review_thread_states(&client, &token, &owner, &repo, number)
+                        .await
+                        .unwrap_or_else(|err| {
+                            log::warn!("review thread state fetch failed: {err}");
+                            Vec::new()
+                        });
+                Ok((review_comments, issue_comments, reviews, thread_states))
             }
             .await;
             *pending.lock() = Some(result);
@@ -1054,7 +1207,7 @@ impl PrReviewPane {
         let comments_result = self.pending_comments.lock().take();
         if let Some(result) = comments_result {
             match result {
-                Ok((review_comments, issue_comments, reviews)) => {
+                Ok((review_comments, issue_comments, reviews, thread_states)) => {
                     self.review_comments = review_comments;
                     self.rebuild_thread_cache();
                     self.issue_comments = issue_comments;
@@ -1062,10 +1215,36 @@ impl PrReviewPane {
                     if let Some(pr) = &self.current_pr {
                         self.preloaded_reviews.insert(pr.number, reviews);
                     }
+                    self.apply_thread_states(thread_states);
                     self.fetch_avatars_for_comments();
                 }
                 Err(e) => {
                     log::warn!("Failed to fetch PR comments: {e}");
+                }
+            }
+        }
+
+        // Poll thread resolve/unresolve result
+        if let Some(result) = self.pending_resolve.lock().take() {
+            match result {
+                Ok((node_id, new_resolved)) => {
+                    // Find the (path, line) key for this node_id and ensure
+                    // our local state matches the server response.
+                    let key = self
+                        .thread_node_ids
+                        .iter()
+                        .find(|(_, id)| *id == &node_id)
+                        .map(|(k, _)| k.clone());
+                    if let Some(key) = key {
+                        if new_resolved {
+                            self.resolved_thread_lines.insert(key);
+                        } else {
+                            self.resolved_thread_lines.remove(&key);
+                        }
+                    }
+                }
+                Err(e) => {
+                    log::warn!("Failed to toggle thread resolution: {e}");
                 }
             }
         }
@@ -1455,6 +1634,11 @@ impl PrReviewPane {
                         self.toggle_current_file_reviewed();
                     }
 
+                    // Shift+R — toggle resolution on the thread nearest the cursor
+                    if input.consume_key(egui::Modifiers::SHIFT, egui::Key::R) {
+                        self.toggle_nearest_thread_resolved();
+                    }
+
                     // In detail view: Escape closes search first, then goes back.
                     // h/Backspace/ArrowLeft always go back.
                     if input.consume_key(egui::Modifiers::NONE, egui::Key::Escape) {
@@ -1632,6 +1816,10 @@ impl crate::components::Component for PrReviewPane {
             self.check_runs.clear();
             self.clear_review_state();
             self.collapsed_dirs.clear();
+            self.expanded_comment_files.clear();
+            self.resolved_thread_lines.clear();
+            self.thread_node_ids.clear();
+            self.show_only_unresolved = false;
             self.diff_renderer.reset_for_file_change();
             self.diff_renderer.close_search();
         }

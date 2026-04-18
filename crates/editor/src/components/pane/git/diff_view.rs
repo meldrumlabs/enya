@@ -24,6 +24,8 @@ struct FloatingCardAction {
     cancel: bool,
     /// Start replying to a thread: (file_idx, line_idx).
     start_reply: Option<(usize, usize)>,
+    /// Toggle thread resolution: (file_path, line_num).
+    toggle_resolve: Option<(String, usize)>,
 }
 
 /// Minimum pane width to enable floating comment gutter.
@@ -479,6 +481,7 @@ impl PrReviewPane {
                     let mut pending_submit: Option<(String, usize, String)> = None;
                     let mut pending_cancel = false;
                     let mut pending_reply: Option<(usize, usize)> = None;
+                    let mut pending_resolve: Option<(String, usize)> = None;
 
                     for (i, item) in items.iter().enumerate() {
                         let card = &cards[i];
@@ -541,23 +544,28 @@ impl PrReviewPane {
 
                         // ── Card content (height-clamped to gutter bottom) ──
 
-                        // Subtle drop shadow for floating card depth
-                        let shadow_rect = egui::Rect::from_min_size(
-                            egui::pos2(card_left + 7.0, card_y + 4.0),
-                            egui::vec2(card_content_width - 12.0, max_card_h),
-                        );
-                        clipped_painter.rect_filled(
-                            shadow_rect,
-                            4.0,
-                            egui::Color32::from_black_alpha(12),
-                        );
-
-                        let accent_shape_idx = clipped_painter.add(egui::Shape::Noop);
-
+                        // Soft drop shadow — proper blurred falloff so the
+                        // card reads as floating instead of sitting flat on
+                        // the gutter bg. The card rect itself is the source;
+                        // Shadow::as_shape returns a pre-blurred rectshape.
                         let card_rect = egui::Rect::from_min_size(
                             egui::pos2(card_left + 6.0, card_y + 2.0),
                             egui::vec2(card_content_width - 14.0, max_card_h),
                         );
+                        let shadow = egui::epaint::Shadow {
+                            offset: [0, 4],
+                            blur: 14,
+                            spread: 0,
+                            color: egui::Color32::from_black_alpha(55),
+                        };
+                        clipped_painter.add(egui::Shape::from(
+                            shadow.as_shape(card_rect, egui::CornerRadius::same(6)),
+                        ));
+                        // Light elevated surface under the card so the shadow
+                        // has something visible to "lift" from.
+                        clipped_painter.rect_filled(card_rect, 6.0, theme.bg_elevated());
+
+                        let accent_shape_idx = clipped_painter.add(egui::Shape::Noop);
 
                         let mut card_ui = ui.new_child(
                             egui::UiBuilder::new()
@@ -592,6 +600,9 @@ impl PrReviewPane {
                         let has_comment_content =
                             item.thread.is_some() || !item.drafts.is_empty() || item.is_composing;
                         if has_comment_content {
+                            let is_resolved = self
+                                .resolved_thread_lines
+                                .contains(&(file_path.clone(), card.line_num));
                             let card_action = render_floating_card(
                                 &mut card_ui,
                                 theme,
@@ -602,6 +613,7 @@ impl PrReviewPane {
                                 card.line_idx,
                                 file_idx,
                                 &file_path,
+                                is_resolved,
                                 &mut self.comment_input,
                                 &mut self.collapsed_threads,
                                 &self.avatar_textures,
@@ -615,6 +627,9 @@ impl PrReviewPane {
                             }
                             if card_action.start_reply.is_some() {
                                 pending_reply = card_action.start_reply;
+                            }
+                            if card_action.toggle_resolve.is_some() {
+                                pending_resolve = card_action.toggle_resolve;
                             }
                         }
 
@@ -654,6 +669,9 @@ impl PrReviewPane {
                     if let Some((fi, li)) = pending_reply {
                         self.commenting_line = Some((fi, li));
                     }
+                    if let Some((path, line)) = pending_resolve {
+                        self.toggle_thread_resolved(path, line);
+                    }
                 },
             );
         });
@@ -672,12 +690,14 @@ impl PrReviewPane {
         let theme = self.theme;
         let draft_comments = &self.draft_comments;
         let commenting_line = self.commenting_line;
+        let resolved_threads = &self.resolved_thread_lines;
         let comment_input = &mut self.comment_input;
         let collapsed_threads = &mut self.collapsed_threads;
         let avatar_textures = &self.avatar_textures;
         let mut pending_add_comment: Option<(String, usize, String)> = None;
         let mut clear_commenting = false;
         let mut pending_start_reply: Option<(usize, usize)> = None;
+        let mut pending_toggle_resolve: Option<(String, usize)> = None;
 
         self.diff_renderer.render_diff(
             ui,
@@ -686,6 +706,8 @@ impl PrReviewPane {
             theme,
             Some(&mut |ui, line_idx, line: &DiffLine| {
                 if let Some(new_line) = line.new_line_num {
+                    let is_resolved =
+                        resolved_threads.contains(&(file_diff.path.clone(), new_line));
                     render_inline_comments(
                         ui,
                         &file_diff.path,
@@ -696,11 +718,13 @@ impl PrReviewPane {
                         file_threads,
                         draft_comments,
                         commenting_line,
+                        is_resolved,
                         comment_input,
                         collapsed_threads,
                         &mut pending_add_comment,
                         &mut clear_commenting,
                         &mut pending_start_reply,
+                        &mut pending_toggle_resolve,
                         avatar_textures,
                     );
                 }
@@ -720,6 +744,9 @@ impl PrReviewPane {
 
         if let Some((fi, li)) = pending_start_reply {
             self.commenting_line = Some((fi, li));
+        }
+        if let Some((path, line)) = pending_toggle_resolve {
+            self.toggle_thread_resolved(path, line);
         }
 
         self.process_diff_actions(file_idx);
@@ -959,6 +986,7 @@ fn render_floating_card(
     line_idx: usize,
     file_idx: usize,
     file_path: &str,
+    is_resolved: bool,
     comment_input: &mut String,
     collapsed_threads: &mut rustc_hash::FxHashSet<(String, usize)>,
     avatar_textures: &rustc_hash::FxHashMap<String, egui::TextureHandle>,
@@ -971,17 +999,29 @@ fn render_floating_card(
         submit: None,
         cancel: false,
         start_reply: None,
+        toggle_resolve: None,
     };
 
     ui.set_max_width(card_width);
 
-    // ── Line number badge ──
+    // ── Line number badge + resolve state ──
     ui.horizontal(|ui| {
         ui.label(
             RichText::new(format!("L{line_num}"))
                 .color(theme.text_secondary().gamma_multiply(0.6))
                 .font(typography::monospace(typography::XS)),
         );
+        if thread.is_some() && is_resolved {
+            ui.add_space(4.0);
+            ui.label(
+                RichText::new(format!(
+                    "{} Resolved",
+                    egui_nerdfonts::regular::CHECK_CIRCLE
+                ))
+                .color(theme.diff_added_text().gamma_multiply(0.85))
+                .font(typography::proportional(typography::XS)),
+            );
+        }
     });
     ui.add_space(2.0);
 
@@ -1143,16 +1183,37 @@ fn render_floating_card(
             );
         });
     } else if thread.is_some() {
-        // Reply button
+        // Reply + Resolve/Unresolve row
         ui.add_space(2.0);
-        let reply_btn = ui.add(
-            egui::Button::new(RichText::new("Reply").size(typography::XS).color(accent))
+        ui.horizontal(|ui| {
+            let reply_btn = ui.add(
+                egui::Button::new(RichText::new("Reply").size(typography::XS).color(accent))
+                    .fill(egui::Color32::TRANSPARENT)
+                    .stroke(egui::Stroke::NONE),
+            );
+            if reply_btn.clicked() {
+                action.start_reply = Some((file_idx, line_idx));
+            }
+
+            let resolve_label = if is_resolved { "Unresolve" } else { "Resolve" };
+            let resolve_color = if is_resolved {
+                theme.text_secondary()
+            } else {
+                theme.diff_added_text().gamma_multiply(0.9)
+            };
+            let resolve_btn = ui.add(
+                egui::Button::new(
+                    RichText::new(resolve_label)
+                        .size(typography::XS)
+                        .color(resolve_color),
+                )
                 .fill(egui::Color32::TRANSPARENT)
                 .stroke(egui::Stroke::NONE),
-        );
-        if reply_btn.clicked() {
-            action.start_reply = Some((file_idx, line_idx));
-        }
+            );
+            if resolve_btn.clicked() {
+                action.toggle_resolve = Some((file_path.to_string(), line_num));
+            }
+        });
     }
 
     action
@@ -1284,11 +1345,13 @@ fn render_inline_comments(
     file_threads: &[CommentThread],
     draft_comments: &[DraftComment],
     commenting_line: Option<(usize, usize)>,
+    is_resolved: bool,
     comment_input: &mut String,
     collapsed_threads: &mut rustc_hash::FxHashSet<(String, usize)>,
     pending_add_comment: &mut Option<(String, usize, String)>,
     clear_commenting: &mut bool,
     pending_start_reply: &mut Option<(usize, usize)>,
+    pending_toggle_resolve: &mut Option<(String, usize)>,
     avatar_textures: &rustc_hash::FxHashMap<String, egui::TextureHandle>,
 ) {
     let thread = file_threads.iter().find(|t| t.line == line_num);
@@ -1544,6 +1607,37 @@ fn render_inline_comments(
                     );
                     if reply_btn.clicked() {
                         *pending_start_reply = Some((file_idx, line_idx));
+                    }
+
+                    let resolve_label = if is_resolved { "Unresolve" } else { "Resolve" };
+                    let resolve_color = if is_resolved {
+                        theme.text_secondary()
+                    } else {
+                        theme.diff_added_text().gamma_multiply(0.9)
+                    };
+                    let resolve_btn = ui.add(
+                        egui::Button::new(
+                            RichText::new(resolve_label)
+                                .size(typography::XS)
+                                .color(resolve_color),
+                        )
+                        .fill(egui::Color32::TRANSPARENT)
+                        .stroke(egui::Stroke::NONE),
+                    );
+                    if resolve_btn.clicked() {
+                        *pending_toggle_resolve = Some((file_path.to_string(), line_num));
+                    }
+
+                    if is_resolved {
+                        ui.add_space(4.0);
+                        ui.label(
+                            RichText::new(format!(
+                                "{} Resolved",
+                                egui_nerdfonts::regular::CHECK_CIRCLE
+                            ))
+                            .color(theme.diff_added_text().gamma_multiply(0.75))
+                            .font(typography::proportional(typography::XS)),
+                        );
                     }
                 });
             }
