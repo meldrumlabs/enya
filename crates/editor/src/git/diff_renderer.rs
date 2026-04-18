@@ -51,6 +51,10 @@ pub struct DiffRenderer {
     // ── Hunk navigation ──
     hunk_offsets: Vec<f32>,
     current_hunk_index: usize,
+    /// Per-hunk context metadata used by the sticky header overlay:
+    /// `(y_offset_in_content, hunk_context_text)`. Populated in parallel with
+    /// `hunk_offsets` and invalidated at the same time.
+    hunk_contexts: Vec<(f32, Option<String>)>,
 
     // ── Line selection ──
     selected_lines: Option<(usize, usize)>,
@@ -128,6 +132,7 @@ impl DiffRenderer {
             scroll_anim_from: 0.0,
             scroll_anim_to: 0.0,
             hunk_offsets: Vec::new(),
+            hunk_contexts: Vec::new(),
             current_hunk_index: 0,
             selected_lines: None,
             selection_anchor: None,
@@ -248,6 +253,7 @@ impl DiffRenderer {
         self.scroll_offset_y = 0.0;
         self.scroll_anim_start = None;
         self.hunk_offsets.clear();
+        self.hunk_contexts.clear();
         self.current_hunk_index = 0;
         self.selected_lines = None;
         self.selection_anchor = None;
@@ -333,6 +339,7 @@ impl DiffRenderer {
         let file_changed = if file_idx != current_file_index {
             self.scroll_offset_x = 0.0;
             self.hunk_offsets.clear();
+            self.hunk_contexts.clear();
             self.current_hunk_index = 0;
             self.selected_lines = None;
             self.selection_anchor = None;
@@ -561,6 +568,7 @@ impl DiffRenderer {
 
         // Invalidate caches
         self.hunk_offsets.clear();
+        self.hunk_contexts.clear();
         self.search_matches.clear();
 
         // Recompute syntax highlighting
@@ -831,6 +839,7 @@ impl DiffRenderer {
                 }
                 if line.kind == DiffLineKind::HunkHeader {
                     self.hunk_offsets.push(y);
+                    self.hunk_contexts.push((y, line.hunk_context.clone()));
                 }
                 y += if line.kind == DiffLineKind::HunkHeader {
                     hunk_header_height
@@ -946,6 +955,11 @@ impl DiffRenderer {
         self.line_y_positions = collected_y_positions;
         self.last_content_origin = scroll_output.inner_rect.left_top();
 
+        // Sticky hunk-context header: paint the current hunk's function-context
+        // pinned to the top of the viewport whenever its real header has scrolled
+        // out of view. Overlays the scroll area so it stays visible during scroll.
+        self.paint_sticky_hunk_header(ui, scroll_output.inner_rect, theme);
+
         // Process clicks
         if let Some((line_idx, shift)) = clicked_line {
             self.click_line(line_idx, shift);
@@ -1043,6 +1057,9 @@ impl DiffRenderer {
                     .is_some_and(|l| l.kind == DiffLineKind::HunkHeader);
                 if is_hunk {
                     self.hunk_offsets.push(y);
+                    if let Some(l) = left.as_ref() {
+                        self.hunk_contexts.push((y, l.hunk_context.clone()));
+                    }
                 }
                 y += if is_hunk {
                     hunk_header_height
@@ -1227,6 +1244,85 @@ impl DiffRenderer {
 
         // Sync scroll offset back from egui so mouse-wheel scrolling works
         self.scroll_offset_y = scroll_output.state.offset.y;
+
+        // Sticky hunk-context header overlay (same behavior as unified view).
+        self.paint_sticky_hunk_header(ui, scroll_output.inner_rect, theme);
+    }
+
+    /// Paint the current hunk's function-context pinned to the top of the diff
+    /// viewport. No-op when there is no active hunk context, or when the real
+    /// header is still visible on-screen.
+    fn paint_sticky_hunk_header(&self, ui: &egui::Ui, viewport: egui::Rect, theme: AppTheme) {
+        if self.hunk_contexts.is_empty() {
+            return;
+        }
+
+        // Find the last hunk whose y_offset is at or above the current scroll
+        // position. That's the hunk currently containing the top of the viewport.
+        let scroll_y = self.scroll_offset_y;
+        let active = self
+            .hunk_contexts
+            .iter()
+            .rev()
+            .find(|(y, _)| *y <= scroll_y + 2.0);
+        let Some((active_y, Some(context))) = active else {
+            return;
+        };
+        if context.trim().is_empty() {
+            return;
+        }
+
+        // Only paint when the real header is scrolled out of view — otherwise
+        // it would stack on top of itself.
+        let hunk_header_height = typography::SM + 12.0;
+        if active_y + hunk_header_height > scroll_y {
+            return;
+        }
+
+        // Don't paint if the *next* hunk header is currently at or above the
+        // viewport top (the new hunk's real header is about to take over).
+        if let Some((next_y, _)) = self.hunk_contexts.iter().find(|(y, _)| *y > *active_y) {
+            if *next_y <= scroll_y + hunk_header_height {
+                return;
+            }
+        }
+
+        let header_rect = egui::Rect::from_min_size(
+            viewport.left_top(),
+            egui::vec2(viewport.width(), hunk_header_height),
+        );
+        let painter = ui.ctx().layer_painter(egui::LayerId::new(
+            egui::Order::Foreground,
+            egui::Id::new(("sticky_hunk", &self.id_salt)),
+        ));
+        painter.rect_filled(header_rect, 0.0, theme.diff_hunk_bg().gamma_multiply(0.92));
+        painter.hline(
+            header_rect.x_range(),
+            header_rect.bottom(),
+            egui::Stroke::new(1.0, theme.border_subtle().gamma_multiply(0.7)),
+        );
+        // Subtle bottom drop shadow so the sticky header visually lifts off
+        // the content beneath it.
+        let shadow_rect = egui::Rect::from_min_size(
+            egui::pos2(header_rect.left(), header_rect.bottom()),
+            egui::vec2(header_rect.width(), 4.0),
+        );
+        painter.rect_filled(shadow_rect, 0.0, egui::Color32::from_black_alpha(18));
+
+        let text_color = theme.diff_hunk_text();
+        let galley = painter.layout_no_wrap(
+            context.clone(),
+            typography::monospace(self.font_size),
+            text_color,
+        );
+        painter.galley(
+            egui::pos2(
+                header_rect.left() + 16.0,
+                header_rect.center().y - galley.size().y / 2.0,
+            ),
+            galley,
+            text_color,
+        );
     }
 }
 
@@ -1450,6 +1546,19 @@ fn render_unified_line(
     );
     cursor_x += line_num_area_width + 8.0;
 
+    // Structural cues for Context lines: zebra banding + indent guides.
+    // Painted before the galley so leading whitespace shows the guides and
+    // actual code paints on top (hiding guides under character glyphs).
+    paint_context_rails(
+        ui.painter(),
+        line_rect,
+        cursor_x,
+        line,
+        theme,
+        font_size,
+        is_selected,
+    );
+
     // Content with syntax highlighting
     let syntax_spans =
         diff_widget::get_syntax_spans_for_line(line, old_highlight, new_highlight, theme);
@@ -1494,6 +1603,65 @@ fn render_unified_line(
     match clicked_shift {
         Some(shift) => LineAction::Click(shift),
         None => LineAction::None,
+    }
+}
+
+/// Paint structural rails — a subtle zebra band every 5 Context lines plus
+/// thin indent guides under leading whitespace — so the eye reads structure
+/// quickly on long unchanged blocks. No-op on non-Context lines so changed
+/// lines keep their own visual weight.
+fn paint_context_rails(
+    painter: &egui::Painter,
+    line_rect: egui::Rect,
+    content_start_x: f32,
+    line: &DiffLine,
+    theme: AppTheme,
+    font_size: f32,
+    is_selected: bool,
+) {
+    if line.kind != DiffLineKind::Context {
+        return;
+    }
+
+    // Zebra: tint every 5-line band using the file's line number so the
+    // rhythm is tied to actual source lines, not paint order. Skip when the
+    // row is selected — the selection overlay already provides contrast.
+    if !is_selected {
+        if let Some(n) = line.new_line_num {
+            let band = (n.saturating_sub(1) / 5) % 2;
+            if band == 1 {
+                let content_rect = egui::Rect::from_min_max(
+                    egui::pos2(content_start_x, line_rect.top()),
+                    line_rect.right_bottom(),
+                );
+                painter.rect_filled(
+                    content_rect,
+                    0.0,
+                    theme.text_primary().gamma_multiply(0.025),
+                );
+            }
+        }
+    }
+
+    // Indent guides: one thin vertical rule per 4-space indent level, drawn
+    // only under the leading whitespace so code never paints over a stripe
+    // at a weird offset.
+    let leading_spaces = line.content.chars().take_while(|&c| c == ' ').count();
+    let levels = leading_spaces / 4;
+    if levels == 0 {
+        return;
+    }
+    // Approx glyph width for the monospace diff font. Fine to keep as a constant
+    // ratio — indent guides are visual cues, not alignment rulers.
+    let char_w = font_size * 0.6;
+    let guide_color = theme.text_secondary().gamma_multiply(0.18);
+    for lvl in 1..=levels {
+        let x = content_start_x + (lvl * 4) as f32 * char_w - char_w / 2.0;
+        painter.vline(
+            x,
+            line_rect.top()..=line_rect.bottom(),
+            egui::Stroke::new(1.0, guide_color),
+        );
     }
 }
 

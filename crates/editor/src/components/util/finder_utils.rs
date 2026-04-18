@@ -96,6 +96,26 @@ impl OverlayStyle {
         }
     }
 
+    /// Elevated card style: mid-tier shadow for non-modal floating surfaces
+    /// (dropdowns, inline popovers, floating comment cards). Lighter than
+    /// `frosted_glass` so it doesn't overpower small popups, but strong
+    /// enough that the surface reads as *floating* rather than docked.
+    pub fn elevated_card(theme: AppTheme) -> Self {
+        Self {
+            bg: theme.bg_elevated(),
+            border: theme.border_subtle(),
+            corner_radius: 6.0,
+            stroke_width: 1.0,
+            shadow: egui::epaint::Shadow {
+                offset: [0, 4],
+                blur: 14,
+                spread: 0,
+                color: Color32::from_black_alpha(55),
+            },
+            inner_highlight: None,
+        }
+    }
+
     /// Minimal flat style: solid background, no shadows
     pub fn minimal_flat(theme: AppTheme) -> Self {
         let bg = theme.bg_surface();

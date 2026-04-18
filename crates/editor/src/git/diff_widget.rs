@@ -201,9 +201,89 @@ pub fn build_diff_line_layout_job(
     job
 }
 
+/// Dimming factor applied to context-line colors so unchanged lines visually
+/// recede and additions/deletions stand out. Tuned low enough to create
+/// hierarchy without sacrificing legibility.
+pub const CONTEXT_DIM_FACTOR: f32 = 0.62;
+
+/// Minimum WCAG contrast ratio enforced between a syntax span and the
+/// underlying diff-line background. 4.5:1 matches WCAG AA for normal text —
+/// high enough to rescue muted tokens swallowed by light-theme diff tints,
+/// low enough not to overcorrect already-readable dark-theme palettes.
+const MIN_DIFF_BG_CONTRAST_RATIO: f32 = 4.5;
+
+/// sRGB → linear channel conversion (WCAG relative luminance formula).
+fn srgb_to_linear(c: u8) -> f32 {
+    let v = c as f32 / 255.0;
+    if v <= 0.03928 {
+        v / 12.92
+    } else {
+        ((v + 0.055) / 1.055).powf(2.4)
+    }
+}
+
+/// WCAG relative luminance, in 0..=1.
+fn relative_luminance(c: egui::Color32) -> f32 {
+    0.2126 * srgb_to_linear(c.r()) + 0.7152 * srgb_to_linear(c.g()) + 0.0722 * srgb_to_linear(c.b())
+}
+
+/// WCAG contrast ratio between two colors (always ≥ 1.0).
+fn contrast_ratio(a: egui::Color32, b: egui::Color32) -> f32 {
+    let la = relative_luminance(a);
+    let lb = relative_luminance(b);
+    let (hi, lo) = if la >= lb { (la, lb) } else { (lb, la) };
+    (hi + 0.05) / (lo + 0.05)
+}
+
+fn lerp_toward(from: egui::Color32, to: egui::Color32, t: f32) -> egui::Color32 {
+    let blend = |a: u8, b: u8| ((a as f32 * (1.0 - t)) + (b as f32 * t)).round() as u8;
+    egui::Color32::from_rgba_premultiplied(
+        blend(from.r(), to.r()),
+        blend(from.g(), to.g()),
+        blend(from.b(), to.b()),
+        from.a(),
+    )
+}
+
+/// Nudge `fg` away from `bg`'s luminance until the WCAG contrast ratio meets
+/// [`MIN_DIFF_BG_CONTRAST_RATIO`]. No-op when the ratio is already
+/// sufficient — keeps vivid syntax colors untouched while rescuing muted
+/// ones (comments, subdued strings) that would otherwise disappear into a
+/// light-theme diff tint.
+fn ensure_contrast_with_bg(fg: egui::Color32, bg: egui::Color32) -> egui::Color32 {
+    if contrast_ratio(fg, bg) >= MIN_DIFF_BG_CONTRAST_RATIO {
+        return fg;
+    }
+    // Decide which extreme to push toward: away from the background's
+    // luminance so we don't accidentally merge into it.
+    let target = if relative_luminance(bg) > 0.5 {
+        egui::Color32::BLACK
+    } else {
+        egui::Color32::WHITE
+    };
+    // Binary search for the smallest blend factor that meets the target
+    // ratio — preserves hue as much as possible while guaranteeing a fix.
+    let mut lo = 0.0f32;
+    let mut hi = 1.0f32;
+    for _ in 0..10 {
+        let mid = (lo + hi) * 0.5;
+        let candidate = lerp_toward(fg, target, mid);
+        if contrast_ratio(candidate, bg) >= MIN_DIFF_BG_CONTRAST_RATIO {
+            hi = mid;
+        } else {
+            lo = mid;
+        }
+    }
+    lerp_toward(fg, target, hi)
+}
+
 /// Get the syntax color spans for a diff line, using its reconstruction line number.
 ///
-/// Returns `(start, end, color)` tuples relative to the line content.
+/// Returns `(start, end, color)` tuples relative to the line content. Context
+/// line spans are returned pre-dimmed so the eye reads changes first; spans
+/// on Addition/Deletion lines are contrast-boosted against the diff
+/// background so muted tokens (comments, strings) stay readable on light
+/// themes where the tint luminance is close to the span color.
 pub fn get_syntax_spans_for_line(
     line: &DiffLine,
     old_highlight: Option<&SyntaxHighlightData>,
@@ -217,9 +297,32 @@ pub fn get_syntax_spans_for_line(
         _ => (None, None),
     };
 
-    syntax_data
+    let mut spans: Vec<(usize, usize, egui::Color32)> = syntax_data
         .and_then(|data| recon_num.map(|n| data.get_line_spans(n, theme)))
-        .unwrap_or_default()
+        .unwrap_or_default();
+
+    match line.kind {
+        DiffLineKind::Context => {
+            for (_, _, color) in spans.iter_mut() {
+                *color = color.gamma_multiply(CONTEXT_DIM_FACTOR);
+            }
+        }
+        DiffLineKind::Addition => {
+            let bg = theme.diff_added_bg();
+            for (_, _, color) in spans.iter_mut() {
+                *color = ensure_contrast_with_bg(*color, bg);
+            }
+        }
+        DiffLineKind::Deletion => {
+            let bg = theme.diff_removed_bg();
+            for (_, _, color) in spans.iter_mut() {
+                *color = ensure_contrast_with_bg(*color, bg);
+            }
+        }
+        _ => {}
+    }
+
+    spans
 }
 
 /// Render a single diff line with gutter, line numbers, and content (unified view).

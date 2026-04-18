@@ -490,6 +490,151 @@ pub async fn get_reviews(
     .await
 }
 
+/// Resolution state for a review thread. The `thread_id` is the GraphQL node
+/// id — needed for resolve/unresolve mutations.
+#[derive(Debug, Clone)]
+pub struct ReviewThreadState {
+    pub thread_id: String,
+    pub path: String,
+    pub line: usize,
+    pub is_resolved: bool,
+}
+
+/// Fetch review thread resolution state via GraphQL.
+///
+/// The REST `/pulls/{n}/comments` endpoint does not expose `isResolved` or the
+/// thread's node id, so a separate GraphQL query is required. Returns one
+/// entry per thread (not per comment).
+pub async fn get_review_thread_states(
+    client: &reqwest::Client,
+    token: &str,
+    owner: &str,
+    repo: &str,
+    number: u32,
+) -> Result<Vec<ReviewThreadState>, String> {
+    let query = format!(
+        r#"query {{
+  repository(owner: "{owner}", name: "{repo}") {{
+    pullRequest(number: {number}) {{
+      reviewThreads(first: 100) {{
+        nodes {{
+          id
+          isResolved
+          path
+          line
+          originalLine
+        }}
+      }}
+    }}
+  }}
+}}"#
+    );
+
+    let url = format!("{}/graphql", github_api_base());
+    let resp = client
+        .post(&url)
+        .headers(api_headers(token))
+        .json(&serde_json::json!({ "query": query }))
+        .send()
+        .await
+        .map_err(|e| format!("GraphQL request failed: {e}"))?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        return Err(format!("GitHub GraphQL error {status}: {body}"));
+    }
+
+    let body: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("GraphQL parse failed: {e}"))?;
+
+    if let Some(errors) = body.get("errors") {
+        return Err(format!("GitHub GraphQL errors: {errors}"));
+    }
+
+    let nodes = body
+        .pointer("/data/repository/pullRequest/reviewThreads/nodes")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+
+    let mut threads = Vec::with_capacity(nodes.len());
+    for node in nodes {
+        let Some(thread_id) = node.get("id").and_then(|v| v.as_str()) else {
+            continue;
+        };
+        let Some(path) = node.get("path").and_then(|v| v.as_str()) else {
+            continue;
+        };
+        let line = node
+            .get("line")
+            .and_then(|v| v.as_u64())
+            .or_else(|| node.get("originalLine").and_then(|v| v.as_u64()))
+            .unwrap_or(0) as usize;
+        let is_resolved = node
+            .get("isResolved")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        threads.push(ReviewThreadState {
+            thread_id: thread_id.to_string(),
+            path: path.to_string(),
+            line,
+            is_resolved,
+        });
+    }
+
+    Ok(threads)
+}
+
+/// Resolve or unresolve a review thread via GraphQL.
+pub async fn set_thread_resolved(
+    client: &reqwest::Client,
+    token: &str,
+    thread_id: &str,
+    resolved: bool,
+) -> Result<(), String> {
+    let mutation_name = if resolved {
+        "resolveReviewThread"
+    } else {
+        "unresolveReviewThread"
+    };
+    let query = format!(
+        r#"mutation {{
+  {mutation_name}(input: {{ threadId: "{thread_id}" }}) {{
+    thread {{ id isResolved }}
+  }}
+}}"#
+    );
+
+    let url = format!("{}/graphql", github_api_base());
+    let resp = client
+        .post(&url)
+        .headers(api_headers(token))
+        .json(&serde_json::json!({ "query": query }))
+        .send()
+        .await
+        .map_err(|e| format!("GraphQL request failed: {e}"))?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        return Err(format!("GitHub GraphQL error {status}: {body}"));
+    }
+
+    let body: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("GraphQL parse failed: {e}"))?;
+
+    if let Some(errors) = body.get("errors") {
+        return Err(format!("GitHub GraphQL errors: {errors}"));
+    }
+
+    Ok(())
+}
+
 /// Get check runs for a commit ref.
 pub async fn get_check_runs(
     client: &reqwest::Client,
