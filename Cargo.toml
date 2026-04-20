@@ -1,5 +1,5 @@
 [workspace.package]
-version = "0.1.4"
+version = "0.1.5"
 edition = "2024"
 rust-version = "1.88"
 authors = ["Meldrum Labs"]
@@ -51,20 +51,20 @@ exclude = [
 ]
 
 [workspace.dependencies]
-enya-promql = { path = "crates/promql", version = "0.1.4" }
-enya-logql = { path = "crates/logql", version = "0.1.4" }
-enya-build-tools = { path = "crates/build-tools", version = "0.1.4" }
-enya-build-info = { path = "crates/build-info", version = "0.1.4" }
-enya-client = { path = "crates/client", version = "0.1.4" }
-enya-analyzer = { path = "crates/analyzer", version = "0.1.4" }
-enya-ai = { path = "crates/ai", version = "0.1.4" }
-enya-search = { path = "crates/search", version = "0.1.4" }
-enya-datafusion = { path = "crates/datafusion", version = "0.1.4" }
-enya-plugin = { path = "crates/plugin", version = "0.1.4" }
-enya-config = { path = "crates/config", version = "0.1.4" }
-enya-headless = { path = "crates/headless", version = "0.1.4" }
-enya-agent = { path = "crates/agent", version = "0.1.4" }
-egui_ghostty = { path = "crates/egui_ghostty", version = "0.1.4" }
+enya-promql = { path = "crates/promql", version = "0.1.5" }
+enya-logql = { path = "crates/logql", version = "0.1.5" }
+enya-build-tools = { path = "crates/build-tools", version = "0.1.5" }
+enya-build-info = { path = "crates/build-info", version = "0.1.5" }
+enya-client = { path = "crates/client", version = "0.1.5" }
+enya-analyzer = { path = "crates/analyzer", version = "0.1.5" }
+enya-ai = { path = "crates/ai", version = "0.1.5" }
+enya-search = { path = "crates/search", version = "0.1.5" }
+enya-datafusion = { path = "crates/datafusion", version = "0.1.5" }
+enya-plugin = { path = "crates/plugin", version = "0.1.5" }
+enya-config = { path = "crates/config", version = "0.1.5" }
+enya-headless = { path = "crates/headless", version = "0.1.5" }
+enya-agent = { path = "crates/agent", version = "0.1.5" }
+egui_ghostty = { path = "crates/egui_ghostty", version = "0.1.5" }
 
 # We bundle our own fonts (Departure Mono, Maple Mono, etc.) so disable default_fonts
 egui = { version = "0.33.3", default-features = false }
@@ -86,7 +86,7 @@ egui_plot = "0.34.0"
 egui_extras = { version = "0.33.3", default-features = false, features = [
   "image",
 ] }
-egui_nerdfonts = { path = "crates/egui_nerdfonts", version = "0.1.4" }
+egui_nerdfonts = { path = "crates/egui_nerdfonts", version = "0.1.5" }
 egui_tiles = { version = "0.14.0", features = ["serde"] }
 chrono = { version = "0.4.38", features = ["wasmbind"] }
 console = "0.15"

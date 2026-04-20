@@ -4,6 +4,8 @@ All notable changes to the Enya editor will be documented in this file.
 
 ## [Unreleased]
 
+## [0.1.5] - 2026-04-20
+
 ### Fixed
 
 - **Large PR diff fallback**: PRs with diffs exceeding GitHub's 20,000-line API limit (HTTP 406) now gracefully fall back to reconstructing the diff from per-file patches instead of showing an error. Also added pagination to the files endpoint to support PRs with more than 100 changed files.
