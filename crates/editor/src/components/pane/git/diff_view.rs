@@ -763,6 +763,19 @@ impl PrReviewPane {
         #[cfg(not(target_arch = "wasm32"))]
         if let Some(hunk_idx) = self.diff_renderer.take_pending_expand() {
             if let Some(file_diff) = self.file_diffs.get_mut(self.selected_file_index) {
+                // Lazy-load old file content if needed for expansion
+                if file_diff.old_file_lines.is_none() {
+                    if let (Some(repo_root), Some(pr)) =
+                        (&self.repo_root, &self.current_pr)
+                    {
+                        file_diff.old_file_lines =
+                            crate::git::diff::load_file_at_commit(
+                                repo_root,
+                                &pr.base.sha,
+                                &file_diff.path,
+                            );
+                    }
+                }
                 self.diff_renderer.expand_context(file_diff, hunk_idx);
             }
         }
