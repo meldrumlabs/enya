@@ -135,6 +135,15 @@ pub fn plugins_dir() -> PathBuf {
     dir
 }
 
+/// Get the PR review sessions directory (`~/.enya/pr_sessions/`).
+///
+/// Creates the directory if it doesn't exist.
+pub fn pr_sessions_dir() -> PathBuf {
+    let dir = enya_dir().join("pr_sessions");
+    let _ = std::fs::create_dir_all(&dir);
+    dir
+}
+
 /// Get the search index directory for a repository (`~/.enya/indexes/{name}-{hash}/`).
 ///
 /// Derives a stable, readable subdirectory name from the repo path using

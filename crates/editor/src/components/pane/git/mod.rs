@@ -34,6 +34,17 @@ enum PrReviewView {
     Detail,
 }
 
+/// Active segment in the PR list view inbox.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PrListSegment {
+    /// PRs that need the current user's review.
+    NeedsReview,
+    /// PRs authored by the current user.
+    MyPrs,
+    /// All open PRs.
+    All,
+}
+
 /// Active tab in the detail view.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum DetailTab {
@@ -127,6 +138,12 @@ pub struct PrReviewPane {
     list_loading: bool,
     list_error: Option<String>,
     pending_list: Arc<Mutex<Option<PrListResult>>>,
+    /// Current inbox segment filter.
+    list_segment: PrListSegment,
+    /// Login of the authenticated user (fetched from /user when token is set).
+    current_user_login: Option<String>,
+    /// Pending async result for authenticated user fetch.
+    pending_user: Arc<Mutex<Option<Result<crate::git::api::AuthenticatedUser, String>>>>,
 
     // ── Detail view state ──
     current_pr: Option<PullRequest>,
@@ -319,6 +336,9 @@ impl PrReviewPane {
             list_loading: false,
             list_error: None,
             pending_list: Arc::new(Mutex::new(None)),
+            list_segment: PrListSegment::NeedsReview,
+            current_user_login: None,
+            pending_user: Arc::new(Mutex::new(None)),
             current_pr: None,
             pr_files: Vec::new(),
             file_diffs: Vec::new(),
@@ -402,7 +422,8 @@ impl PrReviewPane {
 
     /// Set the GitHub access token. Called each frame from workspace.
     pub fn set_token(&mut self, token: Option<String>) {
-        if token != self.token {
+        let token_changed = token != self.token;
+        if token_changed {
             // Token changed — reset the stability counter so we don't fire a
             // request with a token that's about to be replaced (e.g., OAuth
             // arriving first, then git credential replacing it).
@@ -412,10 +433,34 @@ impl PrReviewPane {
             if token.is_some() && self.list_error.is_some() {
                 self.list_error = None;
             }
+            // Reset user login when token changes — we'll re-fetch.
+            self.current_user_login = None;
         } else if self.token_stable_frames < 2 {
             self.token_stable_frames += 1;
+            // Token just became stable (frame 2) — fetch the authenticated user
+            // so the inbox segments can show "My PRs" and "Needs my review".
+            if self.token_stable_frames == 2 && token.is_some() {
+                self.fetch_authenticated_user();
+            }
         }
         self.token = token;
+    }
+
+    /// Set the current user login directly (e.g. from workspace settings).
+    pub fn set_current_user_login(&mut self, login: Option<String>) {
+        self.current_user_login = login;
+    }
+
+    /// Fetch the authenticated GitHub user in the background.
+    fn fetch_authenticated_user(&mut self) {
+        let Some(token) = &self.token else { return };
+        let client = self.http_client.clone();
+        let token = token.clone();
+        let pending = Arc::clone(&self.pending_user);
+        self.async_runtime.spawn(async move {
+            let result = api::get_authenticated_user(&client, &token).await;
+            *pending.lock() = Some(result);
+        });
     }
 
     /// Set the AI model ID from user settings.
@@ -493,6 +538,211 @@ impl PrReviewPane {
         self.comment_input = "in-progress comment".to_string();
         self.collapsed_threads.insert(("file.rs".to_string(), 5));
         self.submit_panel_open = true;
+    }
+}
+
+// ── Session persistence ──
+
+/// Persisted review session for a single PR.
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+struct PrSession {
+    reviewed_files: Vec<String>,
+    seen_comment_ids: Vec<u64>,
+    resolved_thread_lines: Vec<(String, usize)>,
+    collapsed_dirs: Vec<String>,
+    expanded_comment_files: Vec<String>,
+    show_only_unresolved: bool,
+    file_panel_collapsed: bool,
+    description_collapsed: bool,
+    markdown_preview: bool,
+    selected_file_index: usize,
+}
+
+impl PrReviewPane {
+    /// Build a `PrSession` snapshot from the current pane state.
+    fn build_session(&self) -> PrSession {
+        PrSession {
+            reviewed_files: self.reviewed_files.iter().cloned().collect(),
+            seen_comment_ids: self.seen_comment_ids.iter().copied().collect(),
+            resolved_thread_lines: self.resolved_thread_lines.iter().cloned().collect(),
+            collapsed_dirs: self.collapsed_dirs.iter().cloned().collect(),
+            expanded_comment_files: self.expanded_comment_files.iter().cloned().collect(),
+            show_only_unresolved: self.show_only_unresolved,
+            file_panel_collapsed: self.file_panel_collapsed,
+            description_collapsed: self.description_collapsed,
+            markdown_preview: self.markdown_preview,
+            selected_file_index: self.selected_file_index,
+        }
+    }
+
+    /// Apply a loaded `PrSession` into the current pane state.
+    fn apply_session(&mut self, session: PrSession) {
+        self.reviewed_files = session.reviewed_files.into_iter().collect();
+        self.seen_comment_ids = session.seen_comment_ids.into_iter().collect();
+        self.resolved_thread_lines = session.resolved_thread_lines.into_iter().collect();
+        self.collapsed_dirs = session.collapsed_dirs.into_iter().collect();
+        self.expanded_comment_files = session.expanded_comment_files.into_iter().collect();
+        self.show_only_unresolved = session.show_only_unresolved;
+        self.file_panel_collapsed = session.file_panel_collapsed;
+        self.description_collapsed = session.description_collapsed;
+        self.markdown_preview = session.markdown_preview;
+        self.selected_file_index = session
+            .selected_file_index
+            .min(self.file_diffs.len().saturating_sub(1));
+    }
+
+    /// Compute the filesystem path for a PR session file.
+    fn session_path(&self, pr_number: u32) -> Option<std::path::PathBuf> {
+        let dir = enya_config::pr_sessions_dir();
+        let filename = if let Some(ref user) = self.current_user_login {
+            format!("{}_{}_{}_{}.json", self.owner, self.repo, pr_number, user)
+        } else {
+            format!("{}_{}_{}.json", self.owner, self.repo, pr_number)
+        };
+        Some(dir.join(filename))
+    }
+
+    /// Save the current review session to disk.
+    fn save_session(&self) {
+        let Some(pr_number) = self.current_pr_number() else { return };
+        let Some(path) = self.session_path(pr_number) else { return };
+        let session = self.build_session();
+        let json = match serde_json::to_string_pretty(&session) {
+            Ok(j) => j,
+            Err(e) => {
+                log::warn!("Failed to serialize PR session: {e}");
+                return;
+            }
+        };
+        if let Err(e) = std::fs::write(&path, json) {
+            log::warn!("Failed to write PR session: {e}");
+        }
+    }
+
+    /// Load a previously saved review session from disk.
+    fn load_session(&mut self, pr_number: u32) {
+        let Some(path) = self.session_path(pr_number) else { return };
+        let json = match std::fs::read_to_string(&path) {
+            Ok(j) => j,
+            Err(e) => {
+                if e.kind() != std::io::ErrorKind::NotFound {
+                    log::warn!("Failed to read PR session: {e}");
+                }
+                return;
+            }
+        };
+        let session: PrSession = match serde_json::from_str(&json) {
+            Ok(s) => s,
+            Err(e) => {
+                log::warn!("Failed to parse PR session: {e}");
+                return;
+            }
+        };
+        self.apply_session(session);
+    }
+
+    /// Delete the saved session for the current PR (called after submitting
+    /// a review or when explicitly leaving the PR).
+    fn delete_session(&self) {
+        let Some(pr_number) = self.current_pr_number() else { return };
+        let Some(path) = self.session_path(pr_number) else { return };
+        if let Err(e) = std::fs::remove_file(&path) {
+            if e.kind() != std::io::ErrorKind::NotFound {
+                log::warn!("Failed to delete PR session: {e}");
+            }
+        }
+    }
+
+    /// Execute the currently selected command palette item (triggered by Enter).
+    fn execute_palette_command_from_keyboard(&mut self) {
+        let all_commands = command_palette::build_commands(self);
+        let query = self.command_palette_query.to_lowercase();
+        let filtered: Vec<usize> = all_commands
+            .iter()
+            .enumerate()
+            .filter(|(_, cmd)| {
+                if query.is_empty() {
+                    true
+                } else {
+                    cmd.label().to_lowercase().contains(&query)
+                }
+            })
+            .map(|(i, _)| i)
+            .collect();
+        let Some(&cmd_idx) = filtered.get(self.command_palette_selected) else {
+            return;
+        };
+        let cmd = all_commands[cmd_idx].clone();
+        self.command_palette_active = false;
+        self.command_palette_query.clear();
+        self.command_palette_selected = 0;
+        self.execute_palette_command(cmd);
+    }
+
+    /// Execute a single palette command.
+    fn execute_palette_command(&mut self, cmd: command_palette::PrCommand) {
+        use command_palette::PrCommand;
+        match cmd {
+            PrCommand::JumpToFile { file_index, .. } => {
+                if self.view != PrReviewView::Detail {
+                    // Can't jump to file unless in detail view
+                    return;
+                }
+                self.selected_file_index = file_index.min(
+                    self.file_diffs.len().saturating_sub(1),
+                );
+                self.diff_renderer.reset_for_file_change();
+                self.file_tree_scroll_to_selected = true;
+                self.mark_current_file_comments_seen();
+                self.markdown_preview = false;
+                self.markdown_scroll_y = 0.0;
+                self.markdown_content_cache = None;
+            }
+            PrCommand::JumpToComment { path, line, .. } => {
+                if self.view != PrReviewView::Detail {
+                    return;
+                }
+                self.navigate_to_thread(&path, line);
+            }
+            PrCommand::MarkAllReviewed => {
+                if self.view != PrReviewView::Detail {
+                    return;
+                }
+                for file_diff in &self.file_diffs {
+                    self.reviewed_files.insert(file_diff.path.clone());
+                }
+            }
+            PrCommand::SubmitReview => {
+                if self.view == PrReviewView::Detail {
+                    self.submit_panel_open = true;
+                }
+            }
+            PrCommand::BackToList => {
+                if self.view == PrReviewView::Detail {
+                    self.pending_go_back = true;
+                }
+            }
+            PrCommand::OpenInGithub => {
+                if let Some(pr) = &self.current_pr {
+                    let _url = format!(
+                        "https://github.com/{}/{}/pull/{}",
+                        self.owner, self.repo, pr.number
+                    );
+                    // TODO: integrate with proper URL opening via ui.ctx().open_url
+                }
+            }
+            PrCommand::Refresh => {
+                if self.view == PrReviewView::List {
+                    self.pending_refresh = true;
+                }
+            }
+            PrCommand::SwitchSegment(seg) => {
+                if self.view == PrReviewView::List {
+                    self.list_segment = seg;
+                    self.selected_pr_index = 0;
+                }
+            }
+        }
     }
 
     /// Rebuild the cached comment threads from `review_comments`.
@@ -801,6 +1051,7 @@ impl PrReviewPane {
             self.preloaded_reviews.insert(number, cached.reviews);
             self.selected_file_index = 0;
             self.mark_current_file_comments_seen();
+            self.load_session(number);
             return;
         }
 
@@ -1093,6 +1344,15 @@ impl PrReviewPane {
 
     /// Poll for async operation results. Called each frame.
     fn poll_results(&mut self, ctx: &egui::Context) {
+        // Poll authenticated user fetch
+        let user_result = self.pending_user.lock().take();
+        if let Some(result) = user_result {
+            match result {
+                Ok(user) => self.current_user_login = Some(user.login),
+                Err(e) => log::warn!("Failed to fetch authenticated user: {e}"),
+            }
+        }
+
         // Poll PR list (extract result before borrowing self mutably)
         let list_result = self.pending_list.lock().take();
         if let Some(result) = list_result {
@@ -1191,6 +1451,7 @@ impl PrReviewPane {
                     self.selected_file_index = 0;
                     self.detail_error = None;
                     self.mark_current_file_comments_seen();
+                    self.load_session(pr_number);
 
                     // Now fetch checks with the head SHA
                     if !head_sha_empty {
@@ -1273,6 +1534,8 @@ impl PrReviewPane {
                     self.submit_panel_open = false;
                     self.draft_comments.clear();
                     self.draft_body.clear();
+                    // Review is complete — clear the persisted session
+                    self.delete_session();
                     // Refresh comments
                     let pr_number = self.current_pr.as_ref().map(|pr| pr.number);
                     if let Some(number) = pr_number {
@@ -1301,6 +1564,8 @@ impl PrReviewPane {
                     self.flash_start = Some(crate::util::Instant::now());
                     self.flash_is_success = true;
                     self.merge_popup_open = false;
+                    // PR is closed — clear the persisted session
+                    self.delete_session();
                     // Refresh the PR list to reflect the merged state
                     self.fetch_pr_list();
                 }
@@ -1598,6 +1863,20 @@ impl PrReviewPane {
                         self.pending_refresh = true;
                     }
 
+                    // 1/2/3 — switch inbox segment
+                    if input.consume_key(egui::Modifiers::NONE, egui::Key::Num1) {
+                        self.list_segment = PrListSegment::NeedsReview;
+                        self.selected_pr_index = 0;
+                    }
+                    if input.consume_key(egui::Modifiers::NONE, egui::Key::Num2) {
+                        self.list_segment = PrListSegment::MyPrs;
+                        self.selected_pr_index = 0;
+                    }
+                    if input.consume_key(egui::Modifiers::NONE, egui::Key::Num3) {
+                        self.list_segment = PrListSegment::All;
+                        self.selected_pr_index = 0;
+                    }
+
                     // / — activate filter (consume both Key::Slash and Text("/")
                     // so the workspace viewport filter doesn't steal the event)
                     let slash_key = input.consume_key(egui::Modifiers::NONE, egui::Key::Slash);
@@ -1806,6 +2085,8 @@ impl crate::components::Component for PrReviewPane {
         }
         if self.pending_go_back {
             self.pending_go_back = false;
+            // Persist session before leaving the PR
+            self.save_session();
             self.view = PrReviewView::List;
             self.current_pr = None;
             self.pr_files.clear();
@@ -1837,6 +2118,12 @@ impl crate::components::Component for PrReviewPane {
             self.fetch_pr_list();
         }
 
+        // Execute command palette selection if Enter was pressed
+        if self.command_palette_execute {
+            self.command_palette_execute = false;
+            self.execute_palette_command_from_keyboard();
+        }
+
         match self.view {
             PrReviewView::List => self.show_list_view(ui),
             PrReviewView::Detail => self.show_detail_view(ui),
@@ -1865,6 +2152,12 @@ impl crate::components::Component for PrReviewPane {
                     }
                 }
             }
+        }
+
+        // Persist review session every frame while in detail view.
+        // Writes are tiny (<1KB) and the OS page cache absorbs the cost.
+        if self.view == PrReviewView::Detail {
+            self.save_session();
         }
     }
 

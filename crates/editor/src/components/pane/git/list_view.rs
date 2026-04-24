@@ -9,23 +9,56 @@ use crate::ui::typography;
 use super::{PrReviewPane, ReviewState};
 
 impl PrReviewPane {
-    /// Get the indices of PRs matching the current filter query.
+    /// Get the indices of PRs matching the current segment and filter query.
     pub(super) fn filtered_pr_indices(&self) -> Vec<usize> {
-        if self.filter_query.is_empty() {
-            return (0..self.pull_requests.len()).collect();
+        let mut indices: Vec<usize> = (0..self.pull_requests.len()).collect();
+
+        // Apply inbox segment filter
+        match self.list_segment {
+            super::PrListSegment::NeedsReview => {
+                indices.retain(|&i| {
+                    let pr = &self.pull_requests[i];
+                    let is_mine = self
+                        .current_user_login
+                        .as_ref()
+                        .is_some_and(|me| *me == pr.user.login);
+                    let has_my_review = self
+                        .preloaded_reviews
+                        .get(&pr.number)
+                        .map(|reviews| {
+                            reviews.iter().any(|r| {
+                                self.current_user_login
+                                    .as_ref()
+                                    .is_some_and(|me| *me == r.user.login)
+                                    && (r.state == "APPROVED" || r.state == "CHANGES_REQUESTED")
+                            })
+                        })
+                        .unwrap_or(false);
+                    !is_mine && !pr.draft && !has_my_review
+                });
+            }
+            super::PrListSegment::MyPrs => {
+                if let Some(ref me) = self.current_user_login {
+                    indices.retain(|&i| self.pull_requests[i].user.login == *me);
+                } else {
+                    indices.clear();
+                }
+            }
+            super::PrListSegment::All => {}
         }
 
-        let query = self.filter_query.to_lowercase();
-        self.pull_requests
-            .iter()
-            .enumerate()
-            .filter(|(_, pr)| {
+        // Apply text filter
+        if !self.filter_query.is_empty() {
+            let query = self.filter_query.to_lowercase();
+            indices.retain(|&i| {
+                let pr = &self.pull_requests[i];
                 pr.title.to_lowercase().contains(&query)
                     || pr.user.login.to_lowercase().contains(&query)
                     || format!("#{}", pr.number).contains(&query)
-            })
-            .map(|(i, _)| i)
-            .collect()
+            });
+        }
+
+        indices
     }
 
     /// Render the PR list view.
@@ -41,6 +74,14 @@ impl PrReviewPane {
                 "Sign in to GitHub",
                 "Go to Settings to connect your GitHub account.",
             );
+            return;
+        }
+
+        // Command palette overlay
+        if self.command_palette_active {
+            if let Some(cmd) = super::command_palette::show_command_palette(self, ui) {
+                self.execute_palette_command(cmd);
+            }
             return;
         }
 
@@ -187,21 +228,129 @@ impl PrReviewPane {
             self.selected_pr_index = filtered_indices.len().saturating_sub(1);
         }
 
-        if filtered_indices.is_empty() && !self.filter_query.is_empty() {
-            ui.add_space(40.0);
-            ui.vertical_centered(|ui| {
-                ui.label(
-                    RichText::new("No matching pull requests")
-                        .color(theme.text_secondary())
-                        .font(typography::proportional(typography::MD)),
+        if filtered_indices.is_empty() {
+            if !self.filter_query.is_empty() {
+                ui.add_space(40.0);
+                ui.vertical_centered(|ui| {
+                    ui.label(
+                        RichText::new("No matching pull requests")
+                            .color(theme.text_secondary())
+                            .font(typography::proportional(typography::MD)),
+                    );
+                    ui.add_space(4.0);
+                    ui.label(
+                        RichText::new("Try a different search query")
+                            .color(theme.text_secondary().gamma_multiply(0.7))
+                            .font(typography::proportional(typography::SM)),
+                    );
+                });
+            } else {
+                // Empty because of segment filter
+                let (title, subtitle) = match self.list_segment {
+                    super::PrListSegment::NeedsReview => (
+                        "Nothing to review",
+                        "All caught up! No open PRs need your review.",
+                    ),
+                    super::PrListSegment::MyPrs => (
+                        "No open PRs by you",
+                        if self.current_user_login.is_some() {
+                            "You don't have any open pull requests."
+                        } else {
+                            "Sign in to see your pull requests."
+                        },
+                    ),
+                    super::PrListSegment::All => (
+                        "No open pull requests",
+                        "There are no open pull requests for this repository.",
+                    ),
+                };
+                render_empty_state(
+                    ui,
+                    theme,
+                    egui_nerdfonts::regular::INBOX,
+                    title,
+                    subtitle,
                 );
-                ui.add_space(4.0);
-                ui.label(
-                    RichText::new("Try a different search query")
-                        .color(theme.text_secondary().gamma_multiply(0.7))
-                        .font(typography::proportional(typography::SM)),
-                );
+            }
+        }
+
+        // ── Inbox segment tabs ──
+        if !self.pull_requests.is_empty() {
+            ui.add_space(4.0);
+            ui.horizontal(|ui| {
+                ui.add_space(12.0);
+                let all_count = self.pull_requests.len();
+                let my_count = self
+                    .current_user_login
+                    .as_ref()
+                    .map(|me| self.pull_requests.iter().filter(|pr| pr.user.login == *me).count())
+                    .unwrap_or(0);
+                let needs_count = self
+                    .pull_requests
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, pr)| {
+                        let is_mine = self
+                            .current_user_login
+                            .as_ref()
+                            .is_some_and(|me| *me == pr.user.login);
+                        let has_my_review = self
+                            .preloaded_reviews
+                            .get(&pr.number)
+                            .map(|reviews| {
+                                reviews.iter().any(|r| {
+                                    self.current_user_login
+                                        .as_ref()
+                                        .is_some_and(|me| *me == r.user.login)
+                                        && (r.state == "APPROVED"
+                                            || r.state == "CHANGES_REQUESTED")
+                                })
+                            })
+                            .unwrap_or(false);
+                        !is_mine && !pr.draft && !has_my_review
+                    })
+                    .count();
+
+                let segments = [
+                    (super::PrListSegment::NeedsReview, "Needs Review", needs_count),
+                    (super::PrListSegment::MyPrs, "My PRs", my_count),
+                    (super::PrListSegment::All, "All", all_count),
+                ];
+                for (segment, label, count) in segments {
+                    let is_active = self.list_segment == segment;
+                    let label_text = if count > 0 {
+                        format!("{label} {count}")
+                    } else {
+                        label.to_string()
+                    };
+                    let text_color = if is_active {
+                        theme.accent_primary()
+                    } else {
+                        theme.text_secondary()
+                    };
+                    let btn = ui.add(
+                        egui::Button::new(
+                            RichText::new(label_text)
+                                .size(typography::XS)
+                                .color(text_color)
+                                .strong(),
+                        )
+                        .fill(if is_active {
+                            theme.accent_primary().gamma_multiply(0.12)
+                        } else {
+                            egui::Color32::TRANSPARENT
+                        })
+                        .stroke(egui::Stroke::NONE)
+                        .corner_radius(4.0),
+                    );
+                    if btn.clicked() {
+                        self.list_segment = segment;
+                        self.selected_pr_index = 0;
+                    }
+                    ui.add_space(4.0);
+                }
             });
+            ui.add_space(2.0);
         }
 
         // ── Header bar: icon + count pill + refresh ──
@@ -232,9 +381,14 @@ impl PrReviewPane {
                 );
                 ui.add_space(2.0);
 
-                // Count in a pill badge
+                // Count in a pill badge — show segment-relative count
                 let count_text = if self.filter_query.is_empty() {
-                    format!("{} open", self.pull_requests.len())
+                    match self.list_segment {
+                        super::PrListSegment::All => {
+                            format!("{} open", self.pull_requests.len())
+                        }
+                        _ => format!("{} in segment", filtered_indices.len()),
+                    }
                 } else {
                     format!(
                         "{}/{} matched",
@@ -808,8 +962,23 @@ impl PrReviewPane {
                         .color(sep_color)
                         .font(label_font.clone()),
                 );
-                ui.label(RichText::new("r").color(key_color).font(key_font));
-                ui.label(RichText::new("refresh").color(key_color).font(label_font));
+                ui.label(RichText::new("r").color(key_color).font(key_font.clone()));
+                ui.label(
+                    RichText::new("refresh")
+                        .color(key_color)
+                        .font(label_font.clone()),
+                );
+                ui.label(
+                    RichText::new("\u{2022}")
+                        .color(sep_color)
+                        .font(label_font.clone()),
+                );
+                ui.label(RichText::new("1/2/3").color(key_color).font(key_font));
+                ui.label(
+                    RichText::new("segments")
+                        .color(key_color)
+                        .font(label_font),
+                );
             },
         );
     }
