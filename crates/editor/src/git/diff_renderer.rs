@@ -75,6 +75,12 @@ pub struct DiffRenderer {
     /// Line that was clicked for commenting: (file_index, line_index).
     pending_comment_line: Option<(usize, usize)>,
 
+    // ── Hunk expansion ──
+    /// Whether hunk headers should show a "click to expand" prompt.
+    /// Callers that do not preload `FileDiff::old_file_lines` (e.g. the PR
+    /// review pane) should set this to `false` so the prompt is not shown.
+    allow_hunk_expansion: bool,
+
     // ── Vim g prefix ──
     /// True when `g` was pressed, waiting for a second key (e.g. `g` again for `gg`).
     g_pending: bool,
@@ -148,6 +154,7 @@ impl DiffRenderer {
             pending_expand_hunk: None,
             pending_expand_block: None,
             pending_comment_line: None,
+            allow_hunk_expansion: true,
             g_pending: false,
             last_total_lines: 0,
             id_salt: id_salt.to_string(),
@@ -182,6 +189,14 @@ impl DiffRenderer {
 
     pub fn toggle_split_view(&mut self) {
         self.split_view = !self.split_view;
+    }
+
+    pub fn allow_hunk_expansion(&self) -> bool {
+        self.allow_hunk_expansion
+    }
+
+    pub fn set_allow_hunk_expansion(&mut self, allow: bool) {
+        self.allow_hunk_expansion = allow;
     }
 
     pub fn search_active(&self) -> bool {
@@ -938,6 +953,7 @@ impl DiffRenderer {
                         &line_search_highlights,
                         font_size,
                         hunk_flash_alpha,
+                        self.allow_hunk_expansion,
                     );
 
                     match action {
@@ -1433,6 +1449,7 @@ fn render_unified_line(
     search_highlights: &[(usize, usize, bool)],
     font_size: f32,
     hunk_flash_alpha: Option<f32>,
+    allow_hunk_expansion: bool,
 ) -> LineAction {
     let mut clicked_shift: Option<bool> = None;
 
@@ -1441,17 +1458,18 @@ fn render_unified_line(
         let available_width = ui.available_width();
         let header_height = typography::SM + 12.0;
         let has_hidden = line.hidden_lines.is_some_and(|n| n > 0);
+        let can_expand = allow_hunk_expansion && has_hidden;
 
         let (rect, response) = ui.allocate_exact_size(
             egui::vec2(available_width, header_height),
-            if has_hidden {
+            if can_expand {
                 egui::Sense::click()
             } else {
                 egui::Sense::hover()
             },
         );
 
-        let bg = if has_hidden && response.hovered() {
+        let bg = if can_expand && response.hovered() {
             theme.diff_hunk_bg().gamma_multiply(1.4)
         } else {
             theme.diff_hunk_bg()
@@ -1480,17 +1498,24 @@ fn render_unified_line(
         // Display text
         let hidden_text = if has_hidden {
             let n = line.hidden_lines.unwrap_or(0);
-            format!(
-                "{} \u{00B7}\u{00B7}\u{00B7} {n} lines hidden \u{00B7}\u{00B7}\u{00B7} click to expand",
-                egui_nerdfonts::regular::UNFOLD_MORE_HORIZONTAL
-            )
+            if can_expand {
+                format!(
+                    "{} \u{00B7}\u{00B7}\u{00B7} {n} lines hidden \u{00B7}\u{00B7}\u{00B7} click to expand",
+                    egui_nerdfonts::regular::UNFOLD_MORE_HORIZONTAL
+                )
+            } else {
+                format!(
+                    "{} \u{00B7}\u{00B7}\u{00B7} {n} lines hidden \u{00B7}\u{00B7}\u{00B7}",
+                    egui_nerdfonts::regular::UNFOLD_MORE_HORIZONTAL
+                )
+            }
         } else {
             "\u{00B7}\u{00B7}\u{00B7}".to_string()
         };
         let context_text = line.hunk_context.as_deref().unwrap_or("");
         let center_y = rect.center().y;
 
-        let text_alpha = if has_hidden && response.hovered() {
+        let text_alpha = if can_expand && response.hovered() {
             1.0
         } else {
             0.7
@@ -1518,11 +1543,11 @@ fn render_unified_line(
             );
         }
 
-        if has_hidden && response.hovered() {
+        if can_expand && response.hovered() {
             ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
         }
 
-        if has_hidden && response.clicked() {
+        if can_expand && response.clicked() {
             return LineAction::ExpandHunk;
         }
         return LineAction::None;

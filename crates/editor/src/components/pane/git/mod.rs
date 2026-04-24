@@ -357,7 +357,11 @@ impl PrReviewPane {
             pending_detail: Arc::new(Mutex::new(None)),
             pending_comments: Arc::new(Mutex::new(None)),
             pending_checks: Arc::new(Mutex::new(None)),
-            diff_renderer: DiffRenderer::new("pr_diff", typography::SM),
+            diff_renderer: {
+                let mut r = DiffRenderer::new("pr_diff", typography::SM);
+                r.set_allow_hunk_expansion(false);
+                r
+            },
             draft_comments: Vec::new(),
             draft_body: String::new(),
             commenting_line: None,
