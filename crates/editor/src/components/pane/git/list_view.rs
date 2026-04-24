@@ -77,14 +77,6 @@ impl PrReviewPane {
             return;
         }
 
-        // Command palette overlay
-        if self.command_palette_active {
-            if let Some(cmd) = super::command_palette::show_command_palette(self, ui) {
-                self.execute_palette_command(cmd);
-            }
-            return;
-        }
-
         ui.add_space(2.0);
 
         // Loading state

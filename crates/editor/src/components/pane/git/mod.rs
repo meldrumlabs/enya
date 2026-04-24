@@ -3,7 +3,6 @@
 //! Provides a full PR review experience: list open PRs, view diffs,
 //! add comments, approve/request changes, and integrate with AI agents.
 
-mod command_palette;
 mod detail_view;
 mod diff_view;
 mod list_view;
@@ -280,16 +279,6 @@ pub struct PrReviewPane {
     /// The current filter query string.
     filter_query: String,
 
-    // ── Command palette ──
-    /// Whether the command palette overlay is visible.
-    command_palette_active: bool,
-    /// Current query in the command palette text input.
-    command_palette_query: String,
-    /// Selected index in the filtered command list.
-    command_palette_selected: usize,
-    /// Set to true when Enter is pressed in the palette (deferred to next frame).
-    command_palette_execute: bool,
-
     // ── Keyboard deferred actions ──
     /// PR number to open (set by keyboard, consumed next frame).
     pending_open_pr: Option<u32>,
@@ -413,10 +402,6 @@ impl PrReviewPane {
             pending_open_file_opener: false,
             filter_active: false,
             filter_query: String::new(),
-            command_palette_active: false,
-            command_palette_query: String::new(),
-            command_palette_selected: 0,
-            command_palette_execute: false,
             pending_open_pr: None,
             pending_refresh: false,
             pending_go_back: false,
@@ -664,98 +649,6 @@ impl PrReviewPane {
         if let Err(e) = std::fs::remove_file(&path) {
             if e.kind() != std::io::ErrorKind::NotFound {
                 log::warn!("Failed to delete PR session: {e}");
-            }
-        }
-    }
-
-    /// Execute the currently selected command palette item (triggered by Enter).
-    fn execute_palette_command_from_keyboard(&mut self) {
-        let all_commands = command_palette::build_commands(self);
-        let query = self.command_palette_query.to_lowercase();
-        let filtered: Vec<usize> = all_commands
-            .iter()
-            .enumerate()
-            .filter(|(_, cmd)| {
-                if query.is_empty() {
-                    true
-                } else {
-                    cmd.label().to_lowercase().contains(&query)
-                }
-            })
-            .map(|(i, _)| i)
-            .collect();
-        let Some(&cmd_idx) = filtered.get(self.command_palette_selected) else {
-            return;
-        };
-        let cmd = all_commands[cmd_idx].clone();
-        self.command_palette_active = false;
-        self.command_palette_query.clear();
-        self.command_palette_selected = 0;
-        self.execute_palette_command(cmd);
-    }
-
-    /// Execute a single palette command.
-    fn execute_palette_command(&mut self, cmd: command_palette::PrCommand) {
-        use command_palette::PrCommand;
-        match cmd {
-            PrCommand::JumpToFile { file_index, .. } => {
-                if self.view != PrReviewView::Detail {
-                    // Can't jump to file unless in detail view
-                    return;
-                }
-                self.selected_file_index = file_index.min(
-                    self.file_diffs.len().saturating_sub(1),
-                );
-                self.diff_renderer.reset_for_file_change();
-                self.file_tree_scroll_to_selected = true;
-                self.mark_current_file_comments_seen();
-                self.markdown_preview = false;
-                self.markdown_scroll_y = 0.0;
-                self.markdown_content_cache = None;
-            }
-            PrCommand::JumpToComment { path, line, .. } => {
-                if self.view != PrReviewView::Detail {
-                    return;
-                }
-                self.navigate_to_thread(&path, line);
-            }
-            PrCommand::MarkAllReviewed => {
-                if self.view != PrReviewView::Detail {
-                    return;
-                }
-                for file_diff in &self.file_diffs {
-                    self.reviewed_files.insert(file_diff.path.clone());
-                }
-            }
-            PrCommand::SubmitReview => {
-                if self.view == PrReviewView::Detail {
-                    self.submit_panel_open = true;
-                }
-            }
-            PrCommand::BackToList => {
-                if self.view == PrReviewView::Detail {
-                    self.pending_go_back = true;
-                }
-            }
-            PrCommand::OpenInGithub => {
-                if let Some(pr) = &self.current_pr {
-                    let _url = format!(
-                        "https://github.com/{}/{}/pull/{}",
-                        self.owner, self.repo, pr.number
-                    );
-                    // TODO: integrate with proper URL opening via ui.ctx().open_url
-                }
-            }
-            PrCommand::Refresh => {
-                if self.view == PrReviewView::List {
-                    self.pending_refresh = true;
-                }
-            }
-            PrCommand::SwitchSegment(seg) => {
-                if self.view == PrReviewView::List {
-                    self.list_segment = seg;
-                    self.selected_pr_index = 0;
-                }
             }
         }
     }
@@ -1810,31 +1703,19 @@ impl PrReviewPane {
             return;
         }
 
-        // If a widget has focus (e.g. command palette, finder, comment input
-        // in another pane), don't steal its key events.  The one exception is
-        // the viewport filter TextEdit in the toolbar — it's always rendered
-        // and can grab stale focus, so we clear it and proceed.
+        // If a widget has focus (e.g. finder, comment input in another pane),
+        // don't steal its key events.  The one exception is the viewport filter
+        // TextEdit in the toolbar — it's always rendered and can grab stale
+        // focus, so we clear it and proceed.
         let viewport_filter_id = egui::Id::new("viewport_filter_inline");
         if let Some(focused) = ctx.memory(|m| m.focused()) {
             if focused == viewport_filter_id {
                 ctx.memory_mut(|mem| mem.surrender_focus(viewport_filter_id));
             } else {
-                // Some other text input (command palette, finder, etc.) has
-                // focus — don't consume keys, let the overlay handle them.
+                // Some other text input (finder, etc.) has focus — don't consume
+                // keys, let the overlay handle them.
                 return;
             }
-        }
-
-        // Cmd+K (or Ctrl+K) toggles the command palette.
-        if ctx.input_mut(|i| {
-            i.consume_key(egui::Modifiers::COMMAND, egui::Key::K)
-        }) {
-            self.command_palette_active = !self.command_palette_active;
-            if !self.command_palette_active {
-                self.command_palette_query.clear();
-                self.command_palette_selected = 0;
-            }
-            return;
         }
 
         ctx.input_mut(|input| {
@@ -2143,12 +2024,6 @@ impl crate::components::Component for PrReviewPane {
             && self.view == PrReviewView::List
         {
             self.fetch_pr_list();
-        }
-
-        // Execute command palette selection if Enter was pressed
-        if self.command_palette_execute {
-            self.command_palette_execute = false;
-            self.execute_palette_command_from_keyboard();
         }
 
         match self.view {

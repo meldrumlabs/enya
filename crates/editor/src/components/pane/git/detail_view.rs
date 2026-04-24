@@ -252,14 +252,6 @@ impl PrReviewPane {
     pub(super) fn show_detail_view(&mut self, ui: &mut egui::Ui) {
         let theme = self.theme;
 
-        // Command palette overlay
-        if self.command_palette_active {
-            if let Some(cmd) = super::command_palette::show_command_palette(self, ui) {
-                self.execute_palette_command(cmd);
-            }
-            return;
-        }
-
         // ── Row 1: PR identity + context ────────────────────────────────
         ui.add_space(4.0);
         let mut go_back = false;
