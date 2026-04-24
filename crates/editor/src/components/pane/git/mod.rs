@@ -3,6 +3,7 @@
 //! Provides a full PR review experience: list open PRs, view diffs,
 //! add comments, approve/request changes, and integrate with AI agents.
 
+mod command_palette;
 mod detail_view;
 mod diff_view;
 mod list_view;
@@ -279,6 +280,16 @@ pub struct PrReviewPane {
     /// The current filter query string.
     filter_query: String,
 
+    // ── Command palette ──
+    /// Whether the command palette overlay is visible.
+    command_palette_active: bool,
+    /// Current query in the command palette text input.
+    command_palette_query: String,
+    /// Selected index in the filtered command list.
+    command_palette_selected: usize,
+    /// Set to true when Enter is pressed in the palette (deferred to next frame).
+    command_palette_execute: bool,
+
     // ── Keyboard deferred actions ──
     /// PR number to open (set by keyboard, consumed next frame).
     pending_open_pr: Option<u32>,
@@ -402,6 +413,10 @@ impl PrReviewPane {
             pending_open_file_opener: false,
             filter_active: false,
             filter_query: String::new(),
+            command_palette_active: false,
+            command_palette_query: String::new(),
+            command_palette_selected: 0,
+            command_palette_execute: false,
             pending_open_pr: None,
             pending_refresh: false,
             pending_go_back: false,
@@ -1808,6 +1823,18 @@ impl PrReviewPane {
                 // focus — don't consume keys, let the overlay handle them.
                 return;
             }
+        }
+
+        // Cmd+K (or Ctrl+K) toggles the command palette.
+        if ctx.input_mut(|i| {
+            i.consume_key(egui::Modifiers::COMMAND, egui::Key::K)
+        }) {
+            self.command_palette_active = !self.command_palette_active;
+            if !self.command_palette_active {
+                self.command_palette_query.clear();
+                self.command_palette_selected = 0;
+            }
+            return;
         }
 
         ctx.input_mut(|input| {

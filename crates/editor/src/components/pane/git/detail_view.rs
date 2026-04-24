@@ -649,7 +649,7 @@ impl PrReviewPane {
                 submit_btn_anchor.bottom() + 4.0,
             );
             let area_resp = egui::Area::new(popup_id)
-                .order(egui::Order::Foreground)
+                .order(egui::Order::Tooltip)
                 .fixed_pos(popup_pos)
                 .show(ui.ctx(), |ui| {
                     crate::components::util::OverlayStyle::elevated_card(theme)
@@ -785,7 +785,7 @@ impl PrReviewPane {
                 merge_btn_anchor.bottom() + 4.0,
             );
             let area_resp = egui::Area::new(popup_id)
-                .order(egui::Order::Foreground)
+                .order(egui::Order::Tooltip)
                 .fixed_pos(popup_pos)
                 .show(ui.ctx(), |ui| {
                     crate::components::util::OverlayStyle::elevated_card(theme)
