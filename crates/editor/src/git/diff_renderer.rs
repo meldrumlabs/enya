@@ -70,6 +70,8 @@ pub struct DiffRenderer {
     // ── Deferred actions ──
     /// Hunk line index that was clicked for expansion (caller must process with &mut FileDiff).
     pending_expand_hunk: Option<usize>,
+    /// Collapsed block line index that was clicked for expansion.
+    pending_expand_block: Option<usize>,
     /// Line that was clicked for commenting: (file_index, line_index).
     pending_comment_line: Option<(usize, usize)>,
 
@@ -114,6 +116,7 @@ enum LineAction {
     None,
     Click(bool), // shift_held
     ExpandHunk,
+    ExpandBlock,
     Comment,
 }
 
@@ -143,6 +146,7 @@ impl DiffRenderer {
             search_matches: Vec::new(),
             current_match_index: 0,
             pending_expand_hunk: None,
+            pending_expand_block: None,
             pending_comment_line: None,
             g_pending: false,
             last_total_lines: 0,
@@ -156,6 +160,11 @@ impl DiffRenderer {
     /// Take the pending hunk expansion index (if any). Caller processes with `&mut FileDiff`.
     pub fn take_pending_expand(&mut self) -> Option<usize> {
         self.pending_expand_hunk.take()
+    }
+
+    /// Take the pending collapsed block expansion index (if any).
+    pub fn take_pending_expand_block(&mut self) -> Option<usize> {
+        self.pending_expand_block.take()
     }
 
     /// Take the pending comment line (if any). Returns (file_index, line_index).
@@ -293,7 +302,7 @@ impl DiffRenderer {
             for (line_idx, line) in file.lines.iter().enumerate() {
                 if matches!(
                     line.kind,
-                    DiffLineKind::HunkHeader | DiffLineKind::FileHeader
+                    DiffLineKind::HunkHeader | DiffLineKind::FileHeader | DiffLineKind::CollapsedBlock
                 ) {
                     continue;
                 }
@@ -486,7 +495,12 @@ impl DiffRenderer {
             .get(min..=max)
             .unwrap_or_default()
             .iter()
-            .filter(|l| !matches!(l.kind, DiffLineKind::HunkHeader | DiffLineKind::FileHeader))
+            .filter(|l| {
+                !matches!(
+                    l.kind,
+                    DiffLineKind::HunkHeader | DiffLineKind::FileHeader | DiffLineKind::CollapsedBlock
+                )
+            })
             .map(|l| l.content.as_str())
             .collect::<Vec<_>>()
             .join("\n");
@@ -545,6 +559,7 @@ impl DiffRenderer {
                 hunk_context: None,
                 hunk_old_start: None,
                 hunk_new_start: None,
+                collapsed_lines: None,
             });
             actual_expanded += 1;
         }
@@ -841,7 +856,8 @@ impl DiffRenderer {
                     self.hunk_offsets.push(y);
                     self.hunk_contexts.push((y, line.hunk_context.clone()));
                 }
-                y += if line.kind == DiffLineKind::HunkHeader {
+                y += if matches!(line.kind, DiffLineKind::HunkHeader | DiffLineKind::CollapsedBlock)
+                {
                     hunk_header_height
                 } else {
                     line_height
@@ -866,6 +882,7 @@ impl DiffRenderer {
 
         let mut clicked_line: Option<(usize, bool)> = None;
         let mut expand_hunk_idx: Option<usize> = None;
+        let mut expand_block_idx: Option<usize> = None;
         let mut comment_line_idx: Option<usize> = None;
 
         let mut collected_y_positions: Vec<(usize, usize, f32)> = Vec::new();
@@ -926,6 +943,7 @@ impl DiffRenderer {
                     match action {
                         LineAction::Click(shift) => clicked_line = Some((line_idx, shift)),
                         LineAction::ExpandHunk => expand_hunk_idx = Some(line_idx),
+                        LineAction::ExpandBlock => expand_block_idx = Some(line_idx),
                         LineAction::Comment => comment_line_idx = Some(line_idx),
                         LineAction::None => {}
                     }
@@ -968,6 +986,11 @@ impl DiffRenderer {
         // Store hunk expansion for caller to process with &mut FileDiff
         if expand_hunk_idx.is_some() {
             self.pending_expand_hunk = expand_hunk_idx;
+        }
+
+        // Store collapsed block expansion for caller to process
+        if expand_block_idx.is_some() {
+            self.pending_expand_block = expand_block_idx;
         }
 
         // Store comment request for caller to process
@@ -1055,13 +1078,16 @@ impl DiffRenderer {
                 let is_hunk = left
                     .as_ref()
                     .is_some_and(|l| l.kind == DiffLineKind::HunkHeader);
+                let is_collapsed = left
+                    .as_ref()
+                    .is_some_and(|l| l.kind == DiffLineKind::CollapsedBlock);
                 if is_hunk {
                     self.hunk_offsets.push(y);
                     if let Some(l) = left.as_ref() {
                         self.hunk_contexts.push((y, l.hunk_context.clone()));
                     }
                 }
-                y += if is_hunk {
+                y += if is_hunk || is_collapsed {
                     hunk_header_height
                 } else {
                     split_line_height
@@ -1128,10 +1154,72 @@ impl DiffRenderer {
                     let is_header = left
                         .as_ref()
                         .is_some_and(|l| l.kind == DiffLineKind::HunkHeader);
+                    let is_collapsed = left
+                        .as_ref()
+                        .is_some_and(|l| l.kind == DiffLineKind::CollapsedBlock);
 
                     if is_header {
                         if let Some(line) = left.as_ref() {
                             render_split_header(ui, line, available_width, theme);
+                        }
+                    } else if is_collapsed {
+                        if let Some(line) = left.as_ref() {
+                            let row_height = font_size + 12.0;
+                            let (rect, response) = ui.allocate_exact_size(
+                                egui::vec2(available_width, row_height),
+                                egui::Sense::click(),
+                            );
+                            let bg = if response.hovered() {
+                                theme.bg_elevated().gamma_multiply(0.7)
+                            } else {
+                                theme.bg_elevated().gamma_multiply(0.5)
+                            };
+                            ui.painter().rect_filled(rect, 4.0, bg);
+                            ui.painter().rect_stroke(
+                                rect.shrink(2.0),
+                                4.0,
+                                egui::Stroke::new(
+                                    1.0,
+                                    theme.border_subtle().gamma_multiply(0.5),
+                                ),
+                                egui::StrokeKind::Inside,
+                            );
+                            let icon = if response.hovered() {
+                                egui_nerdfonts::regular::CHEVRON_DOWN
+                            } else {
+                                egui_nerdfonts::regular::CHEVRON_RIGHT
+                            };
+                            let text = format!("{icon} {}", line.content);
+                            let text_color = if response.hovered() {
+                                theme.text_primary()
+                            } else {
+                                theme.text_secondary()
+                            };
+                            let galley = ui.painter().layout_no_wrap(
+                                text,
+                                typography::proportional(typography::XS),
+                                text_color,
+                            );
+                            ui.painter().galley(
+                                egui::pos2(
+                                    rect.left() + 16.0,
+                                    rect.center().y - galley.size().y / 2.0,
+                                ),
+                                galley,
+                                text_color,
+                            );
+                            if response.hovered() {
+                                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                            }
+                            if response.clicked() {
+                                if let Some(l) = left {
+                                    if let Some(&idx) =
+                                        line_index_map.get(&(*l as *const DiffLine))
+                                    {
+                                        self.pending_expand_block = Some(idx);
+                                    }
+                                }
+                            }
                         }
                     } else {
                         let row_response = ui.horizontal(|ui| {
@@ -1457,6 +1545,59 @@ fn render_unified_line(
             typography::monospace(font_size),
             theme.diff_file_header(),
         );
+        return LineAction::None;
+    }
+
+    // Collapsed block — disclosure row with expand-on-click
+    if line.kind == DiffLineKind::CollapsedBlock {
+        let available_width = ui.available_width();
+        let row_height = font_size + 12.0;
+        let (rect, response) =
+            ui.allocate_exact_size(egui::vec2(available_width, row_height), egui::Sense::click());
+
+        let bg = if response.hovered() {
+            theme.bg_elevated().gamma_multiply(0.7)
+        } else {
+            theme.bg_elevated().gamma_multiply(0.5)
+        };
+        ui.painter().rect_filled(rect, 4.0, bg);
+
+        // Dashed border to indicate "folded" content
+        ui.painter().rect_stroke(
+            rect.shrink(2.0),
+            4.0,
+            egui::Stroke::new(1.0, theme.border_subtle().gamma_multiply(0.5)),
+            egui::StrokeKind::Inside,
+        );
+
+        let icon = if response.hovered() {
+            egui_nerdfonts::regular::CHEVRON_DOWN
+        } else {
+            egui_nerdfonts::regular::CHEVRON_RIGHT
+        };
+        let text = format!("{icon} {}", line.content);
+        let text_color = if response.hovered() {
+            theme.text_primary()
+        } else {
+            theme.text_secondary()
+        };
+        let galley = ui.painter().layout_no_wrap(
+            text,
+            typography::proportional(typography::XS),
+            text_color,
+        );
+        ui.painter().galley(
+            egui::pos2(rect.left() + 16.0, rect.center().y - galley.size().y / 2.0),
+            galley,
+            text_color,
+        );
+
+        if response.hovered() {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+        }
+        if response.clicked() {
+            return LineAction::ExpandBlock;
+        }
         return LineAction::None;
     }
 

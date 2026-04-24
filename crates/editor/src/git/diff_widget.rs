@@ -13,6 +13,7 @@ pub fn max_line_num_width(file_diff: &FileDiff) -> usize {
     let max_line_num = file_diff
         .lines
         .iter()
+        .filter(|l| l.kind != DiffLineKind::CollapsedBlock)
         .filter_map(|l| l.old_line_num.max(l.new_line_num))
         .max()
         .unwrap_or(1);
@@ -56,6 +57,11 @@ pub fn diff_line_colors(
             None,
         ),
         DiffLineKind::Context => (theme.diff_context_text(), None, None),
+        DiffLineKind::CollapsedBlock => (
+            theme.text_secondary(),
+            Some(theme.bg_elevated().gamma_multiply(0.5)),
+            None,
+        ),
     }
 }
 
@@ -294,7 +300,9 @@ pub fn get_syntax_spans_for_line(
         DiffLineKind::Deletion => (old_highlight, line.old_recon_num),
         DiffLineKind::Addition => (new_highlight, line.new_recon_num),
         DiffLineKind::Context => (new_highlight, line.new_recon_num),
-        _ => (None, None),
+        DiffLineKind::CollapsedBlock | DiffLineKind::HunkHeader | DiffLineKind::FileHeader => {
+            (None, None)
+        }
     };
 
     let mut spans: Vec<(usize, usize, egui::Color32)> = syntax_data

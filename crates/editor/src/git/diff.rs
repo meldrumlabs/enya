@@ -55,7 +55,7 @@ impl FileDiff {
                     line.new_recon_num = Some(new_counter);
                     new_lines.push(&line.content);
                 }
-                DiffLineKind::HunkHeader | DiffLineKind::FileHeader => {}
+                DiffLineKind::HunkHeader | DiffLineKind::FileHeader | DiffLineKind::CollapsedBlock => {}
             }
         }
 
@@ -119,6 +119,8 @@ pub struct DiffLine {
     pub hunk_old_start: Option<usize>,
     /// New-side start line from hunk header (for context expansion).
     pub hunk_new_start: Option<usize>,
+    /// For `CollapsedBlock` lines: the original lines that were hidden.
+    pub collapsed_lines: Option<Vec<DiffLine>>,
 }
 
 /// The type of diff line.
@@ -134,6 +136,10 @@ pub enum DiffLineKind {
     HunkHeader,
     /// File header (diff --git, ---, +++).
     FileHeader,
+    /// A collapsed block of low-signal lines (imports, lockfiles, generated code).
+    /// The `content` field holds the label, and `collapsed_lines` stores the
+    /// original hidden lines.
+    CollapsedBlock,
 }
 
 /// Parses a unified diff into per-file sections with word-level highlighting.
@@ -178,6 +184,7 @@ pub fn parse_diff_into_files(diff: &str) -> Vec<FileDiff> {
                     hunk_context: None,
                     hunk_old_start: None,
                     hunk_new_start: None,
+                    collapsed_lines: None,
                 }],
                 additions: 0,
                 deletions: 0,
@@ -223,6 +230,7 @@ pub fn parse_diff_into_files(diff: &str) -> Vec<FileDiff> {
                     hunk_context,
                     hunk_old_start,
                     hunk_new_start,
+                    collapsed_lines: None,
                 });
                 continue;
             }
@@ -272,6 +280,7 @@ pub fn parse_diff_into_files(diff: &str) -> Vec<FileDiff> {
                 hunk_context: None,
                 hunk_old_start: None,
                 hunk_new_start: None,
+                collapsed_lines: None,
             });
 
             match kind {
@@ -284,7 +293,10 @@ pub fn parse_diff_into_files(diff: &str) -> Vec<FileDiff> {
                 DiffLineKind::Addition => {
                     pending_additions.push((content, line_index));
                 }
-                DiffLineKind::Context | DiffLineKind::HunkHeader | DiffLineKind::FileHeader => {
+                DiffLineKind::Context
+                | DiffLineKind::HunkHeader
+                | DiffLineKind::FileHeader
+                | DiffLineKind::CollapsedBlock => {
                     compute_word_highlights(file, &pending_deletions, &pending_additions);
                     pending_deletions.clear();
                     pending_additions.clear();
@@ -301,6 +313,7 @@ pub fn parse_diff_into_files(diff: &str) -> Vec<FileDiff> {
     // Compute hidden line counts for hunk headers and syntax highlighting
     for file in &mut files {
         compute_hidden_lines(file);
+        detect_collapsible_blocks(file);
         file.compute_syntax_highlights();
     }
 
@@ -437,6 +450,178 @@ fn compute_hidden_lines(file: &mut FileDiff) {
     }
 }
 
+/// Detect and collapse low-signal blocks in a file diff.
+///
+/// Collapses:
+/// - Import blocks: 3+ consecutive import/use/require lines
+/// - Lockfiles: entire file collapsed to a one-line summary
+/// - Generated code: entire file collapsed if path or header suggests it
+pub fn detect_collapsible_blocks(file: &mut FileDiff) {
+    let is_lockfile = is_lockfile_path(&file.path);
+    let is_generated = is_generated_file(&file.path, &file.lines);
+
+    if is_lockfile || is_generated {
+        // Collapse the entire file content (skip file headers)
+        let header_count = file
+            .lines
+            .iter()
+            .take_while(|l| {
+                matches!(
+                    l.kind,
+                    DiffLineKind::FileHeader | DiffLineKind::HunkHeader
+                )
+            })
+            .count();
+        if file.lines.len() > header_count + 1 {
+            let label = if is_lockfile {
+                format!("{} lockfile lines hidden", file.lines.len() - header_count)
+            } else {
+                format!(
+                    "{} generated code lines hidden",
+                    file.lines.len() - header_count
+                )
+            };
+            let collapsed: Vec<DiffLine> = file.lines.drain(header_count..).collect();
+            file.lines.push(DiffLine {
+                content: label,
+                kind: DiffLineKind::CollapsedBlock,
+                old_line_num: None,
+                new_line_num: None,
+                word_highlights: Vec::new(),
+                old_recon_num: None,
+                new_recon_num: None,
+                hidden_lines: Some(collapsed.len()),
+                hunk_context: None,
+                hunk_old_start: None,
+                hunk_new_start: None,
+                collapsed_lines: Some(collapsed),
+            });
+        }
+        return;
+    }
+
+    // Detect import blocks within hunks
+    let mut i = 0;
+    while i < file.lines.len() {
+        if file.lines[i].kind == DiffLineKind::HunkHeader {
+            // Find the end of this hunk (next hunk header or end)
+            let mut hunk_end = file.lines[i + 1..]
+                .iter()
+                .position(|l| l.kind == DiffLineKind::HunkHeader)
+                .map(|p| i + 1 + p)
+                .unwrap_or(file.lines.len());
+
+            // Scan for import blocks inside this hunk
+            let mut j = i + 1;
+            while j < hunk_end {
+                if is_import_line(&file.lines[j]) {
+                    let block_start = j;
+                    while j < hunk_end && is_import_line(&file.lines[j]) {
+                        j += 1;
+                    }
+                    let block_end = j;
+                    let block_len = block_end - block_start;
+                    if block_len >= 3 {
+                        let collapsed: Vec<DiffLine> =
+                            file.lines.drain(block_start..block_end).collect();
+                        file.lines.insert(
+                            block_start,
+                            DiffLine {
+                                content: format!("{block_len} import lines hidden"),
+                                kind: DiffLineKind::CollapsedBlock,
+                                old_line_num: None,
+                                new_line_num: None,
+                                word_highlights: Vec::new(),
+                                old_recon_num: None,
+                                new_recon_num: None,
+                                hidden_lines: Some(block_len),
+                                hunk_context: None,
+                                hunk_old_start: None,
+                                hunk_new_start: None,
+                                collapsed_lines: Some(collapsed),
+                            },
+                        );
+                        // Adjust hunk_end and j since we replaced N lines with 1
+                        let removed = block_len - 1;
+                        hunk_end -= removed;
+                        j = block_start + 1;
+                    }
+                } else {
+                    j += 1;
+                }
+            }
+            i = hunk_end;
+        } else {
+            i += 1;
+        }
+    }
+}
+
+/// Check if a file path is a known lockfile.
+fn is_lockfile_path(path: &str) -> bool {
+    let name = path.rsplit('/').next().unwrap_or(path);
+    matches!(
+        name,
+        "Cargo.lock"
+            | "package-lock.json"
+            | "yarn.lock"
+            | "pnpm-lock.yaml"
+            | "go.sum"
+            | "poetry.lock"
+            | "Gemfile.lock"
+            | "Pipfile.lock"
+            | "composer.lock"
+    )
+}
+
+/// Check if a file appears to be generated code.
+fn is_generated_file(path: &str, lines: &[DiffLine]) -> bool {
+    let name = path.rsplit('/').next().unwrap_or(path);
+    if name.ends_with("_gen.rs")
+        || name.ends_with(".pb.go")
+        || name.ends_with(".pb.cc")
+        || name.ends_with(".pb.h")
+        || name.ends_with("_generated.go")
+        || name.ends_with("_generated.ts")
+        || name.ends_with("_generated.js")
+        || name.contains("_generated.")
+    {
+        return true;
+    }
+    // Check first few context lines for generated markers
+    for line in lines.iter().take(10) {
+        if line.kind == DiffLineKind::Context {
+            let trimmed = line.content.trim();
+            if trimmed.starts_with("// Code generated by")
+                || trimmed.starts_with("/* Generated by")
+                || trimmed.starts_with("# Code generated by")
+                || trimmed.starts_with("// Auto-generated")
+                || trimmed.starts_with("# AUTOGENERATED")
+            {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// Check if a diff line looks like an import/use statement.
+fn is_import_line(line: &DiffLine) -> bool {
+    if !matches!(line.kind, DiffLineKind::Context | DiffLineKind::Addition) {
+        return false;
+    }
+    let trimmed = line.content.trim();
+    trimmed.starts_with("use ")
+        || trimmed.starts_with("pub use ")
+        || trimmed.starts_with("import ")
+        || trimmed.starts_with("from ")
+        || trimmed.starts_with("require(")
+        || trimmed.starts_with("#include ")
+        || trimmed.starts_with("extern crate ")
+        || (trimmed.starts_with("import ") && trimmed.contains("from "))
+        || trimmed.starts_with("using ")
+}
+
 /// Builds paired lines for split (side-by-side) view.
 pub fn build_split_view_lines(lines: &[DiffLine]) -> Vec<(Option<DiffLine>, Option<DiffLine>)> {
     let mut result: Vec<(Option<DiffLine>, Option<DiffLine>)> = Vec::new();
@@ -455,7 +640,7 @@ pub fn build_split_view_lines(lines: &[DiffLine]) -> Vec<(Option<DiffLine>, Opti
             DiffLineKind::Addition => {
                 pending_additions.push(line.clone());
             }
-            DiffLineKind::HunkHeader | DiffLineKind::FileHeader => {
+            DiffLineKind::HunkHeader | DiffLineKind::FileHeader | DiffLineKind::CollapsedBlock => {
                 flush_pending_changes(&mut result, &mut pending_deletions, &mut pending_additions);
                 result.push((Some(line.clone()), Some(line.clone())));
             }
@@ -505,7 +690,7 @@ pub fn build_split_view_lines_ref(
             DiffLineKind::Addition => {
                 pending_additions.push(line);
             }
-            DiffLineKind::HunkHeader | DiffLineKind::FileHeader => {
+            DiffLineKind::HunkHeader | DiffLineKind::FileHeader | DiffLineKind::CollapsedBlock => {
                 flush_pending_refs(&mut result, &mut pending_deletions, &mut pending_additions);
                 result.push((Some(line), Some(line)));
             }

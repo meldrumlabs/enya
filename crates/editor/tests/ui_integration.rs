@@ -1331,6 +1331,7 @@ mod diff_renderer_tests {
                 hunk_context: None,
                 hunk_old_start: None,
                 hunk_new_start: None,
+                collapsed_lines: None,
             })
             .collect();
         FileDiff {

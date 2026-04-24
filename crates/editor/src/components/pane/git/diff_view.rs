@@ -766,6 +766,23 @@ impl PrReviewPane {
                 self.diff_renderer.expand_context(file_diff, hunk_idx);
             }
         }
+
+        // Process collapsed block expansion
+        if let Some(block_idx) = self.diff_renderer.take_pending_expand_block() {
+            if let Some(file_diff) = self.file_diffs.get_mut(self.selected_file_index) {
+                if let Some(block_line) = file_diff.lines.get(block_idx) {
+                    if let Some(collapsed) = block_line.collapsed_lines.clone() {
+                        file_diff.lines.remove(block_idx);
+                        for (i, line) in collapsed.into_iter().enumerate() {
+                            file_diff.lines.insert(block_idx + i, line);
+                        }
+                        // Invalidate caches
+                        self.diff_renderer.reset_for_file_change();
+                        file_diff.compute_syntax_highlights();
+                    }
+                }
+            }
+        }
     }
 }
 
