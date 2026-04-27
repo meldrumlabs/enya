@@ -55,6 +55,8 @@ mimalloc = { workspace = true }
 rustls = { workspace = true }
 # System utilities for file/folder operations
 open = "5.3"
+# Native file dialogs for loading custom fonts
+rfd = "0.15"
 # Clipboard access for plugin system
 arboard = "3.4"
 # Blocking HTTP client for plugin system

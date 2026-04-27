@@ -428,6 +428,26 @@ impl PrReviewPane {
         self.focused = focused;
     }
 
+    /// Close diff search if it is currently active.
+    ///
+    /// Returns `true` when search was active and got closed.
+    pub(crate) fn close_diff_search_if_active(&mut self) -> bool {
+        if self.diff_renderer.search_active() {
+            self.diff_renderer.close_search();
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Whether PR pane-owned text input mode is currently active.
+    pub(crate) fn has_text_input_active(&self) -> bool {
+        self.filter_active
+            || self.commenting_line.is_some()
+            || self.diff_renderer.search_active()
+            || self.submit_panel_open
+    }
+
     /// Set the repository root path for file opener. Called each frame from workspace.
     pub fn set_repo_root(&mut self, repo_root: Option<std::path::PathBuf>) {
         self.repo_root = repo_root;
@@ -1464,14 +1484,11 @@ impl PrReviewPane {
 impl PrReviewPane {
     /// Handle vim-style keyboard navigation. Call before rendering.
     ///
-    /// Only consumes keys when the pane is the focused tile. In list view,
-    /// Escape is not consumed so the workspace can unfocus the pane. In
-    /// detail view, Escape/h go back to list first.
+    /// Mostly consumes keys only when the pane is the focused tile. In list
+    /// view, Escape is not consumed so the workspace can unfocus the pane. In
+    /// detail view, Escape/h go back to list first. Exception: when diff
+    /// search is active, Escape can still close it even if tile focus was lost.
     fn handle_keyboard(&mut self, ctx: &egui::Context) {
-        if !self.focused {
-            return;
-        }
-
         // When a text input we own is active, handle only Escape/Enter/Cmd+Enter
         // and skip normal vim keys. We check our own state rather than
         // ctx.memory(focused) which is too broad (spinners, buttons, etc.).
@@ -1479,6 +1496,12 @@ impl PrReviewPane {
             || self.commenting_line.is_some()
             || self.diff_renderer.search_active();
         if has_text_input {
+            // Allow Escape to close diff search even when tile focus was lost.
+            // Keep list filter/comment handling scoped to the focused pane.
+            if !self.focused && !self.diff_renderer.search_active() {
+                return;
+            }
+
             let esc = ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape));
             if esc {
                 if self.filter_active {
@@ -1491,8 +1514,10 @@ impl PrReviewPane {
                     self.commenting_line = None;
                     self.comment_input.clear();
                 }
-                if let Some(id) = ctx.memory(|m| m.focused()) {
-                    ctx.memory_mut(|mem| mem.surrender_focus(id));
+                if self.focused {
+                    if let Some(id) = ctx.memory(|m| m.focused()) {
+                        ctx.memory_mut(|mem| mem.surrender_focus(id));
+                    }
                 }
             }
             // Cmd+Enter (or Ctrl+Enter) — submit comment while typing
@@ -1527,6 +1552,10 @@ impl PrReviewPane {
                     }
                 }
             }
+            return;
+        }
+
+        if !self.focused {
             return;
         }
 
@@ -1919,5 +1948,72 @@ impl crate::components::Component for PrReviewPane {
 
     fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
         self
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_pane() -> (tokio::runtime::Runtime, PrReviewPane) {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("failed to create tokio runtime for test");
+        let pane = PrReviewPane::new("owner", "repo", AsyncRuntime::new(runtime.handle().clone()));
+        (runtime, pane)
+    }
+
+    fn run_with_escape(ctx: &egui::Context, mut f: impl FnMut(&egui::Context)) {
+        let mut raw_input = egui::RawInput::default();
+        raw_input.events.push(egui::Event::Key {
+            key: egui::Key::Escape,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        });
+        let _ = ctx.run(raw_input, |ctx| f(ctx));
+    }
+
+    #[test]
+    fn escape_closes_diff_search_even_when_unfocused() {
+        let (_runtime, mut pane) = make_pane();
+        pane.view = PrReviewView::Detail;
+        pane.focused = false;
+        pane.diff_renderer.open_search();
+        assert!(pane.diff_renderer.search_active());
+
+        let ctx = egui::Context::default();
+        run_with_escape(&ctx, |ctx| pane.handle_keyboard(ctx));
+
+        assert!(!pane.diff_renderer.search_active());
+    }
+
+    #[test]
+    fn escape_does_not_touch_unfocused_non_search_inputs() {
+        let (_runtime, mut pane) = make_pane();
+        pane.focused = false;
+        pane.filter_active = true;
+        pane.filter_query = "abc".to_string();
+
+        let ctx = egui::Context::default();
+        run_with_escape(&ctx, |ctx| pane.handle_keyboard(ctx));
+
+        assert!(pane.filter_active);
+        assert_eq!(pane.filter_query, "abc");
+    }
+
+    #[test]
+    fn text_input_active_when_commenting_or_searching() {
+        let (_runtime, mut pane) = make_pane();
+        assert!(!pane.has_text_input_active());
+
+        pane.commenting_line = Some((0, 0));
+        assert!(pane.has_text_input_active());
+
+        pane.commenting_line = None;
+        pane.diff_renderer.open_search();
+        assert!(pane.has_text_input_active());
     }
 }

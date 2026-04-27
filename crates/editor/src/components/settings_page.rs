@@ -17,7 +17,7 @@ use crate::ui::ActiveThemeColors;
 use crate::ui::icons::APP_GHOSTTY;
 use crate::ui::semantic_icons;
 use crate::ui::settings_screen::{EditorFont, GitSyncInterval, StartupPage, TimezonePreference};
-use crate::ui::theme::AppTheme;
+use crate::ui::theme::{AppTheme, MeldrumContrastMode, set_meldrum_preferences};
 use crate::ui::typography;
 
 /// Result returned by the settings page each frame.
@@ -44,18 +44,22 @@ pub enum SettingsPageResult {
         notify_new_models: bool,
         git_sync_interval: GitSyncInterval,
         otlp_port: u16,
+        meldrum_contrast_mode: MeldrumContrastMode,
+        custom_fonts: Vec<(String, String)>,
     },
     /// Live preview of a builtin theme change.
     ThemePreview(AppTheme),
     /// Live preview of a custom theme change.
     CustomThemePreview(String),
-    /// Live preview of a font change.
-    FontPreview(EditorFont),
+    /// Live preview of a font change (includes full custom font list so the app
+    /// can preload every user-loaded font before the settings page draws previews).
+    FontPreview(EditorFont, Vec<(String, String)>),
     /// Cancelled with restore of original theme/font (from Editor section).
     CancelledWithRestore {
         theme: AppTheme,
         custom_theme: Option<String>,
         font: EditorFont,
+        custom_fonts: Vec<(String, String)>,
     },
     /// User clicked "Sign in with GitHub" (OAuth).
     GitHubSignIn,
@@ -183,6 +187,8 @@ pub struct SettingsPage {
     original_custom_theme: Option<String>,
     styling_font: EditorFont,
     original_font: EditorFont,
+    meldrum_contrast_mode: MeldrumContrastMode,
+    custom_fonts: Vec<(String, String)>,
     custom_themes: Vec<(String, String, ActiveThemeColors)>,
     theme_index: usize,
     font_index: usize,
@@ -258,6 +264,8 @@ impl SettingsPage {
             original_custom_theme: None,
             styling_font: EditorFont::default(),
             original_font: EditorFont::default(),
+            meldrum_contrast_mode: MeldrumContrastMode::default(),
+            custom_fonts: Vec::new(),
             custom_themes: Vec::new(),
             theme_index: 0,
             font_index: 0,
@@ -349,6 +357,7 @@ impl SettingsPage {
         current_theme: AppTheme,
         current_custom_theme: Option<String>,
         current_font: EditorFont,
+        meldrum_contrast_mode: MeldrumContrastMode,
         custom_themes: Vec<(String, String, ActiveThemeColors)>,
         github_auth_state: AuthState,
         default_workspace: Option<String>,
@@ -360,6 +369,7 @@ impl SettingsPage {
         notify_new_models: bool,
         git_sync_interval: GitSyncInterval,
         otlp_port: u16,
+        custom_fonts: Vec<(String, String)>,
     ) {
         self.is_open = true;
         self.active_category = SettingsCategory::Profile;
@@ -399,8 +409,11 @@ impl SettingsPage {
         self.original_theme = current_theme;
         self.styling_custom_theme = current_custom_theme.clone();
         self.original_custom_theme = current_custom_theme.clone();
-        self.styling_font = current_font;
-        self.original_font = current_font;
+        self.styling_font = current_font.clone();
+        self.original_font = current_font.clone();
+        self.meldrum_contrast_mode = meldrum_contrast_mode;
+        set_meldrum_preferences(self.meldrum_contrast_mode);
+        self.custom_fonts = custom_fonts;
         self.custom_themes = custom_themes;
         self.focused_panel = StyleTab::Theme;
         self.panel_switch_anim = 0.0;
@@ -424,9 +437,10 @@ impl SettingsPage {
                 .unwrap_or(0);
         }
         // Compute initial font index
-        self.font_index = EditorFont::all()
+        self.font_index = self
+            .all_fonts()
             .iter()
-            .position(|f| *f == current_font)
+            .position(|f| f == &current_font)
             .unwrap_or(0);
     }
 
@@ -475,9 +489,21 @@ impl SettingsPage {
         }
     }
 
+    /// All fonts: built-ins followed by user-loaded custom fonts.
+    fn all_fonts(&self) -> Vec<EditorFont> {
+        let mut fonts: Vec<EditorFont> = EditorFont::all_builtins().to_vec();
+        for (name, path) in &self.custom_fonts {
+            fonts.push(EditorFont::Custom {
+                name: name.clone(),
+                path: path.clone(),
+            });
+        }
+        fonts
+    }
+
     /// Navigate font index by delta, return preview result.
     fn navigate_font(&mut self, delta: i32) -> SettingsPageResult {
-        let fonts = EditorFont::all();
+        let fonts = self.all_fonts();
         let total = fonts.len();
         if total == 0 {
             return SettingsPageResult::None;
@@ -485,8 +511,8 @@ impl SettingsPage {
         let new_idx = ((self.font_index as i32 + delta).rem_euclid(total as i32)) as usize;
         self.font_index = new_idx;
         self.scroll_to_font = true;
-        self.styling_font = fonts[new_idx];
-        SettingsPageResult::FontPreview(self.styling_font)
+        self.styling_font = fonts[new_idx].clone();
+        SettingsPageResult::FontPreview(self.styling_font.clone(), self.custom_fonts.clone())
     }
 
     /// Select a theme by index (e.g. from click).
@@ -507,10 +533,10 @@ impl SettingsPage {
 
     /// Select a font by index (e.g. from click).
     fn select_font(&mut self, index: usize) -> SettingsPageResult {
-        let fonts = EditorFont::all();
+        let fonts = self.all_fonts();
         self.font_index = index;
-        self.styling_font = fonts[index];
-        SettingsPageResult::FontPreview(self.styling_font)
+        self.styling_font = fonts[index].clone();
+        SettingsPageResult::FontPreview(self.styling_font.clone(), self.custom_fonts.clone())
     }
 
     /// Build the saved result with all current values.
@@ -536,6 +562,8 @@ impl SettingsPage {
                 .next()
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(4318),
+            meldrum_contrast_mode: self.meldrum_contrast_mode,
+            custom_fonts: self.custom_fonts.clone(),
         }
     }
 
@@ -3252,7 +3280,7 @@ impl SettingsPage {
         index: usize,
         accent: Color32,
         text: Color32,
-        text_muted: Color32,
+        _text_muted: Color32,
         bg_hover: Color32,
         border: Color32,
         result: &mut SettingsPageResult,
@@ -3262,36 +3290,45 @@ impl SettingsPage {
         let builtin_count = AppTheme::all().len();
 
         // Get theme info
-        let (display_name, preview_colors, chart_palette, is_custom) = if index < builtin_count {
-            let theme = AppTheme::all()[index];
-            let colors = [
-                theme.bg_base(),
-                theme.bg_elevated(),
-                theme.accent_primary(),
-                theme.text_primary(),
-            ];
-            (
-                theme.name().to_string(),
-                colors,
-                Some(theme.chart_palette()),
-                false,
-            )
-        } else {
-            let custom_idx = index - builtin_count;
-            let (_, display_name, colors) = &self.custom_themes[custom_idx];
-            let preview = [
-                colors.bg_base,
-                colors.bg_elevated,
-                colors.accent_primary,
-                colors.text_primary,
-            ];
-            (
-                display_name.clone(),
-                preview,
-                Some(colors.chart_palette),
-                true,
-            )
-        };
+        let (display_name, preview_colors, chart_palette, syntax_colors, _is_custom) =
+            if index < builtin_count {
+                let theme = AppTheme::all()[index];
+                let colors = [
+                    theme.bg_base(),
+                    theme.bg_elevated(),
+                    theme.accent_primary(),
+                    theme.text_primary(),
+                ];
+                let syntax = [
+                    theme.syntax_keyword(),
+                    theme.syntax_type(),
+                    theme.syntax_function(),
+                    theme.syntax_number(),
+                ];
+                (
+                    theme.name().to_string(),
+                    colors,
+                    Some(theme.chart_palette()),
+                    Some(syntax),
+                    false,
+                )
+            } else {
+                let custom_idx = index - builtin_count;
+                let (_, display_name, colors) = &self.custom_themes[custom_idx];
+                let preview = [
+                    colors.bg_base,
+                    colors.bg_elevated,
+                    colors.accent_primary,
+                    colors.text_primary,
+                ];
+                (
+                    display_name.clone(),
+                    preview,
+                    Some(colors.chart_palette),
+                    None,
+                    true,
+                )
+            };
 
         // Check if this is the original theme
         let is_original = if index < builtin_count {
@@ -3404,20 +3441,17 @@ impl SettingsPage {
                 ui.painter()
                     .circle_filled(dot_center, dot_size / 2.0, *color);
             }
+        }
 
-            let label = if is_custom { "plugin" } else { "chart" };
-            let label_color = if is_custom {
-                accent.gamma_multiply(0.7)
-            } else {
-                text_muted.gamma_multiply(0.6)
-            };
-            ui.painter().text(
-                egui::pos2(palette_x + 8.0 * dot_spacing + 4.0, dots_y),
-                egui::Align2::LEFT_CENTER,
-                label,
-                typography::monospace(9.0),
-                label_color,
-            );
+        // Syntax palette dots
+        if let Some(syntax_colors) = syntax_colors {
+            let syntax_x = palette_x + 8.0 * dot_spacing + 16.0;
+            for (idx, color) in syntax_colors.iter().enumerate() {
+                let dot_x = syntax_x + (idx as f32) * dot_spacing;
+                let dot_center = egui::pos2(dot_x + dot_size / 2.0, dots_y);
+                ui.painter()
+                    .circle_filled(dot_center, dot_size / 2.0, *color);
+            }
         }
 
         // "current" indicator
@@ -3446,9 +3480,10 @@ impl SettingsPage {
         result: &mut SettingsPageResult,
     ) {
         let is_focused = self.focused_panel == StyleTab::Font && !self.sidebar_focused;
-        let fonts = EditorFont::all();
+        let fonts = self.all_fonts();
         let font_count = fonts.len();
         let row_height = 72.0;
+        let builtin_count = EditorFont::all_builtins().len();
 
         // Panel header
         ui.horizontal(|ui| {
@@ -3480,6 +3515,62 @@ impl SettingsPage {
                     .color(if is_focused { accent } else { text_muted })
                     .font(typography::monospace(typography::XS)),
             );
+
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    let btn_size = Vec2::new(140.0, 24.0);
+                    let (rect, response) = ui.allocate_exact_size(btn_size, egui::Sense::click());
+
+                    let btn_fill = if response.hovered() {
+                        accent.gamma_multiply(0.15)
+                    } else {
+                        text.gamma_multiply(0.04)
+                    };
+                    ui.painter().rect_filled(rect, 6.0, btn_fill);
+
+                    ui.painter().text(
+                        rect.center(),
+                        egui::Align2::CENTER_CENTER,
+                        "+ Add custom font",
+                        typography::proportional(typography::XS),
+                        if response.hovered() {
+                            accent
+                        } else {
+                            text_muted
+                        },
+                    );
+
+                    if response.hovered() {
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                    }
+
+                    if response.clicked() {
+                        self.focused_panel = StyleTab::Font;
+                        self.sidebar_focused = false;
+                        if let Some(path) = rfd::FileDialog::new()
+                            .add_filter("Fonts", &["ttf", "otf", "woff2"])
+                            .pick_file()
+                        {
+                            let name = path
+                                .file_stem()
+                                .map(|s| s.to_string_lossy().to_string())
+                                .unwrap_or_else(|| "Custom".into());
+                            let path_str = path.to_string_lossy().to_string();
+                            self.custom_fonts.push((name.clone(), path_str.clone()));
+                            self.font_index = builtin_count + self.custom_fonts.len() - 1;
+                            self.styling_font = EditorFont::Custom {
+                                name,
+                                path: path_str,
+                            };
+                            *result = SettingsPageResult::FontPreview(
+                                self.styling_font.clone(),
+                                self.custom_fonts.clone(),
+                            );
+                        }
+                    }
+                }
+            });
         });
         ui.add_space(12.0);
 
@@ -3492,7 +3583,8 @@ impl SettingsPage {
             .show(ui, |ui| {
                 for (i, font) in fonts.iter().enumerate() {
                     let is_selected = i == self.font_index;
-                    let is_original_font = *font == self.original_font;
+                    let is_original_font = font == &self.original_font;
+                    let is_custom = i >= builtin_count;
 
                     let (rect, response) = ui.allocate_exact_size(
                         Vec2::new(panel_width, row_height),
@@ -3542,7 +3634,7 @@ impl SettingsPage {
                         },
                     );
 
-                    // "current" indicator
+                    // "current" indicator or remove button for custom fonts
                     if is_original_font {
                         ui.painter().text(
                             egui::pos2(rect.max.x - 6.0, top_y),
@@ -3551,6 +3643,52 @@ impl SettingsPage {
                             typography::monospace(typography::SM),
                             accent,
                         );
+                    } else if is_custom {
+                        // Small separate remove button on the right side
+                        let remove_btn_size = Vec2::new(20.0, 20.0);
+                        let remove_btn_pos =
+                            egui::pos2(rect.max.x - remove_btn_size.x - 4.0, top_y - 8.0);
+                        let remove_rect =
+                            egui::Rect::from_min_size(remove_btn_pos, remove_btn_size);
+
+                        let remove_resp = ui.interact(
+                            remove_rect,
+                            egui::Id::new(("rm_font", i)),
+                            egui::Sense::click(),
+                        );
+                        let btn_color = if remove_resp.hovered() {
+                            self.theme.semantic_error()
+                        } else {
+                            text_muted.gamma_multiply(0.5)
+                        };
+
+                        ui.painter().text(
+                            remove_rect.center(),
+                            egui::Align2::CENTER_CENTER,
+                            "×",
+                            typography::proportional(typography::MD),
+                            btn_color,
+                        );
+
+                        if remove_resp.hovered() {
+                            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                        }
+
+                        if remove_resp.clicked() {
+                            let custom_idx = i - builtin_count;
+                            self.custom_fonts.remove(custom_idx);
+                            if self.font_index >= i {
+                                self.font_index = self.font_index.saturating_sub(1);
+                            }
+                            // Fall back to default if we removed the selected font
+                            if self.styling_font == font.clone() {
+                                self.styling_font = EditorFont::default();
+                                *result = SettingsPageResult::FontPreview(
+                                    self.styling_font.clone(),
+                                    self.custom_fonts.clone(),
+                                );
+                            }
+                        }
                     }
 
                     // Font description
@@ -3589,22 +3727,24 @@ impl SettingsPage {
                             x + galley.rect.width()
                         };
 
-                    let keyword_color = accent;
-                    let normal_color = text.gamma_multiply(0.7);
-                    let type_color = accent.gamma_multiply(0.8);
-                    let number_color = text.gamma_multiply(0.9);
+                    let keyword_color = self.theme.syntax_keyword();
+                    let normal_color = self.theme.syntax_variable();
+                    let type_color = self.theme.syntax_type();
+                    let number_color = self.theme.syntax_number();
+                    let punct_color = self.theme.syntax_punctuation();
+                    let func_color = self.theme.syntax_function();
 
+                    let x = draw_token(ui, x, "fn ", keyword_color);
+                    let x = draw_token(ui, x, "main", func_color);
+                    let x = draw_token(ui, x, "() ", punct_color);
+                    let x = draw_token(ui, x, "{ ", punct_color);
                     let x = draw_token(ui, x, "let ", keyword_color);
                     let x = draw_token(ui, x, "x", normal_color);
-                    let x = draw_token(ui, x, ": ", normal_color);
-                    let x = draw_token(ui, x, "Option", type_color);
-                    let x = draw_token(ui, x, "<", normal_color);
+                    let x = draw_token(ui, x, ": ", punct_color);
                     let x = draw_token(ui, x, "i32", type_color);
-                    let x = draw_token(ui, x, "> = ", normal_color);
-                    let x = draw_token(ui, x, "Some", type_color);
-                    let x = draw_token(ui, x, "(", normal_color);
+                    let x = draw_token(ui, x, " = ", punct_color);
                     let x = draw_token(ui, x, "42", number_color);
-                    let _ = draw_token(ui, x, ");", normal_color);
+                    let _ = draw_token(ui, x, "; }", punct_color);
                 }
             });
     }
@@ -4341,6 +4481,7 @@ mod tests {
             AppTheme::default(),
             None,
             EditorFont::default(),
+            MeldrumContrastMode::default(),
             Vec::new(),
             AuthState::SignedOut,
             None,
@@ -4352,6 +4493,7 @@ mod tests {
             true,
             GitSyncInterval::default(),
             4318,
+            Vec::new(),
         );
         assert!(page.is_open());
         page.close();
@@ -4375,6 +4517,46 @@ mod tests {
         assert_eq!(page.field_count(), 0);
         page.active_category = SettingsCategory::Storage;
         assert_eq!(page.field_count(), 4);
+    }
+
+    #[test]
+    fn test_saved_result_includes_meldrum_preferences() {
+        let mut page = SettingsPage::new();
+        page.open(
+            AiProvider::Claude,
+            None,
+            String::new(),
+            String::new(),
+            String::new(),
+            String::new(),
+            Vec::new(),
+            AppTheme::Meldrum,
+            None,
+            EditorFont::default(),
+            MeldrumContrastMode::HighContrast,
+            Vec::new(),
+            AuthState::SignedOut,
+            None,
+            Vec::new(),
+            TimezonePreference::default(),
+            TimeRangePreset::default(),
+            StartupPage::default(),
+            true,
+            true,
+            GitSyncInterval::default(),
+            4318,
+            Vec::new(),
+        );
+
+        match page.build_saved() {
+            SettingsPageResult::Saved {
+                meldrum_contrast_mode,
+                ..
+            } => {
+                assert_eq!(meldrum_contrast_mode, MeldrumContrastMode::HighContrast);
+            }
+            _ => panic!("expected saved result"),
+        }
     }
 
     #[test]

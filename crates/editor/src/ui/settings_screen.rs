@@ -1,5 +1,5 @@
 /// Available editor fonts
-#[derive(Clone, Copy, Default, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Default, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum EditorFont {
     /// Maple Mono - clean, modern monospace font
     MapleMono,
@@ -12,33 +12,42 @@ pub enum EditorFont {
     /// Geist Mono - modern, clean monospace font
     #[default]
     GeistMono,
+    /// User-loaded custom font
+    Custom {
+        /// Display name for the font
+        name: String,
+        /// Absolute path to the font file
+        path: String,
+    },
 }
 
 impl EditorFont {
     /// Human-readable font name
-    pub fn name(&self) -> &'static str {
+    pub fn name(&self) -> String {
         match self {
-            Self::MapleMono => "Maple Mono",
-            Self::DepartureMono => "Departure Mono",
-            Self::JetBrainsMono => "JetBrains Mono",
-            Self::Iosevka => "Iosevka",
-            Self::GeistMono => "Geist Mono",
+            Self::MapleMono => "Maple Mono".into(),
+            Self::DepartureMono => "Departure Mono".into(),
+            Self::JetBrainsMono => "JetBrains Mono".into(),
+            Self::Iosevka => "Iosevka".into(),
+            Self::GeistMono => "Geist Mono".into(),
+            Self::Custom { name, .. } => name.clone(),
         }
     }
 
     /// Internal font family name used in egui
-    pub fn font_family_name(&self) -> &'static str {
+    pub fn font_family_name(&self) -> String {
         match self {
-            Self::MapleMono => "maple_mono",
-            Self::DepartureMono => "departure_mono",
-            Self::JetBrainsMono => "jetbrains_mono",
-            Self::Iosevka => "iosevka",
-            Self::GeistMono => "geist_mono",
+            Self::MapleMono => "maple_mono".into(),
+            Self::DepartureMono => "departure_mono".into(),
+            Self::JetBrainsMono => "jetbrains_mono".into(),
+            Self::Iosevka => "iosevka".into(),
+            Self::GeistMono => "geist_mono".into(),
+            Self::Custom { name, .. } => format!("custom_{name}"),
         }
     }
 
-    /// Returns all available fonts
-    pub fn all() -> &'static [EditorFont] {
+    /// Returns all built-in fonts
+    pub fn all_builtins() -> &'static [EditorFont] {
         &[
             Self::GeistMono,
             Self::DepartureMono,
@@ -48,20 +57,38 @@ impl EditorFont {
         ]
     }
 
+    /// Returns all available fonts (built-ins only; UI should merge with custom fonts)
+    pub fn all() -> &'static [EditorFont] {
+        Self::all_builtins()
+    }
+
     /// Description of the font
-    pub fn description(&self) -> &'static str {
+    pub fn description(&self) -> String {
         match self {
-            Self::MapleMono => "Clean, modern monospace with ligatures",
-            Self::DepartureMono => "Distinctive retro-style monospace",
-            Self::JetBrainsMono => "Developer-focused, great for code",
-            Self::Iosevka => "Narrow, highly customizable",
-            Self::GeistMono => "Modern, clean monospace font",
+            Self::MapleMono => "Clean, modern monospace with ligatures".into(),
+            Self::DepartureMono => "Distinctive retro-style monospace".into(),
+            Self::JetBrainsMono => "Developer-focused, great for code".into(),
+            Self::Iosevka => "Narrow, highly customizable".into(),
+            Self::GeistMono => "Modern, clean monospace font".into(),
+            Self::Custom { path, .. } => {
+                let ext = std::path::Path::new(path)
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .map(|e| e.to_uppercase())
+                    .unwrap_or_else(|| "CUSTOM".into());
+                format!("Custom · {ext}")
+            }
         }
+    }
+
+    /// Returns true if this is a user-loaded custom font
+    pub fn is_custom(&self) -> bool {
+        matches!(self, Self::Custom { .. })
     }
 }
 
 use crate::components::util::AiProvider;
-use crate::ui::theme::AppTheme;
+use crate::ui::theme::{AppTheme, MeldrumContrastMode};
 
 /// A named Arrow Flight SQL connection endpoint.
 #[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -86,9 +113,15 @@ pub struct AppSettings {
     /// Currently selected editor font
     #[serde(default)]
     pub font: EditorFont,
+    /// User-loaded custom fonts: (display_name, absolute_path)
+    #[serde(default)]
+    pub custom_fonts: Vec<(String, String)>,
     /// Current UI theme (user preference, not per-workspace)
     #[serde(default)]
     pub theme: AppTheme,
+    /// Meldrum contrast mode (Standard vs High Contrast)
+    #[serde(default)]
+    pub meldrum_contrast_mode: MeldrumContrastMode,
     /// Selected AI provider
     #[serde(default)]
     pub ai_provider: AiProvider,

@@ -32,7 +32,7 @@ use crate::components::{UpdateBanner, UpdateBannerAction};
 use crate::connection::ConnectionManager;
 use crate::git::auth::GitHubAuthManager;
 use crate::plugin::{EditorPluginHost, PluginContextRef, PluginRegistry, PluginSharedStateRef};
-use crate::ui::theme::AppTheme;
+use crate::ui::theme::{AppTheme, set_meldrum_preferences};
 use crate::ui::welcome_screen::welcome_section_ui;
 use crate::ui::{CustomThemeStore, ResolvedCustomTheme};
 #[cfg(not(target_arch = "wasm32"))]
@@ -153,9 +153,14 @@ impl EnyaApp {
 
         // Migrate legacy settings fields (e.g. single Flight SQL endpoint → connection list)
         state.settings.migrate();
+        set_meldrum_preferences(state.settings.meldrum_contrast_mode);
 
         // Set up fonts with user's preferred font from saved settings
-        fonts::setup_fonts(&cc.egui_ctx, state.settings.font);
+        fonts::setup_fonts(
+            &cc.egui_ctx,
+            &state.settings.font,
+            &state.settings.custom_fonts,
+        );
 
         // Scale up the UI on WASM to compensate for browser rendering making content appear small
         #[cfg(target_arch = "wasm32")]
@@ -925,6 +930,8 @@ impl EnyaApp {
                     notify_new_models,
                     git_sync_interval,
                     otlp_port,
+                    meldrum_contrast_mode,
+                    custom_fonts,
                 } = page_result
                 {
                     self.state.settings.ai_provider = ai_provider;
@@ -942,6 +949,9 @@ impl EnyaApp {
                     self.state.settings.notify_new_models = notify_new_models;
                     self.state.settings.git_sync_interval = git_sync_interval;
                     self.state.settings.otlp_port = otlp_port;
+                    self.state.settings.meldrum_contrast_mode = meldrum_contrast_mode;
+                    set_meldrum_preferences(meldrum_contrast_mode);
+                    self.state.settings.custom_fonts = custom_fonts;
                     #[cfg(not(target_arch = "wasm32"))]
                     self.update_checker.set_enabled(check_for_updates);
                     // Propagate provider/model to agent panel
@@ -979,14 +989,16 @@ impl EnyaApp {
                 }
                 self.state.set_custom_theme(name);
             }
-            SettingsPageResult::FontPreview(font) => {
-                self.state.settings.font = font;
-                fonts::setup_fonts(ctx, font);
+            SettingsPageResult::FontPreview(font, custom_fonts) => {
+                self.state.settings.font = font.clone();
+                self.state.settings.custom_fonts = custom_fonts;
+                fonts::setup_fonts(ctx, &font, &self.state.settings.custom_fonts);
             }
             SettingsPageResult::CancelledWithRestore {
                 theme,
                 custom_theme,
                 font,
+                custom_fonts,
             } => {
                 if let Some(name) = custom_theme {
                     if let Some(def) = self.custom_themes.get(&name) {
@@ -1005,8 +1017,9 @@ impl EnyaApp {
                     self.resolved_custom_theme = None;
                     self.command_sender.send_ui(UICommand::Theme(theme));
                 }
-                self.state.settings.font = font;
-                fonts::setup_fonts(ctx, font);
+                self.state.settings.font = font.clone();
+                self.state.settings.custom_fonts = custom_fonts;
+                fonts::setup_fonts(ctx, &font, &self.state.settings.custom_fonts);
                 self.state.ui_state = self.state.previous_ui_state;
             }
             SettingsPageResult::ResetAppData => {
@@ -1316,17 +1329,17 @@ impl EnyaApp {
             }
             WorkspaceAction::SetFont(font) => {
                 // Update the setting (will be persisted automatically via save())
-                self.state.settings.font = font;
+                self.state.settings.font = font.clone();
                 // Apply the font change immediately
-                fonts::setup_fonts(ctx, font);
+                fonts::setup_fonts(ctx, &font, &self.state.settings.custom_fonts);
             }
             WorkspaceAction::SetThemeAndFont(theme, font) => {
                 // Restore both theme and font (used when cancelling style picker)
                 self.state.custom_theme = None;
                 self.resolved_custom_theme = None;
                 self.command_sender.send_ui(UICommand::Theme(theme));
-                self.state.settings.font = font;
-                fonts::setup_fonts(ctx, font);
+                self.state.settings.font = font.clone();
+                fonts::setup_fonts(ctx, &font, &self.state.settings.custom_fonts);
             }
             WorkspaceAction::SetCustomThemeAndFont(name, font) => {
                 // Restore custom theme and font (used when cancelling style picker)
@@ -1341,8 +1354,8 @@ impl EnyaApp {
                     self.resolved_custom_theme = Some(resolved);
                 }
                 self.state.set_custom_theme(name);
-                self.state.settings.font = font;
-                fonts::setup_fonts(ctx, font);
+                self.state.settings.font = font.clone();
+                fonts::setup_fonts(ctx, &font, &self.state.settings.custom_fonts);
             }
             WorkspaceAction::Notify { level, message } => {
                 let notification_level = match level.to_lowercase().as_str() {
@@ -1604,7 +1617,8 @@ impl EnyaApp {
                     self.state.settings.flight_sql_connections.clone(),
                     self.effective_theme(),
                     self.state.custom_theme.clone(),
-                    self.state.settings.font,
+                    self.state.settings.font.clone(),
+                    self.state.settings.meldrum_contrast_mode,
                     custom_theme_list,
                     self.github_auth.state().clone(),
                     self.state.settings.default_workspace.clone(),
@@ -1616,6 +1630,7 @@ impl EnyaApp {
                     self.state.settings.notify_new_models,
                     self.state.settings.git_sync_interval,
                     self.state.settings.otlp_port,
+                    self.state.settings.custom_fonts.clone(),
                 );
             }
         }

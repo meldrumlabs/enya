@@ -161,6 +161,7 @@ impl PluginHost for EditorPluginHost {
             AppTheme::Everforest => "everforest",
             AppTheme::Catppuccin => "catppuccin",
             AppTheme::Arrakis => "arrakis",
+            AppTheme::Meldrum => "meldrum",
             AppTheme::System => "system",
         }
     }
