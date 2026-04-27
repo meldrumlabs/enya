@@ -70,7 +70,14 @@ impl EditorFont {
             Self::JetBrainsMono => "Developer-focused, great for code".into(),
             Self::Iosevka => "Narrow, highly customizable".into(),
             Self::GeistMono => "Modern, clean monospace font".into(),
-            Self::Custom { path, .. } => path.clone(),
+            Self::Custom { path, .. } => {
+                let ext = std::path::Path::new(path)
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .map(|e| e.to_uppercase())
+                    .unwrap_or_else(|| "CUSTOM".into());
+                format!("Custom · {ext}")
+            }
         }
     }
 

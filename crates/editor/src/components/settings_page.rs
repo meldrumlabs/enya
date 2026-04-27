@@ -3284,45 +3284,44 @@ impl SettingsPage {
         let builtin_count = AppTheme::all().len();
 
         // Get theme info
-        let (display_name, preview_colors, chart_palette, syntax_colors, _is_custom) =
-            if index < builtin_count {
-                let theme = AppTheme::all()[index];
-                let colors = [
-                    theme.bg_base(),
-                    theme.bg_elevated(),
-                    theme.accent_primary(),
-                    theme.text_primary(),
-                ];
-                let syntax = [
-                    theme.syntax_keyword(),
-                    theme.syntax_type(),
-                    theme.syntax_function(),
-                    theme.syntax_number(),
-                ];
-                (
-                    theme.name().to_string(),
-                    colors,
-                    Some(theme.chart_palette()),
-                    Some(syntax),
-                    false,
-                )
-            } else {
-                let custom_idx = index - builtin_count;
-                let (_, display_name, colors) = &self.custom_themes[custom_idx];
-                let preview = [
-                    colors.bg_base,
-                    colors.bg_elevated,
-                    colors.accent_primary,
-                    colors.text_primary,
-                ];
-                (
-                    display_name.clone(),
-                    preview,
-                    Some(colors.chart_palette),
-                    None,
-                    true,
-                )
-            };
+        let (display_name, preview_colors, chart_palette, syntax_colors, _is_custom) = if index < builtin_count {
+            let theme = AppTheme::all()[index];
+            let colors = [
+                theme.bg_base(),
+                theme.bg_elevated(),
+                theme.accent_primary(),
+                theme.text_primary(),
+            ];
+            let syntax = [
+                theme.syntax_keyword(),
+                theme.syntax_type(),
+                theme.syntax_function(),
+                theme.syntax_number(),
+            ];
+            (
+                theme.name().to_string(),
+                colors,
+                Some(theme.chart_palette()),
+                Some(syntax),
+                false,
+            )
+        } else {
+            let custom_idx = index - builtin_count;
+            let (_, display_name, colors) = &self.custom_themes[custom_idx];
+            let preview = [
+                colors.bg_base,
+                colors.bg_elevated,
+                colors.accent_primary,
+                colors.text_primary,
+            ];
+            (
+                display_name.clone(),
+                preview,
+                Some(colors.chart_palette),
+                None,
+                true,
+            )
+        };
 
         // Check if this is the original theme
         let is_original = if index < builtin_count {
