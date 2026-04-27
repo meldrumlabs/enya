@@ -60,6 +60,10 @@ impl OverlayStyle {
     /// Frosted glass style: semi-transparent background with soft edges
     /// Now enhanced with inner highlight for premium feel
     pub fn frosted_glass(theme: AppTheme) -> Self {
+        if theme == AppTheme::Meldrum {
+            return Self::premium_glass(theme);
+        }
+
         let bg = theme.overlay_bg();
         let border = theme.overlay_border();
         let inner_highlight = Some(theme.overlay_highlight());

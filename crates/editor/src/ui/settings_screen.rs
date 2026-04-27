@@ -88,7 +88,7 @@ impl EditorFont {
 }
 
 use crate::components::util::AiProvider;
-use crate::ui::theme::AppTheme;
+use crate::ui::theme::{AppTheme, MeldrumContrastMode};
 
 /// A named Arrow Flight SQL connection endpoint.
 #[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -119,6 +119,9 @@ pub struct AppSettings {
     /// Current UI theme (user preference, not per-workspace)
     #[serde(default)]
     pub theme: AppTheme,
+    /// Meldrum contrast mode (Standard vs High Contrast)
+    #[serde(default)]
+    pub meldrum_contrast_mode: MeldrumContrastMode,
     /// Selected AI provider
     #[serde(default)]
     pub ai_provider: AiProvider,

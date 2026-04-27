@@ -17,7 +17,7 @@ use crate::ui::ActiveThemeColors;
 use crate::ui::icons::APP_GHOSTTY;
 use crate::ui::semantic_icons;
 use crate::ui::settings_screen::{EditorFont, GitSyncInterval, StartupPage, TimezonePreference};
-use crate::ui::theme::AppTheme;
+use crate::ui::theme::{AppTheme, MeldrumContrastMode, set_meldrum_preferences};
 use crate::ui::typography;
 
 /// Result returned by the settings page each frame.
@@ -44,6 +44,7 @@ pub enum SettingsPageResult {
         notify_new_models: bool,
         git_sync_interval: GitSyncInterval,
         otlp_port: u16,
+        meldrum_contrast_mode: MeldrumContrastMode,
         custom_fonts: Vec<(String, String)>,
     },
     /// Live preview of a builtin theme change.
@@ -186,6 +187,7 @@ pub struct SettingsPage {
     original_custom_theme: Option<String>,
     styling_font: EditorFont,
     original_font: EditorFont,
+    meldrum_contrast_mode: MeldrumContrastMode,
     custom_fonts: Vec<(String, String)>,
     custom_themes: Vec<(String, String, ActiveThemeColors)>,
     theme_index: usize,
@@ -262,6 +264,7 @@ impl SettingsPage {
             original_custom_theme: None,
             styling_font: EditorFont::default(),
             original_font: EditorFont::default(),
+            meldrum_contrast_mode: MeldrumContrastMode::default(),
             custom_fonts: Vec::new(),
             custom_themes: Vec::new(),
             theme_index: 0,
@@ -354,6 +357,7 @@ impl SettingsPage {
         current_theme: AppTheme,
         current_custom_theme: Option<String>,
         current_font: EditorFont,
+        meldrum_contrast_mode: MeldrumContrastMode,
         custom_themes: Vec<(String, String, ActiveThemeColors)>,
         github_auth_state: AuthState,
         default_workspace: Option<String>,
@@ -407,6 +411,8 @@ impl SettingsPage {
         self.original_custom_theme = current_custom_theme.clone();
         self.styling_font = current_font.clone();
         self.original_font = current_font.clone();
+        self.meldrum_contrast_mode = meldrum_contrast_mode;
+        set_meldrum_preferences(self.meldrum_contrast_mode);
         self.custom_fonts = custom_fonts;
         self.custom_themes = custom_themes;
         self.focused_panel = StyleTab::Theme;
@@ -556,6 +562,7 @@ impl SettingsPage {
                 .next()
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(4318),
+            meldrum_contrast_mode: self.meldrum_contrast_mode,
             custom_fonts: self.custom_fonts.clone(),
         }
     }
@@ -4474,6 +4481,7 @@ mod tests {
             AppTheme::default(),
             None,
             EditorFont::default(),
+            MeldrumContrastMode::default(),
             Vec::new(),
             AuthState::SignedOut,
             None,
@@ -4509,6 +4517,46 @@ mod tests {
         assert_eq!(page.field_count(), 0);
         page.active_category = SettingsCategory::Storage;
         assert_eq!(page.field_count(), 4);
+    }
+
+    #[test]
+    fn test_saved_result_includes_meldrum_preferences() {
+        let mut page = SettingsPage::new();
+        page.open(
+            AiProvider::Claude,
+            None,
+            String::new(),
+            String::new(),
+            String::new(),
+            String::new(),
+            Vec::new(),
+            AppTheme::Meldrum,
+            None,
+            EditorFont::default(),
+            MeldrumContrastMode::HighContrast,
+            Vec::new(),
+            AuthState::SignedOut,
+            None,
+            Vec::new(),
+            TimezonePreference::default(),
+            TimeRangePreset::default(),
+            StartupPage::default(),
+            true,
+            true,
+            GitSyncInterval::default(),
+            4318,
+            Vec::new(),
+        );
+
+        match page.build_saved() {
+            SettingsPageResult::Saved {
+                meldrum_contrast_mode,
+                ..
+            } => {
+                assert_eq!(meldrum_contrast_mode, MeldrumContrastMode::HighContrast);
+            }
+            _ => panic!("expected saved result"),
+        }
     }
 
     #[test]

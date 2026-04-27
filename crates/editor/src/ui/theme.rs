@@ -10,6 +10,7 @@ use egui::Visuals;
 use egui::style::Selection;
 use egui::style::TextCursorStyle;
 use egui::style::Widgets;
+use std::sync::atomic::{AtomicU8, Ordering};
 
 use super::active_theme::ActiveThemeColors;
 
@@ -66,7 +67,64 @@ pub enum AppTheme {
     Custom(ActiveThemeColors),
 }
 
+/// Contrast tuning for the built-in Meldrum theme.
+#[derive(
+    Clone, Copy, Eq, PartialEq, Hash, Default, Debug, serde::Deserialize, serde::Serialize,
+)]
+#[serde(rename_all = "snake_case")]
+#[repr(u8)]
+pub enum MeldrumContrastMode {
+    /// Stronger contrast for text and diff affordances.
+    #[default]
+    HighContrast = 1,
+    /// Standard contrast.
+    Standard = 0,
+}
+
+impl MeldrumContrastMode {
+    fn from_u8(value: u8) -> Self {
+        match value {
+            1 => Self::HighContrast,
+            _ => Self::Standard,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Standard => "Standard",
+            Self::HighContrast => "High Contrast",
+        }
+    }
+
+    pub fn all() -> &'static [Self] {
+        &[Self::Standard, Self::HighContrast]
+    }
+}
+
+static MELDRUM_CONTRAST_MODE: AtomicU8 = AtomicU8::new(MeldrumContrastMode::HighContrast as u8);
+
+/// Set Meldrum contrast preference used by theme rendering.
+pub fn set_meldrum_preferences(contrast: MeldrumContrastMode) {
+    MELDRUM_CONTRAST_MODE.store(contrast as u8, Ordering::Relaxed);
+}
+
+/// Get the active Meldrum contrast mode.
+pub fn meldrum_contrast_mode() -> MeldrumContrastMode {
+    MeldrumContrastMode::from_u8(MELDRUM_CONTRAST_MODE.load(Ordering::Relaxed))
+}
+
 impl AppTheme {
+    #[inline]
+    fn meldrum_is_labs(&self) -> bool {
+        matches!(self, Self::Meldrum)
+    }
+
+    #[inline]
+    fn meldrum_is_high_contrast(&self) -> bool {
+        matches!(self, Self::Meldrum)
+            && meldrum_contrast_mode() == MeldrumContrastMode::HighContrast
+    }
+
     /// Returns the display name
     pub fn name(&self) -> &'static str {
         match self {
@@ -235,7 +293,13 @@ impl AppTheme {
             Self::Everforest => Color32::from_rgb(46, 56, 60),
             Self::Catppuccin => Color32::from_rgb(36, 36, 62),
             Self::Arrakis => Color32::from_rgb(28, 25, 20),
-            Self::Meldrum => Color32::from_rgb(24, 24, 27),
+            Self::Meldrum => {
+                if self.meldrum_is_labs() {
+                    Color32::from_rgb(26, 24, 29)
+                } else {
+                    Color32::from_rgb(24, 24, 27)
+                }
+            }
             Self::System | Self::Dark => Color32::from_rgb(18, 18, 21),
         }
     }
@@ -260,7 +324,13 @@ impl AppTheme {
             Self::Everforest => Color32::from_rgb(55, 65, 69),
             Self::Catppuccin => Color32::from_rgb(49, 50, 68),
             Self::Arrakis => Color32::from_rgb(38, 34, 28),
-            Self::Meldrum => Color32::from_rgb(39, 39, 42),
+            Self::Meldrum => {
+                if self.meldrum_is_labs() {
+                    Color32::from_rgb(46, 38, 34)
+                } else {
+                    Color32::from_rgb(39, 39, 42)
+                }
+            }
             Self::System | Self::Dark => Color32::from_rgb(26, 26, 30),
         }
     }
@@ -285,7 +355,13 @@ impl AppTheme {
             Self::Everforest => Color32::from_rgb(65, 75, 80),
             Self::Catppuccin => Color32::from_rgb(59, 60, 78),
             Self::Arrakis => Color32::from_rgb(48, 42, 34),
-            Self::Meldrum => Color32::from_rgb(59, 59, 59),
+            Self::Meldrum => {
+                if self.meldrum_is_labs() {
+                    Color32::from_rgb(76, 62, 50)
+                } else {
+                    Color32::from_rgb(59, 59, 59)
+                }
+            }
             Self::System | Self::Dark => Color32::from_rgb(36, 36, 40),
         }
     }
@@ -389,7 +465,13 @@ impl AppTheme {
             Self::Everforest => Color32::from_rgb(55, 65, 69),
             Self::Catppuccin => Color32::from_rgb(49, 50, 68),
             Self::Arrakis => Color32::from_rgb(42, 38, 30),
-            Self::Meldrum => Color32::from_rgb(39, 39, 42),
+            Self::Meldrum => {
+                if self.meldrum_is_labs() {
+                    Color32::from_rgb(62, 52, 44)
+                } else {
+                    Color32::from_rgb(39, 39, 42)
+                }
+            }
             Self::System | Self::Dark => Color32::from_rgb(38, 38, 44),
         }
     }
@@ -414,7 +496,13 @@ impl AppTheme {
             Self::Everforest => Color32::from_rgb(65, 75, 80),
             Self::Catppuccin => Color32::from_rgb(69, 71, 90),
             Self::Arrakis => Color32::from_rgb(58, 52, 40),
-            Self::Meldrum => Color32::from_rgb(59, 59, 59),
+            Self::Meldrum => {
+                if self.meldrum_is_labs() {
+                    Color32::from_rgb(92, 74, 60)
+                } else {
+                    Color32::from_rgb(59, 59, 59)
+                }
+            }
             Self::System | Self::Dark => Color32::from_rgb(52, 52, 60),
         }
     }
@@ -439,7 +527,13 @@ impl AppTheme {
             Self::Everforest => Color32::from_rgb(167, 192, 128),
             Self::Catppuccin => Color32::from_rgb(137, 180, 250),
             Self::Arrakis => Color32::from_rgb(210, 140, 60),
-            Self::Meldrum => Color32::from_rgb(242, 140, 22),
+            Self::Meldrum => {
+                if self.meldrum_is_labs() {
+                    Color32::from_rgb(248, 156, 54)
+                } else {
+                    Color32::from_rgb(242, 140, 22)
+                }
+            }
             Self::System | Self::Dark => Color32::from_rgb(55, 80, 72),
         }
     }
@@ -493,7 +587,13 @@ impl AppTheme {
             Self::Everforest => Color32::from_rgb(133, 146, 137),
             Self::Catppuccin => Color32::from_rgb(166, 173, 200),
             Self::Arrakis => Color32::from_rgb(145, 135, 115),
-            Self::Meldrum => Color32::from_rgb(161, 161, 170),
+            Self::Meldrum => {
+                if self.meldrum_is_high_contrast() {
+                    Color32::from_rgb(196, 196, 205)
+                } else {
+                    Color32::from_rgb(161, 161, 170)
+                }
+            }
             Self::System | Self::Dark => Color32::from_rgb(158, 158, 168),
         }
     }
@@ -518,7 +618,13 @@ impl AppTheme {
             Self::Everforest => Color32::from_rgb(122, 132, 120),
             Self::Catppuccin => Color32::from_rgb(108, 112, 134),
             Self::Arrakis => Color32::from_rgb(90, 82, 68),
-            Self::Meldrum => Color32::from_rgb(113, 113, 122),
+            Self::Meldrum => {
+                if self.meldrum_is_high_contrast() {
+                    Color32::from_rgb(168, 168, 178)
+                } else {
+                    Color32::from_rgb(113, 113, 122)
+                }
+            }
             Self::System | Self::Dark => Color32::from_rgb(100, 100, 112),
         }
     }
@@ -531,7 +637,13 @@ impl AppTheme {
     pub fn accent_primary(&self) -> Color32 {
         match self {
             Self::Custom(colors) => colors.accent_primary,
-            Self::Meldrum => Color32::from_rgb(242, 140, 22),
+            Self::Meldrum => {
+                if self.meldrum_is_labs() {
+                    Color32::from_rgb(248, 156, 54)
+                } else {
+                    Color32::from_rgb(242, 140, 22)
+                }
+            }
             Self::System | Self::Dark => Color32::from_rgb(16, 185, 129), // #10B981 Enya Emerald
             Self::Light => Color32::from_rgb(16, 185, 129),               // #10B981 Enya Emerald
             Self::Parchment => Color32::from_rgb(50, 50, 50),             // Charcoal ink #323232
@@ -556,7 +668,13 @@ impl AppTheme {
     pub fn accent_hover(&self) -> Color32 {
         match self {
             Self::Custom(colors) => colors.accent_hover,
-            Self::Meldrum => Color32::from_rgb(245, 162, 60),
+            Self::Meldrum => {
+                if self.meldrum_is_labs() {
+                    Color32::from_rgb(255, 192, 110)
+                } else {
+                    Color32::from_rgb(245, 162, 60)
+                }
+            }
             Self::System | Self::Dark => Color32::from_rgb(52, 211, 153),
             Self::Light => Color32::from_rgb(5, 150, 105), // Darker emerald #059669
             Self::Parchment => Color32::from_rgb(30, 30, 30), // Rich black ink hover #1E1E1E
@@ -581,7 +699,13 @@ impl AppTheme {
     pub fn accent_muted(&self) -> Color32 {
         match self {
             Self::Custom(colors) => colors.accent_muted,
-            Self::Meldrum => Color32::from_rgb(42, 30, 18),
+            Self::Meldrum => {
+                if self.meldrum_is_labs() {
+                    Color32::from_rgb(58, 38, 24)
+                } else {
+                    Color32::from_rgb(42, 30, 18)
+                }
+            }
             Self::System | Self::Dark => Color32::from_rgb(20, 40, 34),
             Self::Light => Color32::from_rgb(236, 253, 245), // Light emerald tint #ECFDF5
             Self::Parchment => Color32::from_rgb(240, 236, 228), // Light sepia tint #F0ECE4
@@ -611,7 +735,10 @@ impl AppTheme {
                 colors.accent_primary.b(),
                 30,
             ),
-            Self::Meldrum => Color32::from_rgba_premultiplied(242, 140, 22, 30),
+            Self::Meldrum => {
+                let accent = self.accent_primary();
+                Color32::from_rgba_premultiplied(accent.r(), accent.g(), accent.b(), 30)
+            }
             Self::System | Self::Dark => Color32::from_rgba_premultiplied(16, 185, 129, 30),
             Self::Light => Color32::from_rgba_premultiplied(16, 185, 129, 35),
             Self::Parchment => Color32::from_rgba_premultiplied(50, 50, 50, 40),
@@ -636,7 +763,13 @@ impl AppTheme {
     pub fn accent_selection(&self) -> Color32 {
         match self {
             Self::Custom(colors) => colors.accent_muted,
-            Self::Meldrum => Color32::from_rgb(70, 52, 32),
+            Self::Meldrum => {
+                if self.meldrum_is_labs() {
+                    Color32::from_rgb(96, 64, 32)
+                } else {
+                    Color32::from_rgb(70, 52, 32)
+                }
+            }
             Self::System | Self::Dark => Color32::from_rgb(24, 52, 42),
             Self::Light => Color32::from_rgb(220, 252, 240), // Emerald selection #DCFCF0
             Self::Parchment => Color32::from_rgb(230, 225, 215), // Warm sepia selection #E6E1D7
@@ -681,7 +814,13 @@ impl AppTheme {
             Self::Everforest => Color32::from_rgba_unmultiplied(39, 46, 51, 245),
             Self::Catppuccin => Color32::from_rgba_unmultiplied(30, 30, 46, 245),
             Self::Arrakis => Color32::from_rgba_unmultiplied(20, 18, 14, 245),
-            Self::Meldrum => Color32::from_rgba_unmultiplied(14, 14, 15, 245),
+            Self::Meldrum => {
+                if self.meldrum_is_labs() {
+                    Color32::from_rgba_unmultiplied(16, 14, 18, 242)
+                } else {
+                    Color32::from_rgba_unmultiplied(14, 14, 15, 245)
+                }
+            }
             Self::System | Self::Dark => Color32::from_rgba_unmultiplied(14, 14, 16, 245),
         }
     }
@@ -706,7 +845,13 @@ impl AppTheme {
             Self::Everforest => Color32::from_rgba_unmultiplied(36, 42, 46, 235),
             Self::Catppuccin => Color32::from_rgba_unmultiplied(26, 26, 40, 235),
             Self::Arrakis => Color32::from_rgba_unmultiplied(14, 12, 10, 235),
-            Self::Meldrum => Color32::from_rgba_unmultiplied(10, 10, 11, 235),
+            Self::Meldrum => {
+                if self.meldrum_is_labs() {
+                    Color32::from_rgba_unmultiplied(12, 10, 14, 232)
+                } else {
+                    Color32::from_rgba_unmultiplied(10, 10, 11, 235)
+                }
+            }
             Self::System | Self::Dark => Color32::from_rgba_unmultiplied(12, 12, 14, 235),
         }
     }
@@ -731,7 +876,13 @@ impl AppTheme {
             Self::Everforest => Color32::from_rgba_unmultiplied(65, 75, 80, 160),
             Self::Catppuccin => Color32::from_rgba_unmultiplied(69, 71, 90, 160),
             Self::Arrakis => Color32::from_rgba_unmultiplied(58, 52, 40, 160),
-            Self::Meldrum => Color32::from_rgba_unmultiplied(59, 59, 59, 160),
+            Self::Meldrum => {
+                if self.meldrum_is_labs() {
+                    Color32::from_rgba_unmultiplied(96, 74, 58, 180)
+                } else {
+                    Color32::from_rgba_unmultiplied(59, 59, 59, 160)
+                }
+            }
             Self::System | Self::Dark => Color32::from_rgba_unmultiplied(45, 45, 48, 160),
         }
     }
@@ -743,7 +894,13 @@ impl AppTheme {
             Self::Light | Self::Parchment | Self::Stockholm | Self::Copenhagen => {
                 Color32::from_rgba_unmultiplied(255, 255, 252, 100)
             }
-            Self::Meldrum => Color32::from_rgba_unmultiplied(255, 255, 255, 12),
+            Self::Meldrum => {
+                if self.meldrum_is_labs() {
+                    Color32::from_rgba_unmultiplied(255, 235, 205, 20)
+                } else {
+                    Color32::from_rgba_unmultiplied(255, 255, 255, 12)
+                }
+            }
             _ => Color32::from_rgba_unmultiplied(255, 255, 255, 12),
         }
     }
@@ -755,7 +912,13 @@ impl AppTheme {
             Self::Light | Self::Parchment | Self::Stockholm | Self::Copenhagen => {
                 Color32::from_rgba_unmultiplied(255, 255, 252, 150)
             }
-            Self::Meldrum => Color32::from_rgba_unmultiplied(255, 255, 255, 18),
+            Self::Meldrum => {
+                if self.meldrum_is_labs() {
+                    Color32::from_rgba_unmultiplied(255, 235, 205, 28)
+                } else {
+                    Color32::from_rgba_unmultiplied(255, 255, 255, 18)
+                }
+            }
             _ => Color32::from_rgba_unmultiplied(255, 255, 255, 18),
         }
     }
@@ -1408,7 +1571,13 @@ impl AppTheme {
             Self::Everforest => Color32::from_rgb(133, 146, 137),
             Self::Catppuccin => Color32::from_rgb(166, 173, 200),
             Self::Arrakis => Color32::from_rgb(155, 145, 125),
-            Self::Meldrum => Color32::from_rgb(113, 113, 122),
+            Self::Meldrum => {
+                if self.meldrum_is_high_contrast() {
+                    Color32::from_rgb(170, 170, 180)
+                } else {
+                    Color32::from_rgb(113, 113, 122)
+                }
+            }
             Self::System | Self::Dark => Color32::from_rgb(140, 140, 155),
         }
     }
@@ -1433,7 +1602,13 @@ impl AppTheme {
             Self::Everforest => Color32::from_rgb(122, 132, 120),
             Self::Catppuccin => Color32::from_rgb(108, 112, 134),
             Self::Arrakis => Color32::from_rgb(90, 82, 68),
-            Self::Meldrum => Color32::from_rgb(82, 82, 91),
+            Self::Meldrum => {
+                if self.meldrum_is_high_contrast() {
+                    Color32::from_rgb(142, 142, 154)
+                } else {
+                    Color32::from_rgb(82, 82, 91)
+                }
+            }
             Self::System | Self::Dark => Color32::from_rgb(128, 128, 128),
         }
     }
@@ -2793,7 +2968,13 @@ impl AppTheme {
             Self::Everforest => Color32::from_rgb(122, 132, 120),
             Self::Catppuccin => Color32::from_rgb(108, 112, 134),
             Self::Arrakis => Color32::from_rgb(90, 82, 68),
-            Self::Meldrum => Color32::from_rgb(113, 113, 122),
+            Self::Meldrum => {
+                if self.meldrum_is_high_contrast() {
+                    Color32::from_rgb(170, 170, 180)
+                } else {
+                    Color32::from_rgb(113, 113, 122)
+                }
+            }
             Self::System | Self::Dark => Color32::GRAY,
         }
     }
@@ -2972,7 +3153,13 @@ impl AppTheme {
             Self::Everforest => Color32::from_rgb(122, 132, 120),
             Self::Catppuccin => Color32::from_rgb(108, 112, 134),
             Self::Arrakis => Color32::from_rgb(105, 95, 78),
-            Self::Meldrum => Color32::from_rgb(113, 113, 122),
+            Self::Meldrum => {
+                if self.meldrum_is_high_contrast() {
+                    Color32::from_rgb(170, 170, 180)
+                } else {
+                    Color32::from_rgb(113, 113, 122)
+                }
+            }
             Self::System | Self::Dark => Color32::from_rgb(145, 152, 161),
         }
     }
@@ -3047,7 +3234,13 @@ impl AppTheme {
             Self::Everforest => Color32::from_rgb(108, 118, 108),
             Self::Catppuccin => Color32::from_rgb(96, 100, 120),
             Self::Arrakis => Color32::from_rgb(75, 68, 55),
-            Self::Meldrum => Color32::from_rgb(82, 82, 91),
+            Self::Meldrum => {
+                if self.meldrum_is_high_contrast() {
+                    Color32::from_rgb(142, 142, 154)
+                } else {
+                    Color32::from_rgb(82, 82, 91)
+                }
+            }
             Self::System | Self::Dark => Color32::from_rgb(72, 79, 88),
         }
     }
@@ -3197,7 +3390,13 @@ impl AppTheme {
             Self::Everforest => Color32::from_rgba_premultiplied(200, 160, 60, 180),
             Self::Catppuccin => Color32::from_rgba_premultiplied(225, 180, 80, 180),
             Self::Arrakis => Color32::from_rgba_premultiplied(210, 140, 60, 180),
-            Self::Meldrum => Color32::from_rgba_premultiplied(242, 140, 22, 180),
+            Self::Meldrum => {
+                if self.meldrum_is_high_contrast() {
+                    Color32::from_rgba_premultiplied(255, 170, 66, 235)
+                } else {
+                    Color32::from_rgba_premultiplied(242, 140, 22, 180)
+                }
+            }
             Self::System | Self::Dark => Color32::from_rgba_premultiplied(230, 160, 0, 180),
         }
     }
@@ -3222,7 +3421,13 @@ impl AppTheme {
             Self::Everforest => Color32::from_rgba_premultiplied(165, 130, 40, 100),
             Self::Catppuccin => Color32::from_rgba_premultiplied(190, 150, 60, 100),
             Self::Arrakis => Color32::from_rgba_premultiplied(180, 120, 50, 100),
-            Self::Meldrum => Color32::from_rgba_premultiplied(242, 140, 22, 100),
+            Self::Meldrum => {
+                if self.meldrum_is_high_contrast() {
+                    Color32::from_rgba_premultiplied(255, 170, 66, 165)
+                } else {
+                    Color32::from_rgba_premultiplied(242, 140, 22, 100)
+                }
+            }
             Self::System | Self::Dark => Color32::from_rgba_premultiplied(180, 140, 0, 100),
         }
     }
@@ -3237,7 +3442,13 @@ impl AppTheme {
             | Self::Light => Color32::from_rgb(30, 30, 30),
             Self::Void => Color32::from_rgb(240, 240, 250),
             Self::Neon => Color32::from_rgb(240, 240, 245),
-            Self::Meldrum => Color32::from_rgb(255, 255, 255),
+            Self::Meldrum => {
+                if self.meldrum_is_high_contrast() {
+                    Color32::from_rgb(20, 16, 10)
+                } else {
+                    Color32::from_rgb(255, 255, 255)
+                }
+            }
             _ => Color32::from_rgb(30, 30, 30),
         }
     }
