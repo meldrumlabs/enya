@@ -26,7 +26,7 @@ serde_json = { workspace = true }
 tracing-subscriber = { workspace = true }
 
 # GUI dependencies (optional, enabled by default via "ui" feature)
-enya-editor = { path = "../editor", version = "0.1.5", optional = true }
+enya-editor = { path = "../editor", version = "0.1.6", optional = true }
 mimalloc = { workspace = true, optional = true }
 
 # Agent (session always available; HTTP server gated behind "serve" feature)

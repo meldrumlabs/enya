@@ -3664,7 +3664,7 @@ dependencies = [
 
 [[package]]
 name = "egui_ghostty"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "egui",
  "fastrand 1.9.0",
@@ -3710,7 +3710,7 @@ dependencies = [
 
 [[package]]
 name = "egui_nerdfonts"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "egui",
 ]
@@ -3862,7 +3862,7 @@ dependencies = [
 
 [[package]]
 name = "enya"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "clap",
  "clap_complete",
@@ -3877,7 +3877,7 @@ dependencies = [
 
 [[package]]
 name = "enya-agent"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "axum",
  "base64 0.22.1",
@@ -3903,7 +3903,7 @@ dependencies = [
 
 [[package]]
 name = "enya-ai"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "env_logger",
  "log",
@@ -3917,7 +3917,7 @@ dependencies = [
 
 [[package]]
 name = "enya-analyzer"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "enya-promql",
  "log",
@@ -3937,21 +3937,21 @@ dependencies = [
 
 [[package]]
 name = "enya-build-info"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "enya-build-tools"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "cargo_metadata",
 ]
 
 [[package]]
 name = "enya-client"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "egui",
  "log",
@@ -3969,7 +3969,7 @@ dependencies = [
 
 [[package]]
 name = "enya-config"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "base64 0.22.1",
  "insta",
@@ -3982,7 +3982,7 @@ dependencies = [
 
 [[package]]
 name = "enya-datafusion"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "arrow",
  "arrow-flight",
@@ -3999,7 +3999,7 @@ dependencies = [
 
 [[package]]
 name = "enya-editor"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "arboard",
  "axum",
@@ -4070,7 +4070,7 @@ dependencies = [
 
 [[package]]
 name = "enya-headless"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "chrono",
  "console 0.15.11",
@@ -4086,7 +4086,7 @@ dependencies = [
 
 [[package]]
 name = "enya-integration-tests"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "egui",
  "enya-client",
@@ -4101,14 +4101,14 @@ dependencies = [
 
 [[package]]
 name = "enya-logql"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "criterion",
 ]
 
 [[package]]
 name = "enya-plugin"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "bitflags 2.11.1",
  "egui",
@@ -4126,7 +4126,7 @@ dependencies = [
 
 [[package]]
 name = "enya-promql"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "criterion",
  "promql-parser",
@@ -4134,7 +4134,7 @@ dependencies = [
 
 [[package]]
 name = "enya-search"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "enya-analyzer",
  "enya-config",
@@ -4148,7 +4148,7 @@ dependencies = [
 
 [[package]]
 name = "enya-snapshot-server"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "axum",
  "enya-config",
@@ -4623,14 +4623,14 @@ dependencies = [
 
 [[package]]
 name = "ghostty_vt"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "ghostty_vt_sys",
 ]
 
 [[package]]
 name = "ghostty_vt_sys"
-version = "0.1.5"
+version = "0.1.6"
 
 [[package]]
 name = "gimli"

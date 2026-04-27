@@ -4,6 +4,8 @@ All notable changes to the Enya editor will be documented in this file.
 
 ## [Unreleased]
 
+## [0.1.6] - 2026-04-27
+
 ## [0.1.5] - 2026-04-20
 
 ### Fixed
