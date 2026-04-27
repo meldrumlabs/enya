@@ -1,1 +1,4 @@
 /target
+# Ignore trial fonts that users load locally — not shipped with the app
+/assets/fonts/*Trial*.otf
+/assets/fonts/*Trial*.ttf
