@@ -3283,44 +3283,45 @@ impl SettingsPage {
         let builtin_count = AppTheme::all().len();
 
         // Get theme info
-        let (display_name, preview_colors, chart_palette, syntax_colors, _is_custom) = if index < builtin_count {
-            let theme = AppTheme::all()[index];
-            let colors = [
-                theme.bg_base(),
-                theme.bg_elevated(),
-                theme.accent_primary(),
-                theme.text_primary(),
-            ];
-            let syntax = [
-                theme.syntax_keyword(),
-                theme.syntax_type(),
-                theme.syntax_function(),
-                theme.syntax_number(),
-            ];
-            (
-                theme.name().to_string(),
-                colors,
-                Some(theme.chart_palette()),
-                Some(syntax),
-                false,
-            )
-        } else {
-            let custom_idx = index - builtin_count;
-            let (_, display_name, colors) = &self.custom_themes[custom_idx];
-            let preview = [
-                colors.bg_base,
-                colors.bg_elevated,
-                colors.accent_primary,
-                colors.text_primary,
-            ];
-            (
-                display_name.clone(),
-                preview,
-                Some(colors.chart_palette),
-                None,
-                true,
-            )
-        };
+        let (display_name, preview_colors, chart_palette, syntax_colors, _is_custom) =
+            if index < builtin_count {
+                let theme = AppTheme::all()[index];
+                let colors = [
+                    theme.bg_base(),
+                    theme.bg_elevated(),
+                    theme.accent_primary(),
+                    theme.text_primary(),
+                ];
+                let syntax = [
+                    theme.syntax_keyword(),
+                    theme.syntax_type(),
+                    theme.syntax_function(),
+                    theme.syntax_number(),
+                ];
+                (
+                    theme.name().to_string(),
+                    colors,
+                    Some(theme.chart_palette()),
+                    Some(syntax),
+                    false,
+                )
+            } else {
+                let custom_idx = index - builtin_count;
+                let (_, display_name, colors) = &self.custom_themes[custom_idx];
+                let preview = [
+                    colors.bg_base,
+                    colors.bg_elevated,
+                    colors.accent_primary,
+                    colors.text_primary,
+                ];
+                (
+                    display_name.clone(),
+                    preview,
+                    Some(colors.chart_palette),
+                    None,
+                    true,
+                )
+            };
 
         // Check if this is the original theme
         let is_original = if index < builtin_count {
@@ -3507,13 +3508,69 @@ impl SettingsPage {
                     .color(if is_focused { accent } else { text_muted })
                     .font(typography::monospace(typography::XS)),
             );
+
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    let btn_size = Vec2::new(140.0, 24.0);
+                    let (rect, response) = ui.allocate_exact_size(btn_size, egui::Sense::click());
+
+                    let btn_fill = if response.hovered() {
+                        accent.gamma_multiply(0.15)
+                    } else {
+                        text.gamma_multiply(0.04)
+                    };
+                    ui.painter().rect_filled(rect, 6.0, btn_fill);
+
+                    ui.painter().text(
+                        rect.center(),
+                        egui::Align2::CENTER_CENTER,
+                        "+ Add custom font",
+                        typography::proportional(typography::XS),
+                        if response.hovered() {
+                            accent
+                        } else {
+                            text_muted
+                        },
+                    );
+
+                    if response.hovered() {
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                    }
+
+                    if response.clicked() {
+                        self.focused_panel = StyleTab::Font;
+                        self.sidebar_focused = false;
+                        if let Some(path) = rfd::FileDialog::new()
+                            .add_filter("Fonts", &["ttf", "otf", "woff2"])
+                            .pick_file()
+                        {
+                            let name = path
+                                .file_stem()
+                                .map(|s| s.to_string_lossy().to_string())
+                                .unwrap_or_else(|| "Custom".into());
+                            let path_str = path.to_string_lossy().to_string();
+                            self.custom_fonts.push((name.clone(), path_str.clone()));
+                            self.font_index = builtin_count + self.custom_fonts.len() - 1;
+                            self.styling_font = EditorFont::Custom {
+                                name,
+                                path: path_str,
+                            };
+                            *result = SettingsPageResult::FontPreview(
+                                self.styling_font.clone(),
+                                self.custom_fonts.clone(),
+                            );
+                        }
+                    }
+                }
+            });
         });
         ui.add_space(12.0);
 
         // Font list
         egui::ScrollArea::vertical()
             .id_salt("settings_page_font_scroll")
-            .max_height(panel_height - 90.0)
+            .max_height(panel_height - 50.0)
             .auto_shrink([false, false])
             .animated(true)
             .show(ui, |ui| {
@@ -3683,63 +3740,6 @@ impl SettingsPage {
                     let _ = draw_token(ui, x, "; }", punct_color);
                 }
             });
-
-        ui.add_space(8.0);
-
-        // Add font button (native only)
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            let btn_height = 28.0;
-            let btn_width = panel_width;
-            let (rect, response) =
-                ui.allocate_exact_size(Vec2::new(btn_width, btn_height), egui::Sense::click());
-
-            let btn_fill = if response.hovered() {
-                accent.gamma_multiply(0.15)
-            } else {
-                text.gamma_multiply(0.04)
-            };
-            ui.painter().rect_filled(rect, 6.0, btn_fill);
-
-            ui.painter().text(
-                rect.center(),
-                egui::Align2::CENTER_CENTER,
-                "+ Add custom font",
-                typography::proportional(typography::SM),
-                if response.hovered() {
-                    accent
-                } else {
-                    text_muted
-                },
-            );
-
-            if response.hovered() {
-                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-            }
-
-            if response.clicked() {
-                if let Some(path) = rfd::FileDialog::new()
-                    .add_filter("Fonts", &["ttf", "otf", "woff2"])
-                    .pick_file()
-                {
-                    let name = path
-                        .file_stem()
-                        .map(|s| s.to_string_lossy().to_string())
-                        .unwrap_or_else(|| "Custom".into());
-                    let path_str = path.to_string_lossy().to_string();
-                    self.custom_fonts.push((name.clone(), path_str.clone()));
-                    self.font_index = builtin_count + self.custom_fonts.len() - 1;
-                    self.styling_font = EditorFont::Custom {
-                        name,
-                        path: path_str,
-                    };
-                    *result = SettingsPageResult::FontPreview(
-                        self.styling_font.clone(),
-                        self.custom_fonts.clone(),
-                    );
-                }
-            }
-        }
     }
 
     // ── Shared UI Helpers ────────────────────────────────────────────────
