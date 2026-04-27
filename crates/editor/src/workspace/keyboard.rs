@@ -1265,6 +1265,23 @@ impl Workspace {
         false
     }
 
+    /// Whether any PR review pane currently owns a text-input mode.
+    fn any_pr_text_input_active(&self) -> bool {
+        for tile_id in self.get_pane_tile_ids() {
+            if let Some(egui_tiles::Tile::Pane(component)) = self.viewport_tree.tiles.get(tile_id) {
+                if let Some(pr_pane) = component
+                    .as_any()
+                    .downcast_ref::<crate::components::PrReviewPane>()
+                {
+                    if pr_pane.has_text_input_active() {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
+    }
+
     /// Find sibling tile in a given direction, respecting container layout.
     pub(super) fn find_sibling_in_direction(
         &self,

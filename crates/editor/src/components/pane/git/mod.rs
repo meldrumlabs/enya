@@ -440,6 +440,14 @@ impl PrReviewPane {
         }
     }
 
+    /// Whether PR pane-owned text input mode is currently active.
+    pub(crate) fn has_text_input_active(&self) -> bool {
+        self.filter_active
+            || self.commenting_line.is_some()
+            || self.diff_renderer.search_active()
+            || self.submit_panel_open
+    }
+
     /// Set the repository root path for file opener. Called each frame from workspace.
     pub fn set_repo_root(&mut self, repo_root: Option<std::path::PathBuf>) {
         self.repo_root = repo_root;
@@ -1994,5 +2002,18 @@ mod tests {
 
         assert!(pane.filter_active);
         assert_eq!(pane.filter_query, "abc");
+    }
+
+    #[test]
+    fn text_input_active_when_commenting_or_searching() {
+        let (_runtime, mut pane) = make_pane();
+        assert!(!pane.has_text_input_active());
+
+        pane.commenting_line = Some((0, 0));
+        assert!(pane.has_text_input_active());
+
+        pane.commenting_line = None;
+        pane.diff_renderer.open_search();
+        assert!(pane.has_text_input_active());
     }
 }
