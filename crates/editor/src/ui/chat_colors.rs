@@ -75,6 +75,7 @@ impl ChatColors {
             AppTheme::Everforest => Color32::from_rgb(30, 38, 30), // Green-tinted dark
             AppTheme::Catppuccin => Color32::from_rgb(30, 32, 48), // Blue-tinted dark
             AppTheme::Arrakis => Color32::from_rgb(32, 28, 20),  // Spice-tinted dark
+            AppTheme::Meldrum => Color32::from_rgb(28, 26, 20),  // Warm orange-tinted dark
             AppTheme::System | AppTheme::Dark => Color32::from_rgb(30, 27, 45),
         }
     }

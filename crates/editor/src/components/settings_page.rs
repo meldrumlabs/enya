@@ -3273,7 +3273,7 @@ impl SettingsPage {
         index: usize,
         accent: Color32,
         text: Color32,
-        text_muted: Color32,
+        _text_muted: Color32,
         bg_hover: Color32,
         border: Color32,
         result: &mut SettingsPageResult,
@@ -3283,7 +3283,7 @@ impl SettingsPage {
         let builtin_count = AppTheme::all().len();
 
         // Get theme info
-        let (display_name, preview_colors, chart_palette, is_custom) = if index < builtin_count {
+        let (display_name, preview_colors, chart_palette, syntax_colors, _is_custom) = if index < builtin_count {
             let theme = AppTheme::all()[index];
             let colors = [
                 theme.bg_base(),
@@ -3291,10 +3291,17 @@ impl SettingsPage {
                 theme.accent_primary(),
                 theme.text_primary(),
             ];
+            let syntax = [
+                theme.syntax_keyword(),
+                theme.syntax_type(),
+                theme.syntax_function(),
+                theme.syntax_number(),
+            ];
             (
                 theme.name().to_string(),
                 colors,
                 Some(theme.chart_palette()),
+                Some(syntax),
                 false,
             )
         } else {
@@ -3310,6 +3317,7 @@ impl SettingsPage {
                 display_name.clone(),
                 preview,
                 Some(colors.chart_palette),
+                None,
                 true,
             )
         };
@@ -3425,20 +3433,17 @@ impl SettingsPage {
                 ui.painter()
                     .circle_filled(dot_center, dot_size / 2.0, *color);
             }
+        }
 
-            let label = if is_custom { "plugin" } else { "chart" };
-            let label_color = if is_custom {
-                accent.gamma_multiply(0.7)
-            } else {
-                text_muted.gamma_multiply(0.6)
-            };
-            ui.painter().text(
-                egui::pos2(palette_x + 8.0 * dot_spacing + 4.0, dots_y),
-                egui::Align2::LEFT_CENTER,
-                label,
-                typography::monospace(9.0),
-                label_color,
-            );
+        // Syntax palette dots
+        if let Some(syntax_colors) = syntax_colors {
+            let syntax_x = palette_x + 8.0 * dot_spacing + 16.0;
+            for (idx, color) in syntax_colors.iter().enumerate() {
+                let dot_x = syntax_x + (idx as f32) * dot_spacing;
+                let dot_center = egui::pos2(dot_x + dot_size / 2.0, dots_y);
+                ui.painter()
+                    .circle_filled(dot_center, dot_size / 2.0, *color);
+            }
         }
 
         // "current" indicator
@@ -3658,22 +3663,24 @@ impl SettingsPage {
                             x + galley.rect.width()
                         };
 
-                    let keyword_color = accent;
-                    let normal_color = text.gamma_multiply(0.7);
-                    let type_color = accent.gamma_multiply(0.8);
-                    let number_color = text.gamma_multiply(0.9);
+                    let keyword_color = self.theme.syntax_keyword();
+                    let normal_color = self.theme.syntax_variable();
+                    let type_color = self.theme.syntax_type();
+                    let number_color = self.theme.syntax_number();
+                    let punct_color = self.theme.syntax_punctuation();
+                    let func_color = self.theme.syntax_function();
 
+                    let x = draw_token(ui, x, "fn ", keyword_color);
+                    let x = draw_token(ui, x, "main", func_color);
+                    let x = draw_token(ui, x, "() ", punct_color);
+                    let x = draw_token(ui, x, "{ ", punct_color);
                     let x = draw_token(ui, x, "let ", keyword_color);
                     let x = draw_token(ui, x, "x", normal_color);
-                    let x = draw_token(ui, x, ": ", normal_color);
-                    let x = draw_token(ui, x, "Option", type_color);
-                    let x = draw_token(ui, x, "<", normal_color);
+                    let x = draw_token(ui, x, ": ", punct_color);
                     let x = draw_token(ui, x, "i32", type_color);
-                    let x = draw_token(ui, x, "> = ", normal_color);
-                    let x = draw_token(ui, x, "Some", type_color);
-                    let x = draw_token(ui, x, "(", normal_color);
+                    let x = draw_token(ui, x, " = ", punct_color);
                     let x = draw_token(ui, x, "42", number_color);
-                    let _ = draw_token(ui, x, ");", normal_color);
+                    let _ = draw_token(ui, x, "; }", punct_color);
                 }
             });
 
