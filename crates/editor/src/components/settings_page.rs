@@ -44,6 +44,7 @@ pub enum SettingsPageResult {
         notify_new_models: bool,
         git_sync_interval: GitSyncInterval,
         otlp_port: u16,
+        meldrum_contrast_mode: MeldrumContrastMode,
         custom_fonts: Vec<(String, String)>,
     },
     /// Live preview of a builtin theme change.
@@ -186,6 +187,7 @@ pub struct SettingsPage {
     original_custom_theme: Option<String>,
     styling_font: EditorFont,
     original_font: EditorFont,
+    meldrum_contrast_mode: MeldrumContrastMode,
     custom_fonts: Vec<(String, String)>,
     custom_themes: Vec<(String, String, ActiveThemeColors)>,
     theme_index: usize,
@@ -262,6 +264,7 @@ impl SettingsPage {
             original_custom_theme: None,
             styling_font: EditorFont::default(),
             original_font: EditorFont::default(),
+            meldrum_contrast_mode: MeldrumContrastMode::default(),
             custom_fonts: Vec::new(),
             custom_themes: Vec::new(),
             theme_index: 0,
@@ -408,6 +411,8 @@ impl SettingsPage {
         self.original_custom_theme = current_custom_theme.clone();
         self.styling_font = current_font.clone();
         self.original_font = current_font.clone();
+        self.meldrum_contrast_mode = meldrum_contrast_mode;
+        set_meldrum_preferences(self.meldrum_contrast_mode);
         self.custom_fonts = custom_fonts;
         self.custom_themes = custom_themes;
         self.focused_panel = StyleTab::Theme;
@@ -557,6 +562,7 @@ impl SettingsPage {
                 .next()
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(4318),
+            meldrum_contrast_mode: self.meldrum_contrast_mode,
             custom_fonts: self.custom_fonts.clone(),
         }
     }

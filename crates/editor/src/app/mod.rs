@@ -930,6 +930,7 @@ impl EnyaApp {
                     notify_new_models,
                     git_sync_interval,
                     otlp_port,
+                    meldrum_contrast_mode,
                     custom_fonts,
                 } = page_result
                 {
@@ -948,6 +949,8 @@ impl EnyaApp {
                     self.state.settings.notify_new_models = notify_new_models;
                     self.state.settings.git_sync_interval = git_sync_interval;
                     self.state.settings.otlp_port = otlp_port;
+                    self.state.settings.meldrum_contrast_mode = meldrum_contrast_mode;
+                    set_meldrum_preferences(meldrum_contrast_mode);
                     self.state.settings.custom_fonts = custom_fonts;
                     #[cfg(not(target_arch = "wasm32"))]
                     self.update_checker.set_enabled(check_for_updates);
@@ -1615,6 +1618,7 @@ impl EnyaApp {
                     self.effective_theme(),
                     self.state.custom_theme.clone(),
                     self.state.settings.font.clone(),
+                    self.state.settings.meldrum_contrast_mode,
                     custom_theme_list,
                     self.github_auth.state().clone(),
                     self.state.settings.default_workspace.clone(),
