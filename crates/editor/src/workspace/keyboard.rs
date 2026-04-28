@@ -747,12 +747,21 @@ impl Workspace {
             }
 
             // Escape - clear focus
-            if input.consume_key(egui::Modifiers::NONE, egui::Key::Escape) {
+            if input.key_pressed(egui::Key::Escape) {
                 if self.close_any_pr_diff_search() {
+                    input.consume_key(egui::Modifiers::NONE, egui::Key::Escape);
                     consumed = true;
                     return;
                 }
 
+                // If a PR review pane owns a text input (filter, comment,
+                // etc.), don't consume Escape so the pane can handle it in
+                // its own handle_keyboard and close the input properly.
+                if self.any_pr_text_input_active() {
+                    return;
+                }
+
+                input.consume_key(egui::Modifiers::NONE, egui::Key::Escape);
                 should_clear_focus = true;
                 consumed = true;
             }
