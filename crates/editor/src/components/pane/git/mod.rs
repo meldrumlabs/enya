@@ -565,10 +565,11 @@ impl PrReviewPane {
     }
 }
 
-// ── Session persistence ──
+// ── Session persistence (native only) ──
 
 /// Persisted review session for a single PR.
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+#[cfg(not(target_arch = "wasm32"))]
 struct PrSession {
     reviewed_files: Vec<String>,
     seen_comment_ids: Vec<u64>,
@@ -584,6 +585,7 @@ struct PrSession {
 
 impl PrReviewPane {
     /// Build a `PrSession` snapshot from the current pane state.
+    #[cfg(not(target_arch = "wasm32"))]
     fn build_session(&self) -> PrSession {
         PrSession {
             reviewed_files: self.reviewed_files.iter().cloned().collect(),
@@ -600,6 +602,7 @@ impl PrReviewPane {
     }
 
     /// Apply a loaded `PrSession` into the current pane state.
+    #[cfg(not(target_arch = "wasm32"))]
     fn apply_session(&mut self, session: PrSession) {
         self.reviewed_files = session.reviewed_files.into_iter().collect();
         self.seen_comment_ids = session.seen_comment_ids.into_iter().collect();
@@ -616,6 +619,7 @@ impl PrReviewPane {
     }
 
     /// Compute the filesystem path for a PR session file.
+    #[cfg(not(target_arch = "wasm32"))]
     fn session_path(&self, pr_number: u32) -> Option<std::path::PathBuf> {
         let dir = enya_config::pr_sessions_dir();
         let filename = if let Some(ref user) = self.current_user_login {
@@ -627,6 +631,7 @@ impl PrReviewPane {
     }
 
     /// Save the current review session to disk.
+    #[cfg(not(target_arch = "wasm32"))]
     fn save_session(&self) {
         let Some(pr_number) = self.current_pr_number() else {
             return;
@@ -648,6 +653,7 @@ impl PrReviewPane {
     }
 
     /// Load a previously saved review session from disk.
+    #[cfg(not(target_arch = "wasm32"))]
     fn load_session(&mut self, pr_number: u32) {
         let Some(path) = self.session_path(pr_number) else {
             return;
@@ -673,6 +679,7 @@ impl PrReviewPane {
 
     /// Delete the saved session for the current PR (called after submitting
     /// a review or when explicitly leaving the PR).
+    #[cfg(not(target_arch = "wasm32"))]
     fn delete_session(&self) {
         let Some(pr_number) = self.current_pr_number() else {
             return;
@@ -993,6 +1000,7 @@ impl PrReviewPane {
             self.preloaded_reviews.insert(number, cached.reviews);
             self.selected_file_index = 0;
             self.mark_current_file_comments_seen();
+            #[cfg(not(target_arch = "wasm32"))]
             self.load_session(number);
             return;
         }
@@ -1393,6 +1401,7 @@ impl PrReviewPane {
                     self.selected_file_index = 0;
                     self.detail_error = None;
                     self.mark_current_file_comments_seen();
+                    #[cfg(not(target_arch = "wasm32"))]
                     self.load_session(pr_number);
 
                     // Now fetch checks with the head SHA
@@ -1477,6 +1486,7 @@ impl PrReviewPane {
                     self.draft_comments.clear();
                     self.draft_body.clear();
                     // Review is complete — clear the persisted session
+                    #[cfg(not(target_arch = "wasm32"))]
                     self.delete_session();
                     // Refresh comments
                     let pr_number = self.current_pr.as_ref().map(|pr| pr.number);
@@ -1507,6 +1517,7 @@ impl PrReviewPane {
                     self.flash_is_success = true;
                     self.merge_popup_open = false;
                     // PR is closed — clear the persisted session
+                    #[cfg(not(target_arch = "wasm32"))]
                     self.delete_session();
                     // Refresh the PR list to reflect the merged state
                     self.fetch_pr_list();
@@ -2037,6 +2048,7 @@ impl crate::components::Component for PrReviewPane {
         if self.pending_go_back {
             self.pending_go_back = false;
             // Persist session before leaving the PR
+            #[cfg(not(target_arch = "wasm32"))]
             self.save_session();
             self.view = PrReviewView::List;
             self.current_pr = None;
@@ -2101,6 +2113,7 @@ impl crate::components::Component for PrReviewPane {
 
         // Persist review session every frame while in detail view.
         // Writes are tiny (<1KB) and the OS page cache absorbs the cost.
+        #[cfg(not(target_arch = "wasm32"))]
         if self.view == PrReviewView::Detail {
             self.save_session();
         }
