@@ -6,6 +6,7 @@
 mod detail_view;
 mod diff_view;
 mod list_view;
+mod pr_loading;
 mod walkthrough;
 
 use rustc_hash::FxHashMap;
