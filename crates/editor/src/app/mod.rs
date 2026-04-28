@@ -136,6 +136,9 @@ pub struct EnyaApp {
     // Track last dark/light state for macOS vibrancy appearance sync
     #[cfg(target_os = "macos")]
     last_theme_is_dark: bool,
+
+    // Ambient background orbs for premium dark themes
+    ambient_orbs: crate::ui::ambient_orbs::AmbientOrbs,
 }
 
 impl EnyaApp {
@@ -457,6 +460,7 @@ impl EnyaApp {
             checked_auto_restore: false,
             #[cfg(target_os = "macos")]
             last_theme_is_dark: initial_is_dark,
+            ambient_orbs: crate::ui::ambient_orbs::AmbientOrbs::new(),
         }
     }
 
@@ -866,8 +870,24 @@ impl EnyaApp {
         }
     }
 
+    /// Draw ambient background orbs on dark themes.
+    fn draw_ambient_orbs(&self, ctx: &egui::Context) {
+        let theme = self.effective_theme();
+        if theme.is_light() {
+            return;
+        }
+        let screen_rect = ctx.viewport_rect();
+        let time = ctx.input(|i| i.time);
+        let painter = ctx.layer_painter(egui::LayerId::new(
+            egui::Order::Background,
+            egui::Id::new("ambient_orbs"),
+        ));
+        self.ambient_orbs.draw(&painter, screen_rect, theme, time as f32);
+    }
+
     #[inline]
     fn draw_home(&mut self, ctx: &egui::Context) {
+        self.draw_ambient_orbs(ctx);
         let theme = self.effective_theme();
         egui::CentralPanel::default().show(ctx, |ui| {
             welcome_section_ui(ui, theme);
@@ -875,6 +895,7 @@ impl EnyaApp {
     }
 
     fn draw_settings(&mut self, ctx: &egui::Context) {
+        self.draw_ambient_orbs(ctx);
         self.settings_page.set_theme(self.effective_theme());
         self.settings_page.set_github_auth_state(
             self.github_auth.state().clone(),
@@ -1034,6 +1055,7 @@ impl EnyaApp {
 
     #[profiling::function]
     fn draw_workspace(&mut self, ctx: &egui::Context) {
+        self.draw_ambient_orbs(ctx);
         // On native, load startup workspace on first frame if specified via CLI
         #[cfg(not(target_arch = "wasm32"))]
         if let Some(ws_name) = self.startup_workspace.take() {

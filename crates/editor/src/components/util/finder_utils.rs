@@ -44,6 +44,8 @@ pub struct OverlayStyle {
     pub stroke_width: f32,
     /// Inner highlight color (top edge glow for glass effect)
     pub inner_highlight: Option<Color32>,
+    /// Whether to render deep glass volumetric layers behind the overlay
+    pub deep_glass: bool,
 }
 
 impl OverlayStyle {
@@ -80,6 +82,7 @@ impl OverlayStyle {
                 color: Color32::from_black_alpha(80), // Deeper shadow for more lift
             },
             inner_highlight,
+            deep_glass: false,
         }
     }
 
@@ -97,6 +100,7 @@ impl OverlayStyle {
                 color: Color32::from_black_alpha(80),
             },
             inner_highlight: Some(colors.overlay_highlight),
+            deep_glass: false,
         }
     }
 
@@ -117,6 +121,7 @@ impl OverlayStyle {
                 color: Color32::from_black_alpha(55),
             },
             inner_highlight: None,
+            deep_glass: false,
         }
     }
 
@@ -132,6 +137,7 @@ impl OverlayStyle {
             stroke_width: 1.0,
             shadow: egui::epaint::Shadow::NONE,
             inner_highlight: None,
+            deep_glass: false,
         }
     }
 
@@ -152,6 +158,7 @@ impl OverlayStyle {
                 color: glow_color.gamma_multiply(0.5),
             },
             inner_highlight: None,
+            deep_glass: false,
         }
     }
 
@@ -173,6 +180,7 @@ impl OverlayStyle {
                 color: Color32::from_black_alpha(100), // Deep ambient shadow
             },
             inner_highlight,
+            deep_glass: true,
         }
     }
 
@@ -206,6 +214,102 @@ impl OverlayStyle {
             );
             ui.painter()
                 .rect_filled(highlight_rect, self.corner_radius - 1.0, highlight_color);
+        }
+    }
+
+    /// Paint deep glass volumetric layers behind the overlay frame.
+    ///
+    /// Draws concentric translucent layers that simulate light scattering
+    /// through thick optical glass: an outer halo, a mid scatter layer,
+    /// inner caustic highlights, and corner glints.
+    ///
+    /// Call this **after** the frame has been rendered so the `frame_rect`
+    /// is known. The layers are painted on a lower egui `Order` so they
+    /// appear behind the overlay content.
+    pub fn paint_deep_glass(&self, ctx: &egui::Context, frame_rect: egui::Rect, id: egui::Id) {
+        if !self.deep_glass {
+            return;
+        }
+
+        // Paint on a layer just behind Tooltips/Foreground so the glass
+        // sits behind the overlay but above the workspace content.
+        let layer_id = egui::LayerId::new(egui::Order::Foreground, id.with("deep_glass"));
+        let painter = ctx.layer_painter(layer_id);
+
+        let cr = self.corner_radius;
+
+        // -----------------------------------------------------------------
+        // Layer 1: Outer halo — very transparent, wide scatter
+        // -----------------------------------------------------------------
+        let halo_expand = 10.0;
+        let halo_rect = frame_rect.expand(halo_expand);
+        let halo_color = Color32::from_rgba_unmultiplied(
+            self.bg.r(),
+            self.bg.g(),
+            self.bg.b(),
+            18, // ~7% opacity
+        );
+        painter.rect_filled(halo_rect, cr + halo_expand * 0.5, halo_color);
+
+        // -----------------------------------------------------------------
+        // Layer 2: Mid scatter — closer, slightly more opaque
+        // -----------------------------------------------------------------
+        let scatter_expand = 5.0;
+        let scatter_rect = frame_rect.expand(scatter_expand);
+        let scatter_color = Color32::from_rgba_unmultiplied(
+            self.bg.r(),
+            self.bg.g(),
+            self.bg.b(),
+            30, // ~12% opacity
+        );
+        painter.rect_filled(scatter_rect, cr + scatter_expand * 0.5, scatter_color);
+
+        // -----------------------------------------------------------------
+        // Layer 3: Inner caustic — bright top-edge glow simulating
+        // light catching the front surface of thick glass
+        // -----------------------------------------------------------------
+        if let Some(highlight) = self.inner_highlight {
+            // Main top caustic bar
+            let caustic_rect = egui::Rect::from_min_size(
+                frame_rect.left_top() + egui::vec2(4.0, -1.0),
+                egui::vec2(frame_rect.width() - 8.0, 3.0),
+            );
+            let caustic_color = Color32::from_rgba_unmultiplied(
+                highlight.r(),
+                highlight.g(),
+                highlight.b(),
+                50, // ~20% opacity
+            );
+            painter.rect_filled(caustic_rect, cr, caustic_color);
+
+            // Secondary softer caustic below the main one
+            let soft_caustic_rect = egui::Rect::from_min_size(
+                frame_rect.left_top() + egui::vec2(8.0, 2.0),
+                egui::vec2(frame_rect.width() - 16.0, 2.0),
+            );
+            let soft_caustic_color = Color32::from_rgba_unmultiplied(
+                highlight.r(),
+                highlight.g(),
+                highlight.b(),
+                20, // ~8% opacity
+            );
+            painter.rect_filled(soft_caustic_rect, cr * 0.5, soft_caustic_color);
+
+            // -----------------------------------------------------------------
+            // Layer 4: Corner glints — tiny bright dots where the glass
+            // edge would catch light most intensely
+            // -----------------------------------------------------------------
+            let glint_color = Color32::from_rgba_unmultiplied(
+                highlight.r(),
+                highlight.g(),
+                highlight.b(),
+                70, // ~27% opacity
+            );
+            let inset = cr * 0.6;
+            let tl = frame_rect.left_top() + egui::vec2(inset, inset);
+            let tr = frame_rect.right_top() + egui::vec2(-inset, inset);
+            painter.circle_filled(tl, 2.5, glint_color);
+            painter.circle_filled(tr, 2.5, glint_color);
         }
     }
 }
@@ -756,6 +860,42 @@ pub fn render_split_panels<L, R>(
             },
         );
     });
+}
+
+/// Show an overlay frame with optional deep glass volumetric layers.
+///
+/// This is a convenience wrapper around `egui::Area` + `egui::Frame` that
+/// automatically paints deep glass layers behind the frame when the style
+/// has `deep_glass: true`.
+///
+/// Returns the same shape as `Area::show` so it is a drop-in replacement.
+pub fn show_overlay_frame<R>(
+    ctx: &egui::Context,
+    id: egui::Id,
+    style: &OverlayStyle,
+    anchor: egui::Align2,
+    offset: impl Into<egui::Vec2>,
+    constrain_to: Option<egui::Rect>,
+    add_contents: impl FnOnce(&mut egui::Ui) -> R,
+) -> egui::InnerResponse<egui::InnerResponse<R>> {
+    let offset = offset.into();
+    let constrain = constrain_to.unwrap_or_else(|| ctx.viewport_rect());
+
+    let result = egui::Area::new(id)
+        .anchor(anchor, offset)
+        .constrain_to(constrain)
+        .order(egui::Order::Tooltip)
+        .show(ctx, |ui| {
+            style.frame().show(ui, add_contents)
+        });
+
+    // Paint deep glass behind the frame now that we know its rect.
+    if style.deep_glass {
+        let frame_rect = result.inner.response.rect;
+        style.paint_deep_glass(ctx, frame_rect, id);
+    }
+
+    result
 }
 
 /// Draw a semi-transparent backdrop overlay covering the entire screen.

@@ -385,7 +385,7 @@ impl SettingsOverlay {
                 let text_tertiary = self.theme.text_tertiary();
                 let separator = self.theme.border_subtle();
 
-                overlay_style.frame().show(ui, |ui| {
+                let frame_response = overlay_style.frame().show(ui, |ui| {
                     ui.set_width(popup_width);
 
                     // Header
@@ -547,6 +547,7 @@ impl SettingsOverlay {
                     });
                     ui.add_space(10.0);
                 });
+                overlay_style.paint_deep_glass(ctx, frame_response.response.rect, egui::Id::new("settings_overlay"));
             });
 
         // Close after rendering if needed

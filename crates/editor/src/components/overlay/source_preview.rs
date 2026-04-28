@@ -551,7 +551,7 @@ impl HttpHandler {
                 let muted_text = self.theme.text_tertiary();
                 let accent_color = self.theme.accent_hover();
 
-                overlay_style.frame().show(ui, |ui| {
+                let frame_response = overlay_style.frame().show(ui, |ui| {
                     // Cap width to prevent content from stretching the overlay
                     ui.set_width(popup_width);
                     ui.set_max_width(popup_width);
@@ -570,6 +570,7 @@ impl HttpHandler {
                     // Footer
                     self.render_footer(ui, muted_text, separator_color, popup_width);
                 });
+                overlay_style.paint_deep_glass(ctx, frame_response.response.rect, egui::Id::new("source_preview_popup"));
             });
 
         // Show file opener popup if open (native only)
