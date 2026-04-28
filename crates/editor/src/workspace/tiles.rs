@@ -48,6 +48,9 @@ pub struct TreeBehavior {
     dim_inactive_enabled: bool,
     /// Pane entrance animations (tile_id -> start_time)
     pane_entrances: FxHashMap<TileId, Instant>,
+    /// Tile IDs that have already played their entrance animation.
+    /// Prevents re-animation after cleanup removes the entrance entry.
+    seen_tiles: FxHashSet<TileId>,
 }
 
 impl TreeBehavior {
@@ -216,8 +219,11 @@ impl egui_tiles::Behavior<Box<dyn Component>> for TreeBehavior {
         // Make sure theme is updated for the component
         component.set_theme(self.theme);
 
-        // Track pane entrance for animation
-        self.pane_entrances.entry(tile_id).or_insert_with(Instant::now);
+        // Track pane entrance for animation (only once per tile)
+        if !self.seen_tiles.contains(&tile_id) {
+            self.pane_entrances.insert(tile_id, Instant::now());
+            self.seen_tiles.insert(tile_id);
+        }
 
         component.show(ui);
 
