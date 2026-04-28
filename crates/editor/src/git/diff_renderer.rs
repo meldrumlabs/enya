@@ -1066,7 +1066,7 @@ impl DiffRenderer {
         let available_width = ui.available_width();
         let side_width = ((available_width - 8.0) / 2.0).max(1.0);
         let line_num_width = diff_widget::max_line_num_width(file_diff);
-        let split_line_height = typography::SM + 6.0;
+        let split_line_height = self.font_size + 6.0;
         let hunk_header_height = typography::SM + 12.0;
         let font_size = self.font_size;
 
@@ -1243,7 +1243,7 @@ impl DiffRenderer {
 
                             // Left side
                             ui.allocate_ui_with_layout(
-                                egui::vec2(side_width, typography::MD + 4.0),
+                                egui::vec2(side_width, split_line_height),
                                 egui::Layout::left_to_right(egui::Align::Center),
                                 |ui| {
                                     ui.set_max_width(side_width);
@@ -1255,6 +1255,7 @@ impl DiffRenderer {
                                         side_width,
                                         theme,
                                         file_diff.old_highlight.as_ref(),
+                                        file_diff.new_highlight.as_ref(),
                                         font_size,
                                     );
                                 },
@@ -1271,7 +1272,7 @@ impl DiffRenderer {
 
                             // Right side
                             ui.allocate_ui_with_layout(
-                                egui::vec2(side_width, typography::MD + 4.0),
+                                egui::vec2(side_width, split_line_height),
                                 egui::Layout::left_to_right(egui::Align::Center),
                                 |ui| {
                                     ui.set_max_width(side_width);
@@ -1282,6 +1283,7 @@ impl DiffRenderer {
                                         false,
                                         side_width,
                                         theme,
+                                        file_diff.old_highlight.as_ref(),
                                         file_diff.new_highlight.as_ref(),
                                         font_size,
                                     );
@@ -1911,11 +1913,12 @@ fn render_split_line(
     is_left: bool,
     side_width: f32,
     theme: AppTheme,
-    highlight: Option<&SyntaxHighlightData>,
+    old_highlight: Option<&SyntaxHighlightData>,
+    new_highlight: Option<&SyntaxHighlightData>,
     font_size: f32,
 ) {
     ui.set_max_width(side_width);
-    let line_height = typography::SM + 6.0;
+    let line_height = font_size + 6.0;
 
     let Some(line) = line else {
         let (rect, _) =
@@ -1998,18 +2001,8 @@ fn render_split_line(
         }
     };
 
-    let syntax_spans = if let Some(hl) = highlight {
-        let recon_num = if is_left {
-            line.old_recon_num
-        } else {
-            line.new_recon_num
-        };
-        recon_num
-            .map(|n| hl.get_line_spans(n, theme))
-            .unwrap_or_default()
-    } else {
-        Vec::new()
-    };
+    let syntax_spans =
+        diff_widget::get_syntax_spans_for_line(line, old_highlight, new_highlight, theme);
 
     let word_bg = diff::diff_word_bg(line.kind, theme);
     let job = diff_widget::build_diff_line_layout_job(

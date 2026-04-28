@@ -7,7 +7,15 @@ use crate::ui::settings_screen::EditorFont;
 
 /// Set up fonts with all available fonts and Nerd Fonts icons.
 /// The preferred font is set as highest priority in the font families.
-pub fn setup_fonts(ctx: &egui::Context, preferred_font: EditorFont) {
+///
+/// `custom_fonts` is a list of `(display_name, path)` for all user-loaded fonts.
+/// We preload every custom font so that the settings page can preview any of
+/// them without requiring a separate `setup_fonts` call first.
+pub fn setup_fonts(
+    ctx: &egui::Context,
+    preferred_font: &EditorFont,
+    custom_fonts: &[(String, String)],
+) {
     // Start with empty fonts since we disabled default_fonts feature
     let mut fonts = egui::FontDefinitions::empty();
 
@@ -56,22 +64,51 @@ pub fn setup_fonts(ctx: &egui::Context, preferred_font: EditorFont) {
         egui_nerdfonts::Variant::Regular.font_data().into(),
     );
 
-    // Get the preferred font name
-    let primary_font = preferred_font.font_family_name().to_owned();
+    // ── Preload every user-loaded custom font ───────────────────────────
+    // This ensures the settings page can preview any custom font in the same
+    // frame it is clicked, before the app loop has a chance to call us again.
+    for (name, path) in custom_fonts {
+        let family_key = format!("custom_{name}");
+        if fonts.font_data.contains_key(&family_key) {
+            continue; // already loaded (e.g. same file added twice)
+        }
+        match std::fs::read(path) {
+            Ok(bytes) => {
+                fonts
+                    .font_data
+                    .insert(family_key.clone(), egui::FontData::from_owned(bytes).into());
+                fonts.families.insert(
+                    egui::FontFamily::Name(family_key.clone().into()),
+                    vec![family_key, "nerdfonts".to_owned()],
+                );
+            }
+            Err(e) => {
+                log::warn!("Failed to load custom font '{name}' from {path}: {e}");
+            }
+        }
+    }
+
+    // Determine primary font family name
+    let primary_font = preferred_font.font_family_name();
+
+    // If the preferred custom font failed to load above, fall back to default
+    let effective_primary = if preferred_font.is_custom()
+        && !fonts.font_data.contains_key(&primary_font)
+    {
+        log::warn!("Preferred custom font '{primary_font}' not loaded, falling back to default");
+        EditorFont::default().font_family_name()
+    } else {
+        primary_font
+    };
 
     // Build font list: preferred font first, then fallbacks, then nerdfonts for icons
-    let mut font_list = vec![primary_font.clone()];
+    let mut font_list = vec![effective_primary.clone()];
 
-    // Add other fonts as fallbacks (skip if it's the same as primary)
-    for font in [
-        "maple_mono",
-        "departure_mono",
-        "jetbrains_mono",
-        "iosevka",
-        "geist_mono",
-    ] {
-        if font != primary_font {
-            font_list.push(font.to_owned());
+    // Add other built-in fonts as fallbacks (skip if it's the same as primary)
+    for font in EditorFont::all_builtins() {
+        let name = font.font_family_name();
+        if name != effective_primary {
+            font_list.push(name);
         }
     }
 
@@ -86,17 +123,12 @@ pub fn setup_fonts(ctx: &egui::Context, preferred_font: EditorFont) {
         .families
         .insert(egui::FontFamily::Monospace, font_list);
 
-    // Register each font as a named family for direct access (e.g., in style picker previews)
-    for font_name in [
-        "maple_mono",
-        "departure_mono",
-        "jetbrains_mono",
-        "iosevka",
-        "geist_mono",
-    ] {
+    // Register each built-in font as a named family for direct access (e.g., in style picker previews)
+    for font in EditorFont::all_builtins() {
+        let font_name = font.font_family_name();
         fonts.families.insert(
-            egui::FontFamily::Name(font_name.into()),
-            vec![font_name.to_owned(), "nerdfonts".to_owned()],
+            egui::FontFamily::Name(font_name.clone().into()),
+            vec![font_name, "nerdfonts".to_owned()],
         );
     }
 

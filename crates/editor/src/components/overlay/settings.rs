@@ -115,6 +115,7 @@ pub struct SettingsOverlay {
     original_custom_theme: Option<String>,
     styling_font: EditorFont,
     original_font: EditorFont,
+    custom_fonts: Vec<(String, String)>,
     custom_themes: Vec<(String, String, ActiveThemeColors)>,
     theme_index: usize,
     font_index: usize,
@@ -156,6 +157,7 @@ impl SettingsOverlay {
             original_custom_theme: None,
             styling_font: EditorFont::default(),
             original_font: EditorFont::default(),
+            custom_fonts: Vec::new(),
             custom_themes: Vec::new(),
             theme_index: 0,
             font_index: 0,
@@ -186,6 +188,7 @@ impl SettingsOverlay {
         current_custom_theme: Option<String>,
         current_font: EditorFont,
         custom_themes: Vec<(String, String, ActiveThemeColors)>,
+        custom_fonts: Vec<(String, String)>,
     ) {
         self.is_open = true;
         self.tab = SettingsTab::Defaults;
@@ -203,8 +206,9 @@ impl SettingsOverlay {
         self.original_theme = current_theme;
         self.styling_custom_theme = current_custom_theme.clone();
         self.original_custom_theme = current_custom_theme.clone();
-        self.styling_font = current_font;
-        self.original_font = current_font;
+        self.styling_font = current_font.clone();
+        self.original_font = current_font.clone();
+        self.custom_fonts = custom_fonts;
         self.custom_themes = custom_themes;
         self.focused_panel = StyleTab::Theme;
         self.panel_switch_anim = 0.0;
@@ -228,9 +232,10 @@ impl SettingsOverlay {
                 .unwrap_or(0);
         }
         // Compute initial font index
-        self.font_index = EditorFont::all()
+        self.font_index = self
+            .all_fonts()
             .iter()
-            .position(|f| *f == current_font)
+            .position(|f| f == &current_font)
             .unwrap_or(0);
     }
 
@@ -279,9 +284,21 @@ impl SettingsOverlay {
         }
     }
 
+    /// All fonts: built-ins followed by user-loaded custom fonts.
+    fn all_fonts(&self) -> Vec<EditorFont> {
+        let mut fonts: Vec<EditorFont> = EditorFont::all_builtins().to_vec();
+        for (name, path) in &self.custom_fonts {
+            fonts.push(EditorFont::Custom {
+                name: name.clone(),
+                path: path.clone(),
+            });
+        }
+        fonts
+    }
+
     /// Navigate font index by delta, update state, return preview result.
     fn navigate_font(&mut self, delta: i32) -> SettingsResult {
-        let fonts = EditorFont::all();
+        let fonts = self.all_fonts();
         let total = fonts.len();
         if total == 0 {
             return SettingsResult::None;
@@ -289,8 +306,8 @@ impl SettingsOverlay {
         let new_idx = ((self.font_index as i32 + delta).rem_euclid(total as i32)) as usize;
         self.font_index = new_idx;
         self.scroll_to_font = true;
-        self.styling_font = fonts[new_idx];
-        SettingsResult::FontPreview(self.styling_font)
+        self.styling_font = fonts[new_idx].clone();
+        SettingsResult::FontPreview(self.styling_font.clone())
     }
 
     /// Set theme index directly (e.g. from click), return preview result.
@@ -311,10 +328,10 @@ impl SettingsOverlay {
 
     /// Set font index directly (e.g. from click), return preview result.
     fn select_font(&mut self, index: usize) -> SettingsResult {
-        let fonts = EditorFont::all();
+        let fonts = self.all_fonts();
         self.font_index = index;
-        self.styling_font = fonts[index];
-        SettingsResult::FontPreview(self.styling_font)
+        self.styling_font = fonts[index].clone();
+        SettingsResult::FontPreview(self.styling_font.clone())
     }
 
     /// Build the saved result with all current values.
@@ -1228,7 +1245,7 @@ impl SettingsOverlay {
         result: &mut SettingsResult,
     ) {
         let is_focused = self.focused_panel == StyleTab::Font;
-        let fonts = EditorFont::all();
+        let fonts = self.all_fonts();
         let font_count = fonts.len();
         let row_height = 72.0;
 
@@ -1274,7 +1291,7 @@ impl SettingsOverlay {
             .show(ui, |ui| {
                 for (i, font) in fonts.iter().enumerate() {
                     let is_selected = i == self.font_index;
-                    let is_original_font = *font == self.original_font;
+                    let is_original_font = font == &self.original_font;
 
                     let (rect, response) = ui.allocate_exact_size(
                         Vec2::new(panel_width, row_height),
@@ -1998,6 +2015,7 @@ mod tests {
             AppTheme::default(),
             None,
             EditorFont::default(),
+            Vec::new(),
             Vec::new(),
         );
         assert!(overlay.is_open());

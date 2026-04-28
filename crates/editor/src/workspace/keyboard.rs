@@ -17,9 +17,13 @@ impl Workspace {
     #[profiling::function]
     pub fn handle_viewport_keyboard(&mut self, ctx: &egui::Context) -> Option<WorkspaceAction> {
         // Global ':' handler - command palette should ALWAYS be openable on top of any overlay
-        // (except when command palette itself is already open, or a text field has focus)
+        // (except when command palette itself is already open, a text field has focus,
+        // or a PR pane is in one of its text-input modes).
         // This is checked FIRST, before any overlay blocks, so :style works on top of diff viewer, etc.
-        if !self.command_palette.is_open() && !ctx.memory(|mem| mem.focused().is_some()) {
+        if !self.command_palette.is_open()
+            && !ctx.memory(|mem| mem.focused().is_some())
+            && !self.any_pr_text_input_active()
+        {
             let mut open_command_palette = false;
             ctx.input_mut(|input| {
                 if input.consume_key(egui::Modifiers::NONE, egui::Key::Colon) {
@@ -744,6 +748,11 @@ impl Workspace {
 
             // Escape - clear focus
             if input.consume_key(egui::Modifiers::NONE, egui::Key::Escape) {
+                if self.close_any_pr_diff_search() {
+                    consumed = true;
+                    return;
+                }
+
                 should_clear_focus = true;
                 consumed = true;
             }
@@ -1227,6 +1236,44 @@ impl Workspace {
                 // Check Buffer
                 if let Some(buffer) = component.as_any().downcast_ref::<Buffer>() {
                     if buffer.mode() == BufferMode::Insert {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
+    }
+
+    /// Close an active diff search in any PR review pane.
+    ///
+    /// Returns `true` if a search bar was active and was closed.
+    fn close_any_pr_diff_search(&mut self) -> bool {
+        for tile_id in self.get_pane_tile_ids() {
+            if let Some(egui_tiles::Tile::Pane(component)) =
+                self.viewport_tree.tiles.get_mut(tile_id)
+            {
+                if let Some(pr_pane) = component
+                    .as_any_mut()
+                    .downcast_mut::<crate::components::PrReviewPane>()
+                {
+                    if pr_pane.close_diff_search_if_active() {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
+    }
+
+    /// Whether any PR review pane currently owns a text-input mode.
+    fn any_pr_text_input_active(&self) -> bool {
+        for tile_id in self.get_pane_tile_ids() {
+            if let Some(egui_tiles::Tile::Pane(component)) = self.viewport_tree.tiles.get(tile_id) {
+                if let Some(pr_pane) = component
+                    .as_any()
+                    .downcast_ref::<crate::components::PrReviewPane>()
+                {
+                    if pr_pane.has_text_input_active() {
                         return true;
                     }
                 }

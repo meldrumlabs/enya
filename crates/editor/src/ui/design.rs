@@ -28,16 +28,31 @@ pub fn dark_theme(theme: super::theme::AppTheme) -> Visuals {
     // Theme-aware text colors
     let text_primary = theme.text_primary();
 
+    let meldrum_labs = theme == super::theme::AppTheme::Meldrum;
+
     // Premium corner radius - subtle but refined (not too rounded, not harsh)
-    let corner_radius = CornerRadius::same(6);
+    let corner_radius = if meldrum_labs {
+        CornerRadius::same(10)
+    } else {
+        CornerRadius::same(6)
+    };
 
     // Layered shadow system for premium depth perception
     // Primary shadow provides the main elevation effect
-    let soft_shadow = egui::epaint::Shadow {
-        offset: [0, 6],
-        blur: 20,
-        spread: 0,
-        color: Color32::from_black_alpha(100), // Slightly stronger for depth
+    let soft_shadow = if meldrum_labs {
+        egui::epaint::Shadow {
+            offset: [0, 10],
+            blur: 36,
+            spread: 2,
+            color: Color32::from_black_alpha(130),
+        }
+    } else {
+        egui::epaint::Shadow {
+            offset: [0, 6],
+            blur: 20,
+            spread: 0,
+            color: Color32::from_black_alpha(100), // Slightly stronger for depth
+        }
     };
 
     Visuals {
@@ -68,23 +83,26 @@ pub fn dark_theme(theme: super::theme::AppTheme) -> Visuals {
                 bg_stroke: Stroke::new(1.0, focus_border_color), // More prominent on hover
                 corner_radius,
                 fg_stroke: Stroke::new(1.0, text_primary),
-                expansion: 1.5, // Slightly more expansion for premium feel
+                expansion: if meldrum_labs { 2.0 } else { 1.5 },
             },
             active: WidgetVisuals {
                 bg_fill: accent_primary_color,
                 weak_bg_fill: accent_primary_color,
-                bg_stroke: Stroke::new(1.5, accent_hover_color), // Glow effect on active
+                bg_stroke: Stroke::new(if meldrum_labs { 1.8 } else { 1.5 }, accent_hover_color),
                 corner_radius,
-                fg_stroke: Stroke::new(1.5, bg_base), // Dark text on accent
-                expansion: 0.5,
+                fg_stroke: Stroke::new(
+                    if meldrum_labs { 1.6 } else { 1.5 },
+                    if meldrum_labs { text_primary } else { bg_base },
+                ),
+                expansion: if meldrum_labs { 0.8 } else { 0.5 },
             },
             open: WidgetVisuals {
                 bg_fill: bg_elevated,
                 weak_bg_fill: bg_elevated,
-                bg_stroke: Stroke::new(1.5, accent_primary_color), // Stronger accent border
+                bg_stroke: Stroke::new(if meldrum_labs { 1.8 } else { 1.5 }, accent_primary_color),
                 corner_radius,
                 fg_stroke: Stroke::new(1.0, accent_hover_color), // Brighter accent text
-                expansion: 1.0,
+                expansion: if meldrum_labs { 1.2 } else { 1.0 },
             },
         },
 
