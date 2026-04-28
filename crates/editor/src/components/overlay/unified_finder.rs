@@ -1126,6 +1126,9 @@ impl UnifiedFinder {
                     ui.painter()
                         .rect_filled(highlight_rect, 12.0, inner_highlight);
                 }
+
+                // Paint deep glass volumetric layers behind the frame
+                overlay_style.paint_deep_glass(ctx, rect, egui::Id::new("unified_finder"));
             });
 
         // Handle click selection (after UI rendering)

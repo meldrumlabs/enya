@@ -2,6 +2,8 @@ use egui::Color32;
 use icons::Icon;
 
 pub mod active_theme;
+pub mod ambient_orbs;
+pub mod animated_icons;
 pub mod chat_colors;
 pub mod colors;
 pub mod custom_theme;

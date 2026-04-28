@@ -279,6 +279,20 @@ async fn api_get<T: serde::de::DeserializeOwned>(
 
 // ── Public API functions ────────────────────────────────────────────────
 
+/// Authenticated GitHub user (minimal fields from /user).
+#[derive(Debug, Clone, Deserialize)]
+pub struct AuthenticatedUser {
+    pub login: String,
+}
+
+/// Get the currently authenticated user.
+pub async fn get_authenticated_user(
+    client: &reqwest::Client,
+    token: &str,
+) -> Result<AuthenticatedUser, String> {
+    api_get(client, token, "/user").await
+}
+
 /// List open pull requests for a repository.
 pub async fn list_open_pulls(
     client: &reqwest::Client,

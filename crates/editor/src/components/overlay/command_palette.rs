@@ -8,7 +8,7 @@ use crate::ui::semantic_icons;
 use crate::ui::theme::AppTheme;
 use crate::ui::typography;
 
-use crate::components::util::finder_utils::OverlayStyle;
+use crate::components::util::finder_utils::{OverlayStyle, show_overlay_frame};
 use crate::components::util::{ScrollShadowConfig, ScrollState, render_scroll_shadows};
 
 /// A command that can be executed from the command palette
@@ -687,189 +687,180 @@ impl CommandPalette {
             (egui::Align2::CENTER_TOP, [0.0, 80.0])
         };
 
-        egui::Area::new(egui::Id::new("command_palette"))
-            .anchor(anchor, offset)
-            .constrain_to(crate::util::overlay_content_rect(ctx))
-            .order(egui::Order::Tooltip)
-            .show(ctx, |ui| {
-                overlay_style.frame().show(ui, |ui| {
-                    ui.set_width(popup_width);
+        show_overlay_frame(
+            ctx,
+            egui::Id::new("command_palette"),
+            &overlay_style,
+            anchor,
+            offset,
+            Some(crate::util::overlay_content_rect(ctx)),
+            |ui| {
+                ui.set_width(popup_width);
 
-                    // Input section with `:` prefix
-                    ui.horizontal(|ui| {
-                        ui.add_space(12.0);
-                        ui.label(
-                            RichText::new(":")
-                                .color(text_col)
-                                .size(typography::HEADING)
-                                .strong(),
-                        );
-
-                        let text_edit = egui::TextEdit::singleline(&mut self.input)
-                            .font(typography::heading())
-                            .hint_text(
-                                RichText::new("Type a command...")
-                                    .color(text_muted.gamma_multiply(0.8)),
-                            )
-                            .frame(false)
-                            .desired_width(popup_width - 50.0)
-                            .lock_focus(true); // Prevent Tab from navigating away
-
-                        let response = ui.add(text_edit);
-
-                        // Only request focus once when opening (not every frame)
-                        if self.needs_focus {
-                            response.request_focus();
-                            self.needs_focus = false;
-                        }
-
-                        // Move cursor to end if we pre-filled text
-                        if self.cursor_to_end {
-                            if let Some(mut state) =
-                                egui::TextEdit::load_state(ui.ctx(), response.id)
-                            {
-                                let ccursor = egui::text::CCursor::new(self.input.chars().count());
-                                state
-                                    .cursor
-                                    .set_char_range(Some(egui::text::CCursorRange::one(ccursor)));
-                                state.store(ui.ctx(), response.id);
-                            }
-                            self.cursor_to_end = false;
-                        }
-
-                        if response.changed() {
-                            self.error_message = None;
-                            self.refresh_suggestions();
-                        }
-                    });
-
-                    ui.add_space(8.0);
-
-                    // Separator
-                    ui.painter().hline(
-                        ui.available_rect_before_wrap().x_range(),
-                        ui.cursor().top(),
-                        egui::Stroke::new(1.0, border_col),
+                // Input section with `:` prefix
+                ui.horizontal(|ui| {
+                    ui.add_space(12.0);
+                    ui.label(
+                        RichText::new(":")
+                            .color(text_col)
+                            .size(typography::HEADING)
+                            .strong(),
                     );
-                    ui.add_space(4.0);
 
-                    // Error message if any
-                    if let Some(ref error) = self.error_message {
-                        ui.horizontal(|ui| {
-                            ui.add_space(12.0);
-                            ui.label(
-                                RichText::new(format!(
-                                    "{} {}",
-                                    semantic_icons::status::WARNING,
-                                    error
-                                ))
-                                .color(Color32::from_rgb(220, 80, 80))
-                                .size(typography::LG),
-                            );
-                        });
-                        ui.add_space(4.0);
+                    let text_edit = egui::TextEdit::singleline(&mut self.input)
+                        .font(typography::heading())
+                        .hint_text(
+                            RichText::new("Type a command...")
+                                .color(text_muted.gamma_multiply(0.8)),
+                        )
+                        .frame(false)
+                        .desired_width(popup_width - 50.0)
+                        .lock_focus(true); // Prevent Tab from navigating away
+
+                    let response = ui.add(text_edit);
+
+                    // Only request focus once when opening (not every frame)
+                    if self.needs_focus {
+                        response.request_focus();
+                        self.needs_focus = false;
                     }
 
-                    // Suggestions with scroll shadows
-                    let row_height = 32.0;
-                    let visible_height = 300.0;
-                    let scroll_id = egui::Id::new("command_palette_scroll");
+                    // Move cursor to end if we pre-filled text
+                    if self.cursor_to_end {
+                        if let Some(mut state) = egui::TextEdit::load_state(ui.ctx(), response.id) {
+                            let ccursor = egui::text::CCursor::new(self.input.chars().count());
+                            state
+                                .cursor
+                                .set_char_range(Some(egui::text::CCursorRange::one(ccursor)));
+                            state.store(ui.ctx(), response.id);
+                        }
+                        self.cursor_to_end = false;
+                    }
 
-                    let scroll_output = egui::ScrollArea::vertical()
-                        .id_salt(scroll_id)
-                        .max_height(visible_height)
-                        .auto_shrink([false, false])
-                        .show(ui, |ui| {
-                            if self.suggestions.is_empty() {
-                                ui.add_space(12.0);
-                                ui.vertical_centered(|ui| {
-                                    ui.label(
-                                        RichText::new("No matching commands")
-                                            .color(text_muted)
-                                            .size(typography::XL),
-                                    );
-                                });
-                                ui.add_space(12.0);
-                            } else {
-                                for (i, suggestion) in self.suggestions.iter().enumerate() {
-                                    let is_selected = i == self.selected_index;
-                                    let response = self.render_suggestion_row_with_colors(
-                                        ui,
-                                        suggestion,
-                                        is_selected,
-                                        text_col,
-                                        text_muted,
-                                        accent_col,
-                                    );
-                                    // Use egui's built-in scroll_to_me for selected items
-                                    if is_selected {
-                                        response.scroll_to_me(Some(egui::Align::Center));
-                                    }
-                                }
-                                // Bottom padding to prevent last item from being obscured by scroll shadow
-                                ui.add_space(row_height);
-                            }
-                        });
+                    if response.changed() {
+                        self.error_message = None;
+                        self.refresh_suggestions();
+                    }
+                });
 
-                    // Render scroll shadows
-                    let scroll_state = ScrollState::from_scroll_output(
-                        scroll_output.content_size,
-                        scroll_output.inner_rect,
-                        scroll_output.state.offset,
-                    );
-                    let shadow_config = ScrollShadowConfig::default()
-                        .with_color(bg_elevated)
-                        .with_opacity(0.6);
-                    render_scroll_shadows(
-                        ui,
-                        scroll_output.inner_rect,
-                        scroll_state,
-                        shadow_config,
-                    );
+                ui.add_space(8.0);
 
-                    ui.add_space(4.0);
+                // Separator
+                ui.painter().hline(
+                    ui.available_rect_before_wrap().x_range(),
+                    ui.cursor().top(),
+                    egui::Stroke::new(1.0, border_col),
+                );
+                ui.add_space(4.0);
 
-                    // Footer with hints
-                    ui.painter().hline(
-                        ui.available_rect_before_wrap().x_range(),
-                        ui.cursor().top(),
-                        egui::Stroke::new(1.0, border_col),
-                    );
-                    ui.add_space(6.0);
+                // Error message if any
+                if let Some(ref error) = self.error_message {
                     ui.horizontal(|ui| {
                         ui.add_space(12.0);
-                        let hint_color = text_muted.gamma_multiply(0.8);
-                        ui.label(RichText::new("↑↓").color(hint_color).size(typography::SM));
                         ui.label(
-                            RichText::new("navigate")
-                                .color(hint_color)
-                                .size(typography::SM),
-                        );
-                        ui.add_space(12.0);
-                        ui.label(RichText::new("Tab").color(hint_color).size(typography::SM));
-                        ui.label(
-                            RichText::new("complete")
-                                .color(hint_color)
-                                .size(typography::SM),
-                        );
-                        ui.add_space(12.0);
-                        ui.label(RichText::new("↵").color(hint_color).size(typography::SM));
-                        ui.label(
-                            RichText::new("execute")
-                                .color(hint_color)
-                                .size(typography::SM),
-                        );
-                        ui.add_space(12.0);
-                        ui.label(RichText::new("esc").color(hint_color).size(typography::SM));
-                        ui.label(
-                            RichText::new("close")
-                                .color(hint_color)
-                                .size(typography::SM),
+                            RichText::new(format!("{} {}", semantic_icons::status::WARNING, error))
+                                .color(Color32::from_rgb(220, 80, 80))
+                                .size(typography::LG),
                         );
                     });
-                    ui.add_space(8.0);
+                    ui.add_space(4.0);
+                }
+
+                // Suggestions with scroll shadows
+                let row_height = 32.0;
+                let visible_height = 300.0;
+                let scroll_id = egui::Id::new("command_palette_scroll");
+
+                let scroll_output = egui::ScrollArea::vertical()
+                    .id_salt(scroll_id)
+                    .max_height(visible_height)
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        if self.suggestions.is_empty() {
+                            ui.add_space(12.0);
+                            ui.vertical_centered(|ui| {
+                                ui.label(
+                                    RichText::new("No matching commands")
+                                        .color(text_muted)
+                                        .size(typography::XL),
+                                );
+                            });
+                            ui.add_space(12.0);
+                        } else {
+                            for (i, suggestion) in self.suggestions.iter().enumerate() {
+                                let is_selected = i == self.selected_index;
+                                let response = self.render_suggestion_row_with_colors(
+                                    ui,
+                                    suggestion,
+                                    is_selected,
+                                    text_col,
+                                    text_muted,
+                                    accent_col,
+                                );
+                                // Use egui's built-in scroll_to_me for selected items
+                                if is_selected {
+                                    response.scroll_to_me(Some(egui::Align::Center));
+                                }
+                            }
+                            // Bottom padding to prevent last item from being obscured by scroll shadow
+                            ui.add_space(row_height);
+                        }
+                    });
+
+                // Render scroll shadows
+                let scroll_state = ScrollState::from_scroll_output(
+                    scroll_output.content_size,
+                    scroll_output.inner_rect,
+                    scroll_output.state.offset,
+                );
+                let shadow_config = ScrollShadowConfig::default()
+                    .with_color(bg_elevated)
+                    .with_opacity(0.6);
+                render_scroll_shadows(ui, scroll_output.inner_rect, scroll_state, shadow_config);
+
+                ui.add_space(4.0);
+
+                // Footer with hints
+                ui.painter().hline(
+                    ui.available_rect_before_wrap().x_range(),
+                    ui.cursor().top(),
+                    egui::Stroke::new(1.0, border_col),
+                );
+                ui.add_space(6.0);
+                ui.horizontal(|ui| {
+                    ui.add_space(12.0);
+                    let hint_color = text_muted.gamma_multiply(0.8);
+                    ui.label(RichText::new("↑↓").color(hint_color).size(typography::SM));
+                    ui.label(
+                        RichText::new("navigate")
+                            .color(hint_color)
+                            .size(typography::SM),
+                    );
+                    ui.add_space(12.0);
+                    ui.label(RichText::new("Tab").color(hint_color).size(typography::SM));
+                    ui.label(
+                        RichText::new("complete")
+                            .color(hint_color)
+                            .size(typography::SM),
+                    );
+                    ui.add_space(12.0);
+                    ui.label(RichText::new("↵").color(hint_color).size(typography::SM));
+                    ui.label(
+                        RichText::new("execute")
+                            .color(hint_color)
+                            .size(typography::SM),
+                    );
+                    ui.add_space(12.0);
+                    ui.label(RichText::new("esc").color(hint_color).size(typography::SM));
+                    ui.label(
+                        RichText::new("close")
+                            .color(hint_color)
+                            .size(typography::SM),
+                    );
                 });
-            });
+                ui.add_space(8.0);
+            },
+        );
 
         if should_close {
             // Clear egui focus so vim keys work immediately after closing

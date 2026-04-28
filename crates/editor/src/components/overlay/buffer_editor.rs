@@ -1163,6 +1163,11 @@ impl BufferEditor {
 
                 // Draw inner highlight on the frame for glass effect
                 overlay_style.draw_inner_highlight(ui, frame_response.response.rect);
+                overlay_style.paint_deep_glass(
+                    ctx,
+                    frame_response.response.rect,
+                    egui::Id::new("buffer_editor_popup"),
+                );
             });
 
         // Show completion popup if open (rendered in a separate area on top)

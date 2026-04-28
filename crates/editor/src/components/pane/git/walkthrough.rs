@@ -107,12 +107,16 @@ pub(super) fn build_walkthrough_prompt(
                 prompt.push_str(&format!("... ({} more lines)\n", diff.lines.len() - i));
                 break;
             }
+            if line.kind == crate::git::diff::DiffLineKind::CollapsedBlock {
+                continue;
+            }
             let prefix = match line.kind {
                 crate::git::diff::DiffLineKind::Addition => "+",
                 crate::git::diff::DiffLineKind::Deletion => "-",
                 crate::git::diff::DiffLineKind::Context => " ",
                 crate::git::diff::DiffLineKind::HunkHeader => "@@",
                 crate::git::diff::DiffLineKind::FileHeader => "##",
+                crate::git::diff::DiffLineKind::CollapsedBlock => unreachable!(),
             };
             prompt.push_str(prefix);
             prompt.push_str(&line.content);
