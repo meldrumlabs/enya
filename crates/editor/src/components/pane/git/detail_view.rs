@@ -533,6 +533,9 @@ impl PrReviewPane {
 
                 // ── Organize button ──
                 {
+                    const BRAILLE_FRAMES: [char; 10] =
+                        ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+
                     let is_loading = matches!(
                         self.walkthrough_state,
                         super::walkthrough::WalkthroughState::Loading
@@ -543,8 +546,10 @@ impl PrReviewPane {
                     );
 
                     let label = if is_loading {
+                        let time = ui.ctx().input(|i| i.time);
+                        let frame = ((time * 10.0) as usize) % BRAILLE_FRAMES.len();
                         ui.ctx().request_repaint();
-                        format!("{} Organizing...", egui_nerdfonts::regular::LOADING)
+                        format!("{} Organizing...", BRAILLE_FRAMES[frame])
                     } else {
                         "Organize".to_string()
                     };
@@ -585,19 +590,7 @@ impl PrReviewPane {
                 // Submitting / merging indicator
                 if self.submitting_review || self.merging {
                     ui.add_space(4.0);
-                    let time = ui.ctx().input(|i| i.time) as f32;
-                    let label = if self.merging { "Merging..." } else { "Submitting..." };
-                    crate::ui::animated_icons::sync_icon(
-                        ui,
-                        egui_nerdfonts::regular::LOADING,
-                        theme.accent_primary(),
-                        time,
-                    );
-                    ui.label(
-                        RichText::new(label)
-                            .color(theme.accent_primary())
-                            .size(typography::XS),
-                    );
+                    ui.spinner();
                 }
 
                 // ── Review progress bar ──
@@ -1069,10 +1062,18 @@ impl PrReviewPane {
         // ── AI walkthrough summary banner ──
         self.show_walkthrough_banner(ui, theme);
 
-        // Loading state — premium shimmer skeleton
+        // Loading state
         if self.detail_loading {
-            super::pr_loading::render_pr_detail_skeleton(ui, theme);
-            ui.ctx().request_repaint();
+            ui.add_space(40.0);
+            ui.vertical_centered(|ui| {
+                ui.spinner();
+                ui.add_space(8.0);
+                ui.label(
+                    RichText::new("Loading PR details...")
+                        .color(theme.text_secondary())
+                        .font(typography::proportional(typography::SM)),
+                );
+            });
             return;
         }
 

@@ -79,10 +79,18 @@ impl PrReviewPane {
 
         ui.add_space(2.0);
 
-        // Loading state — premium shimmer skeleton
+        // Loading state
         if self.list_loading {
-            super::pr_loading::render_pr_list_skeleton(ui, theme);
-            ui.ctx().request_repaint();
+            ui.add_space(40.0);
+            ui.vertical_centered(|ui| {
+                ui.spinner();
+                ui.add_space(8.0);
+                ui.label(
+                    RichText::new("Loading pull requests...")
+                        .color(theme.text_secondary())
+                        .font(typography::proportional(typography::SM)),
+                );
+            });
             return;
         }
 
