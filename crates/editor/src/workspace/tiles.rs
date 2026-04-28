@@ -46,6 +46,8 @@ pub struct TreeBehavior {
     last_focused_tile: Option<TileId>,
     /// Whether to dim inactive panes
     dim_inactive_enabled: bool,
+    /// Pane entrance animations (tile_id -> start_time)
+    pane_entrances: FxHashMap<TileId, Instant>,
 }
 
 impl TreeBehavior {
@@ -101,16 +103,21 @@ impl TreeBehavior {
     pub fn cleanup_effects(&mut self) {
         const YANK_FLASH_DURATION: f32 = 0.25;
         const FOCUS_PULSE_DURATION: f32 = 0.2;
+        const ENTRANCE_DURATION: f32 = 0.25;
 
         self.yank_flashes
             .retain(|_, start| start.elapsed().as_secs_f32() < YANK_FLASH_DURATION);
         self.focus_pulses
             .retain(|_, start| start.elapsed().as_secs_f32() < FOCUS_PULSE_DURATION);
+        self.pane_entrances
+            .retain(|_, start| start.elapsed().as_secs_f32() < ENTRANCE_DURATION);
     }
 
     /// Check if any visual effects are active (needs repaint).
     pub fn has_active_effects(&self) -> bool {
-        !self.yank_flashes.is_empty() || !self.focus_pulses.is_empty()
+        !self.yank_flashes.is_empty()
+            || !self.focus_pulses.is_empty()
+            || !self.pane_entrances.is_empty()
     }
 
     /// Enable or disable dim inactive panes effect.
@@ -203,11 +210,14 @@ impl egui_tiles::Behavior<Box<dyn Component>> for TreeBehavior {
     fn pane_ui(
         &mut self,
         ui: &mut egui::Ui,
-        _tile_id: TileId,
+        tile_id: TileId,
         component: &mut Box<dyn Component>,
     ) -> egui_tiles::UiResponse {
         // Make sure theme is updated for the component
         component.set_theme(self.theme);
+
+        // Track pane entrance for animation
+        self.pane_entrances.entry(tile_id).or_insert_with(Instant::now);
 
         component.show(ui);
 
@@ -422,6 +432,41 @@ impl egui_tiles::Behavior<Box<dyn Component>> for TreeBehavior {
                     egui::Stroke::new(2.0 + intensity * 2.0, pulse_color),
                     egui::StrokeKind::Outside,
                 );
+            }
+        }
+
+        // Pane entrance animation — subtle scale + opacity fade-in
+        if let Some(start_time) = self.pane_entrances.get(&tile_id) {
+            const ENTRANCE_DURATION: f32 = 0.25;
+            let elapsed = start_time.elapsed().as_secs_f32();
+            let progress = (elapsed / ENTRANCE_DURATION).min(1.0);
+
+            if progress < 1.0 {
+                let ease = ease_out_cubic(progress);
+                // Fade from slightly dimmed to full brightness
+                let dim_alpha = ((1.0 - ease) * 40.0) as u8;
+                if dim_alpha > 0 {
+                    let dim_color = if self.theme.is_dark() {
+                        egui::Color32::from_rgba_unmultiplied(0, 0, 0, dim_alpha)
+                    } else {
+                        egui::Color32::from_rgba_unmultiplied(255, 255, 255, dim_alpha)
+                    };
+                    painter.rect_filled(rect, 4.0, dim_color);
+                }
+                // Subtle accent glow at the edges that fades out
+                let glow_alpha = ((1.0 - ease) * 50.0) as u8;
+                if glow_alpha > 0 {
+                    let accent = self.theme.accent_primary();
+                    let glow_color = egui::Color32::from_rgba_unmultiplied(
+                        accent.r(), accent.g(), accent.b(), glow_alpha,
+                    );
+                    painter.rect_stroke(
+                        rect,
+                        4.0,
+                        egui::Stroke::new(1.5, glow_color),
+                        egui::StrokeKind::Inside,
+                    );
+                }
             }
         }
     }

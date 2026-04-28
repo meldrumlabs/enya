@@ -16,6 +16,7 @@ use enya_ai::{AgentConfig, AgentEvent, PersistentAcpClient};
 #[cfg(not(target_arch = "wasm32"))]
 use std::sync::mpsc::Receiver;
 
+use crate::ui::animated_icons;
 use crate::ui::semantic_icons;
 use crate::ui::theme::AppTheme;
 use crate::ui::typography;
@@ -1740,7 +1741,13 @@ impl AgentInputBar {
                     _ => colors.muted_text,
                 };
 
-                ui.label(RichText::new(icon).color(color).size(typography::SM));
+                // Animate loading icon when thinking/processing
+                let time = ui.ctx().input(|i| i.time) as f32;
+                if matches!(activity.activity_type, crate::components::util::ActivityType::Thinking(_)) && activity.in_progress {
+                    animated_icons::loading_icon(ui, icon, color, time);
+                } else {
+                    ui.label(RichText::new(icon).color(color).size(typography::SM));
+                }
                 ui.add_space(4.0);
                 ui.label(RichText::new(text).color(color).size(typography::SM));
             });

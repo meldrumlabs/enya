@@ -25,6 +25,7 @@ use egui::{Color32, RichText};
 
 use crate::codebase::search::{SearchFilter, SearchResult, SearchResultKind};
 use crate::components::OverlayColors;
+use crate::ui::animated_icons;
 use crate::ui::palette;
 use crate::ui::theme::AppTheme;
 use crate::ui::typography;
@@ -369,10 +370,12 @@ impl CodebaseFinder {
             CodebaseFinderStatus::Indexing => {
                 ui.vertical_centered(|ui| {
                     ui.add_space(80.0);
-                    ui.label(
-                        RichText::new(egui_nerdfonts::regular::LOADING)
-                            .color(colors.accent)
-                            .size(32.0),
+                    let time = ui.ctx().input(|i| i.time) as f32;
+                    animated_icons::loading_icon(
+                        ui,
+                        egui_nerdfonts::regular::LOADING,
+                        colors.accent,
+                        time,
                     );
                     ui.add_space(12.0);
                     ui.label(
