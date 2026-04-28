@@ -1571,13 +1571,7 @@ impl AppTheme {
             Self::Everforest => Color32::from_rgb(133, 146, 137),
             Self::Catppuccin => Color32::from_rgb(166, 173, 200),
             Self::Arrakis => Color32::from_rgb(155, 145, 125),
-            Self::Meldrum => {
-                if self.meldrum_is_high_contrast() {
-                    Color32::from_rgb(170, 170, 180)
-                } else {
-                    Color32::from_rgb(113, 113, 122)
-                }
-            }
+            Self::Meldrum => Color32::from_rgb(170, 170, 180),
             Self::System | Self::Dark => Color32::from_rgb(140, 140, 155),
         }
     }
@@ -1602,13 +1596,7 @@ impl AppTheme {
             Self::Everforest => Color32::from_rgb(122, 132, 120),
             Self::Catppuccin => Color32::from_rgb(108, 112, 134),
             Self::Arrakis => Color32::from_rgb(90, 82, 68),
-            Self::Meldrum => {
-                if self.meldrum_is_high_contrast() {
-                    Color32::from_rgb(142, 142, 154)
-                } else {
-                    Color32::from_rgb(82, 82, 91)
-                }
-            }
+            Self::Meldrum => Color32::from_rgb(142, 142, 154),
             Self::System | Self::Dark => Color32::from_rgb(128, 128, 128),
         }
     }

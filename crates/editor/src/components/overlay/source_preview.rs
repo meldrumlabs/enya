@@ -4,8 +4,6 @@
 //! used for "go to metric definition" functionality.
 
 #[cfg(not(target_arch = "wasm32"))]
-use std::ops::Range;
-#[cfg(not(target_arch = "wasm32"))]
 use std::path::PathBuf;
 
 use egui::{Color32, Key, RichText, text::LayoutJob};
@@ -23,46 +21,11 @@ use crate::ui::theme::AppTheme;
 use crate::ui::typography;
 
 use crate::components::util::finder_utils::{OverlayStyle, draw_backdrop};
+#[cfg(not(target_arch = "wasm32"))]
+use crate::components::util::syntax_highlight::{HighlightSpan, HIGHLIGHT_NAMES, highlight_color};
 
 #[cfg(not(target_arch = "wasm32"))]
 use crate::codebase::{AlertRule, MetricInstrumentation, MetricKind};
-
-/// Highlight names recognized by our syntax highlighter.
-/// These map to tree-sitter highlight capture names.
-#[cfg(not(target_arch = "wasm32"))]
-const HIGHLIGHT_NAMES: &[&str] = &[
-    "attribute",
-    "comment",
-    "constant",
-    "constant.builtin",
-    "constructor",
-    "escape",
-    "function",
-    "function.builtin",
-    "function.macro",
-    "keyword",
-    "label",
-    "number",
-    "operator",
-    "property",
-    "punctuation",
-    "punctuation.bracket",
-    "punctuation.delimiter",
-    "string",
-    "type",
-    "type.builtin",
-    "variable",
-    "variable.builtin",
-    "variable.parameter",
-];
-
-/// A cached highlight span: byte range and the highlight type index.
-#[cfg(not(target_arch = "wasm32"))]
-#[derive(Debug, Clone)]
-struct HighlightSpan {
-    range: Range<usize>,
-    highlight_idx: usize,
-}
 
 /// Result of showing the source preview overlay.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1091,7 +1054,7 @@ impl HttpHandler {
                 continue;
             }
 
-            let color = self.highlight_color(span.highlight_idx);
+            let color = highlight_color(span.highlight_idx, self.theme);
             line_spans.push((span_start_in_line, span_end_in_line, color));
         }
 
@@ -1148,29 +1111,6 @@ impl HttpHandler {
         job
     }
 
-    /// Get the color for a highlight index.
-    #[cfg(not(target_arch = "wasm32"))]
-    fn highlight_color(&self, idx: usize) -> Color32 {
-        let name = HIGHLIGHT_NAMES.get(idx).copied().unwrap_or("");
-
-        match name {
-            "keyword" => self.theme.syntax_keyword(),
-            "string" | "escape" => self.theme.syntax_value(),
-            "comment" => self.theme.syntax_comment(),
-            "function" | "function.builtin" | "function.macro" => self.theme.syntax_function(),
-            "type" | "type.builtin" | "constructor" => self.theme.syntax_type(),
-            "number" | "constant" | "constant.builtin" => self.theme.syntax_number(),
-            "attribute" => self.theme.syntax_type(), // Use type color for attributes
-            "variable" | "variable.parameter" | "property" | "label" => {
-                self.theme.syntax_variable()
-            }
-            "variable.builtin" => self.theme.syntax_keyword(), // Use keyword color for builtin vars (self)
-            "operator" | "punctuation" | "punctuation.bracket" | "punctuation.delimiter" => {
-                self.theme.syntax_punctuation()
-            }
-            _ => self.theme.syntax_variable(), // Default to variable color
-        }
-    }
 }
 
 #[cfg(test)]
