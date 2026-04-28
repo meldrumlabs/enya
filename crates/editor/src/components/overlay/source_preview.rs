@@ -22,7 +22,7 @@ use crate::ui::typography;
 
 use crate::components::util::finder_utils::{OverlayStyle, draw_backdrop};
 #[cfg(not(target_arch = "wasm32"))]
-use crate::components::util::syntax_highlight::{HighlightSpan, HIGHLIGHT_NAMES, highlight_color};
+use crate::components::util::syntax_highlight::{HIGHLIGHT_NAMES, HighlightSpan, highlight_color};
 
 #[cfg(not(target_arch = "wasm32"))]
 use crate::codebase::{AlertRule, MetricInstrumentation, MetricKind};
@@ -570,7 +570,11 @@ impl HttpHandler {
                     // Footer
                     self.render_footer(ui, muted_text, separator_color, popup_width);
                 });
-                overlay_style.paint_deep_glass(ctx, frame_response.response.rect, egui::Id::new("source_preview_popup"));
+                overlay_style.paint_deep_glass(
+                    ctx,
+                    frame_response.response.rect,
+                    egui::Id::new("source_preview_popup"),
+                );
             });
 
         // Show file opener popup if open (native only)
@@ -1111,7 +1115,6 @@ impl HttpHandler {
         job.append(line, 0.0, egui::TextFormat::simple(font_id, default_color));
         job
     }
-
 }
 
 #[cfg(test)]

@@ -1743,7 +1743,11 @@ impl AgentInputBar {
 
                 // Animate loading icon when thinking/processing
                 let time = ui.ctx().input(|i| i.time) as f32;
-                if matches!(activity.activity_type, crate::components::util::ActivityType::Thinking(_)) && activity.in_progress {
+                if matches!(
+                    activity.activity_type,
+                    crate::components::util::ActivityType::Thinking(_)
+                ) && activity.in_progress
+                {
                     animated_icons::loading_icon(ui, icon, color, time);
                 } else {
                     ui.label(RichText::new(icon).color(color).size(typography::SM));

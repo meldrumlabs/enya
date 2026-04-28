@@ -55,7 +55,9 @@ impl FileDiff {
                     line.new_recon_num = Some(new_counter);
                     new_lines.push(&line.content);
                 }
-                DiffLineKind::HunkHeader | DiffLineKind::FileHeader | DiffLineKind::CollapsedBlock => {}
+                DiffLineKind::HunkHeader
+                | DiffLineKind::FileHeader
+                | DiffLineKind::CollapsedBlock => {}
             }
         }
 
@@ -465,12 +467,7 @@ pub fn detect_collapsible_blocks(file: &mut FileDiff) {
         let header_count = file
             .lines
             .iter()
-            .take_while(|l| {
-                matches!(
-                    l.kind,
-                    DiffLineKind::FileHeader | DiffLineKind::HunkHeader
-                )
-            })
+            .take_while(|l| matches!(l.kind, DiffLineKind::FileHeader | DiffLineKind::HunkHeader))
             .count();
         if file.lines.len() > header_count + 1 {
             let label = if is_lockfile {

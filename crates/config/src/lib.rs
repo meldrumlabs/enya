@@ -42,6 +42,5 @@ pub use daemon::{Config, Datasource, Datasources, Server};
 pub use dir::{
     config_path, create_project_dir, delete_project_dir, enya_dir, index_dir,
     list_project_workspaces, list_projects, plugins_dir, pr_sessions_dir,
-    project_conversations_dir, project_workspace_dir, projects_dir,
-    resolve_project_workspace_path,
+    project_conversations_dir, project_workspace_dir, projects_dir, resolve_project_workspace_path,
 };

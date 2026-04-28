@@ -317,7 +317,9 @@ impl DiffRenderer {
             for (line_idx, line) in file.lines.iter().enumerate() {
                 if matches!(
                     line.kind,
-                    DiffLineKind::HunkHeader | DiffLineKind::FileHeader | DiffLineKind::CollapsedBlock
+                    DiffLineKind::HunkHeader
+                        | DiffLineKind::FileHeader
+                        | DiffLineKind::CollapsedBlock
                 ) {
                     continue;
                 }
@@ -513,7 +515,9 @@ impl DiffRenderer {
             .filter(|l| {
                 !matches!(
                     l.kind,
-                    DiffLineKind::HunkHeader | DiffLineKind::FileHeader | DiffLineKind::CollapsedBlock
+                    DiffLineKind::HunkHeader
+                        | DiffLineKind::FileHeader
+                        | DiffLineKind::CollapsedBlock
                 )
             })
             .map(|l| l.content.as_str())
@@ -871,8 +875,10 @@ impl DiffRenderer {
                     self.hunk_offsets.push(y);
                     self.hunk_contexts.push((y, line.hunk_context.clone()));
                 }
-                y += if matches!(line.kind, DiffLineKind::HunkHeader | DiffLineKind::CollapsedBlock)
-                {
+                y += if matches!(
+                    line.kind,
+                    DiffLineKind::HunkHeader | DiffLineKind::CollapsedBlock
+                ) {
                     hunk_header_height
                 } else {
                     line_height
@@ -1194,10 +1200,7 @@ impl DiffRenderer {
                             ui.painter().rect_stroke(
                                 rect.shrink(2.0),
                                 4.0,
-                                egui::Stroke::new(
-                                    1.0,
-                                    theme.border_subtle().gamma_multiply(0.5),
-                                ),
+                                egui::Stroke::new(1.0, theme.border_subtle().gamma_multiply(0.5)),
                                 egui::StrokeKind::Inside,
                             );
                             let icon = if response.hovered() {
@@ -1229,8 +1232,7 @@ impl DiffRenderer {
                             }
                             if response.clicked() {
                                 if let Some(l) = left {
-                                    if let Some(&idx) =
-                                        line_index_map.get(&(*l as *const DiffLine))
+                                    if let Some(&idx) = line_index_map.get(&(*l as *const DiffLine))
                                     {
                                         self.pending_expand_block = Some(idx);
                                     }
@@ -1579,8 +1581,10 @@ fn render_unified_line(
     if line.kind == DiffLineKind::CollapsedBlock {
         let available_width = ui.available_width();
         let row_height = font_size + 12.0;
-        let (rect, response) =
-            ui.allocate_exact_size(egui::vec2(available_width, row_height), egui::Sense::click());
+        let (rect, response) = ui.allocate_exact_size(
+            egui::vec2(available_width, row_height),
+            egui::Sense::click(),
+        );
 
         let bg = if response.hovered() {
             theme.bg_elevated().gamma_multiply(0.7)
@@ -1608,11 +1612,9 @@ fn render_unified_line(
         } else {
             theme.text_secondary()
         };
-        let galley = ui.painter().layout_no_wrap(
-            text,
-            typography::proportional(typography::XS),
-            text_color,
-        );
+        let galley =
+            ui.painter()
+                .layout_no_wrap(text, typography::proportional(typography::XS), text_color);
         ui.painter().galley(
             egui::pos2(rect.left() + 16.0, rect.center().y - galley.size().y / 2.0),
             galley,

@@ -885,9 +885,7 @@ pub fn show_overlay_frame<R>(
         .anchor(anchor, offset)
         .constrain_to(constrain)
         .order(egui::Order::Tooltip)
-        .show(ctx, |ui| {
-            style.frame().show(ui, add_contents)
-        });
+        .show(ctx, |ui| style.frame().show(ui, add_contents));
 
     // Paint deep glass behind the frame now that we know its rect.
     if style.deep_glass {

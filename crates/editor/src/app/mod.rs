@@ -882,7 +882,8 @@ impl EnyaApp {
             egui::Order::Background,
             egui::Id::new("ambient_orbs"),
         ));
-        self.ambient_orbs.draw(&painter, screen_rect, theme, time as f32);
+        self.ambient_orbs
+            .draw(&painter, screen_rect, theme, time as f32);
     }
 
     #[inline]

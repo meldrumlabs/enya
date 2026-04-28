@@ -464,7 +464,10 @@ impl egui_tiles::Behavior<Box<dyn Component>> for TreeBehavior {
                 if glow_alpha > 0 {
                     let accent = self.theme.accent_primary();
                     let glow_color = egui::Color32::from_rgba_unmultiplied(
-                        accent.r(), accent.g(), accent.b(), glow_alpha,
+                        accent.r(),
+                        accent.g(),
+                        accent.b(),
+                        glow_alpha,
                     );
                     painter.rect_stroke(
                         rect,

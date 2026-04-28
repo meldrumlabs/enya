@@ -3,8 +3,8 @@
 //! Adds depth and life to dark themes without interfering with readability.
 //! Orbs are drawn at very low opacity using radial-gradient meshes.
 
-use egui::{Color32, Mesh, Pos2, Rect, Vec2};
 use egui::epaint::Vertex;
+use egui::{Color32, Mesh, Pos2, Rect, Vec2};
 
 use crate::ui::theme::AppTheme;
 
@@ -105,24 +105,24 @@ impl AmbientOrbs {
 fn theme_orb_colors(theme: AppTheme) -> Vec<Color32> {
     match theme {
         AppTheme::Meldrum => vec![
-            Color32::from_rgb(200, 120, 40),  // Warm amber
-            Color32::from_rgb(180, 90, 30),   // Deeper orange
-            Color32::from_rgb(160, 100, 60),  // Rust
+            Color32::from_rgb(200, 120, 40), // Warm amber
+            Color32::from_rgb(180, 90, 30),  // Deeper orange
+            Color32::from_rgb(160, 100, 60), // Rust
         ],
         AppTheme::Void => vec![
-            Color32::from_rgb(80, 50, 160),   // Deep violet
-            Color32::from_rgb(60, 40, 120),   // Darker violet
-            Color32::from_rgb(100, 60, 180),  // Lighter violet
+            Color32::from_rgb(80, 50, 160),  // Deep violet
+            Color32::from_rgb(60, 40, 120),  // Darker violet
+            Color32::from_rgb(100, 60, 180), // Lighter violet
         ],
         AppTheme::Neon => vec![
-            Color32::from_rgb(160, 40, 120),  // Magenta
-            Color32::from_rgb(40, 120, 140),  // Cyan
-            Color32::from_rgb(140, 40, 160),  // Purple
+            Color32::from_rgb(160, 40, 120), // Magenta
+            Color32::from_rgb(40, 120, 140), // Cyan
+            Color32::from_rgb(140, 40, 160), // Purple
         ],
         AppTheme::Midnight => vec![
-            Color32::from_rgb(40, 80, 160),   // Deep blue
-            Color32::from_rgb(30, 60, 130),   // Darker blue
-            Color32::from_rgb(50, 100, 180),  // Lighter blue
+            Color32::from_rgb(40, 80, 160),  // Deep blue
+            Color32::from_rgb(30, 60, 130),  // Darker blue
+            Color32::from_rgb(50, 100, 180), // Lighter blue
         ],
         AppTheme::Aurora => vec![
             Color32::from_rgb(60, 160, 120),  // Teal
@@ -130,14 +130,14 @@ fn theme_orb_colors(theme: AppTheme) -> Vec<Color32> {
             Color32::from_rgb(100, 180, 140), // Light teal
         ],
         AppTheme::Ayu => vec![
-            Color32::from_rgb(180, 140, 60),  // Amber
-            Color32::from_rgb(160, 120, 50),  // Darker amber
-            Color32::from_rgb(200, 160, 80),  // Light amber
+            Color32::from_rgb(180, 140, 60), // Amber
+            Color32::from_rgb(160, 120, 50), // Darker amber
+            Color32::from_rgb(200, 160, 80), // Light amber
         ],
         AppTheme::Graphite => vec![
-            Color32::from_rgb(180, 100, 40),  // Orange
-            Color32::from_rgb(160, 80, 30),   // Darker orange
-            Color32::from_rgb(200, 120, 60),  // Light orange
+            Color32::from_rgb(180, 100, 40), // Orange
+            Color32::from_rgb(160, 80, 30),  // Darker orange
+            Color32::from_rgb(200, 120, 60), // Light orange
         ],
         AppTheme::RosePine => vec![
             Color32::from_rgb(140, 100, 160), // Soft purple
@@ -155,9 +155,9 @@ fn theme_orb_colors(theme: AppTheme) -> Vec<Color32> {
             Color32::from_rgb(140, 160, 220), // Light blue
         ],
         AppTheme::Arrakis => vec![
-            Color32::from_rgb(160, 120, 60),  // Sand
-            Color32::from_rgb(140, 100, 50),  // Darker sand
-            Color32::from_rgb(180, 140, 80),  // Light sand
+            Color32::from_rgb(160, 120, 60), // Sand
+            Color32::from_rgb(140, 100, 50), // Darker sand
+            Color32::from_rgb(180, 140, 80), // Light sand
         ],
         AppTheme::Ink => vec![
             Color32::from_rgb(120, 120, 140), // Silver
@@ -165,15 +165,15 @@ fn theme_orb_colors(theme: AppTheme) -> Vec<Color32> {
             Color32::from_rgb(140, 140, 160), // Light silver
         ],
         AppTheme::Onyx => vec![
-            Color32::from_rgb(160, 140, 60),  // Gold
-            Color32::from_rgb(140, 120, 50),  // Darker gold
-            Color32::from_rgb(180, 160, 80),  // Light gold
+            Color32::from_rgb(160, 140, 60), // Gold
+            Color32::from_rgb(140, 120, 50), // Darker gold
+            Color32::from_rgb(180, 160, 80), // Light gold
         ],
         // Dark / System / Custom fall back to a subtle emerald set
         _ => vec![
-            Color32::from_rgb(40, 140, 100),  // Emerald
-            Color32::from_rgb(30, 120, 80),   // Darker emerald
-            Color32::from_rgb(60, 160, 120),  // Lighter emerald
+            Color32::from_rgb(40, 140, 100), // Emerald
+            Color32::from_rgb(30, 120, 80),  // Darker emerald
+            Color32::from_rgb(60, 160, 120), // Lighter emerald
         ],
     }
 }

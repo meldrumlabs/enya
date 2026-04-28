@@ -727,9 +727,7 @@ impl CommandPalette {
 
                     // Move cursor to end if we pre-filled text
                     if self.cursor_to_end {
-                        if let Some(mut state) =
-                            egui::TextEdit::load_state(ui.ctx(), response.id)
-                        {
+                        if let Some(mut state) = egui::TextEdit::load_state(ui.ctx(), response.id) {
                             let ccursor = egui::text::CCursor::new(self.input.chars().count());
                             state
                                 .cursor
@@ -760,13 +758,9 @@ impl CommandPalette {
                     ui.horizontal(|ui| {
                         ui.add_space(12.0);
                         ui.label(
-                            RichText::new(format!(
-                                "{} {}",
-                                semantic_icons::status::WARNING,
-                                error
-                            ))
-                            .color(Color32::from_rgb(220, 80, 80))
-                            .size(typography::LG),
+                            RichText::new(format!("{} {}", semantic_icons::status::WARNING, error))
+                                .color(Color32::from_rgb(220, 80, 80))
+                                .size(typography::LG),
                         );
                     });
                     ui.add_space(4.0);
@@ -822,12 +816,7 @@ impl CommandPalette {
                 let shadow_config = ScrollShadowConfig::default()
                     .with_color(bg_elevated)
                     .with_opacity(0.6);
-                render_scroll_shadows(
-                    ui,
-                    scroll_output.inner_rect,
-                    scroll_state,
-                    shadow_config,
-                );
+                render_scroll_shadows(ui, scroll_output.inner_rect, scroll_state, shadow_config);
 
                 ui.add_space(4.0);
 

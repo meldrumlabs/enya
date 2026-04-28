@@ -628,8 +628,12 @@ impl PrReviewPane {
 
     /// Save the current review session to disk.
     fn save_session(&self) {
-        let Some(pr_number) = self.current_pr_number() else { return };
-        let Some(path) = self.session_path(pr_number) else { return };
+        let Some(pr_number) = self.current_pr_number() else {
+            return;
+        };
+        let Some(path) = self.session_path(pr_number) else {
+            return;
+        };
         let session = self.build_session();
         let json = match serde_json::to_string_pretty(&session) {
             Ok(j) => j,
@@ -645,7 +649,9 @@ impl PrReviewPane {
 
     /// Load a previously saved review session from disk.
     fn load_session(&mut self, pr_number: u32) {
-        let Some(path) = self.session_path(pr_number) else { return };
+        let Some(path) = self.session_path(pr_number) else {
+            return;
+        };
         let json = match std::fs::read_to_string(&path) {
             Ok(j) => j,
             Err(e) => {
@@ -668,8 +674,12 @@ impl PrReviewPane {
     /// Delete the saved session for the current PR (called after submitting
     /// a review or when explicitly leaving the PR).
     fn delete_session(&self) {
-        let Some(pr_number) = self.current_pr_number() else { return };
-        let Some(path) = self.session_path(pr_number) else { return };
+        let Some(pr_number) = self.current_pr_number() else {
+            return;
+        };
+        let Some(path) = self.session_path(pr_number) else {
+            return;
+        };
         if let Err(e) = std::fs::remove_file(&path) {
             if e.kind() != std::io::ErrorKind::NotFound {
                 log::warn!("Failed to delete PR session: {e}");

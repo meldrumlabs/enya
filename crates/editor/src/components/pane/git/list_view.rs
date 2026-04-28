@@ -256,13 +256,7 @@ impl PrReviewPane {
                         "There are no open pull requests for this repository.",
                     ),
                 };
-                render_empty_state(
-                    ui,
-                    theme,
-                    egui_nerdfonts::regular::INBOX,
-                    title,
-                    subtitle,
-                );
+                render_empty_state(ui, theme, egui_nerdfonts::regular::INBOX, title, subtitle);
             }
         }
 
@@ -275,7 +269,12 @@ impl PrReviewPane {
                 let my_count = self
                     .current_user_login
                     .as_ref()
-                    .map(|me| self.pull_requests.iter().filter(|pr| pr.user.login == *me).count())
+                    .map(|me| {
+                        self.pull_requests
+                            .iter()
+                            .filter(|pr| pr.user.login == *me)
+                            .count()
+                    })
                     .unwrap_or(0);
                 let needs_count = self
                     .pull_requests
@@ -294,8 +293,7 @@ impl PrReviewPane {
                                     self.current_user_login
                                         .as_ref()
                                         .is_some_and(|me| *me == r.user.login)
-                                        && (r.state == "APPROVED"
-                                            || r.state == "CHANGES_REQUESTED")
+                                        && (r.state == "APPROVED" || r.state == "CHANGES_REQUESTED")
                                 })
                             })
                             .unwrap_or(false);
@@ -304,7 +302,11 @@ impl PrReviewPane {
                     .count();
 
                 let segments = [
-                    (super::PrListSegment::NeedsReview, "Needs Review", needs_count),
+                    (
+                        super::PrListSegment::NeedsReview,
+                        "Needs Review",
+                        needs_count,
+                    ),
                     (super::PrListSegment::MyPrs, "My PRs", my_count),
                     (super::PrListSegment::All, "All", all_count),
                 ];
@@ -966,11 +968,7 @@ impl PrReviewPane {
                         .font(label_font.clone()),
                 );
                 ui.label(RichText::new("1/2/3").color(key_color).font(key_font));
-                ui.label(
-                    RichText::new("segments")
-                        .color(key_color)
-                        .font(label_font),
-                );
+                ui.label(RichText::new("segments").color(key_color).font(label_font));
             },
         );
     }
