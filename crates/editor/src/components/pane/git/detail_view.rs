@@ -542,7 +542,7 @@ impl PrReviewPane {
 
                 ui.add_space(4.0);
 
-                // ── Organize button ──
+                // ── Review button ──
                 if !narrow {
                     const BRAILLE_FRAMES: [char; 10] =
                         ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
@@ -556,40 +556,69 @@ impl PrReviewPane {
                         super::walkthrough::WalkthroughState::Ready(_)
                     );
 
+                    let text_color = if is_loading || is_ready {
+                        theme.accent_primary()
+                    } else {
+                        theme.text_primary()
+                    };
+
+                    let logo_size = typography::XS + 2.0;
+                    let logo = match self.ai_provider {
+                        super::AiProvider::Claude => {
+                            egui::Image::new(egui::include_image!("../../../../assets/claude.png"))
+                        }
+                        super::AiProvider::Codex => {
+                            egui::Image::new(egui::include_image!("../../../../assets/openai.png"))
+                        }
+                    }
+                    .tint(text_color)
+                    .max_size(egui::vec2(logo_size, logo_size));
+
                     let label = if is_loading {
                         let time = ui.ctx().input(|i| i.time);
                         let frame = ((time * 10.0) as usize) % BRAILLE_FRAMES.len();
                         ui.ctx().request_repaint();
-                        format!("{} Organizing...", BRAILLE_FRAMES[frame])
+                        format!("{} Reviewing...", BRAILLE_FRAMES[frame])
+                    } else if is_ready {
+                        "Reviewed".to_string()
                     } else {
-                        "Organize".to_string()
+                        "Review".to_string()
                     };
 
-                    let organize_btn = ui.add_enabled(
-                        !is_loading && !self.file_diffs.is_empty(),
-                        egui::Button::new(RichText::new(label).size(typography::XS).color(
-                            if is_loading || is_ready {
-                                theme.accent_primary()
+                    let review_btn = if is_loading {
+                        // Loading: no logo, just braille text (still disabled)
+                        ui.add(
+                            egui::Button::new(
+                                RichText::new(label).size(typography::XS).color(text_color),
+                            )
+                            .fill(theme.bg_elevated())
+                            .stroke(egui::Stroke::new(1.0, theme.border_subtle()))
+                            .corner_radius(4.0),
+                        )
+                    } else {
+                        ui.add_enabled(
+                            !self.file_diffs.is_empty(),
+                            egui::Button::image_and_text(
+                                logo,
+                                RichText::new(label).size(typography::XS).color(text_color),
+                            )
+                            .fill(if is_ready {
+                                theme.accent_primary().gamma_multiply(0.12)
                             } else {
-                                theme.text_primary()
-                            },
-                        ))
-                        .fill(if is_ready {
-                            theme.accent_primary().gamma_multiply(0.12)
-                        } else {
-                            theme.bg_elevated()
-                        })
-                        .stroke(egui::Stroke::new(
-                            1.0,
-                            if is_ready {
-                                theme.accent_primary().gamma_multiply(0.3)
-                            } else {
-                                theme.border_subtle()
-                            },
-                        ))
-                        .corner_radius(4.0),
-                    );
-                    if organize_btn.clicked() {
+                                theme.bg_elevated()
+                            })
+                            .stroke(egui::Stroke::new(
+                                1.0,
+                                if is_ready {
+                                    theme.accent_primary().gamma_multiply(0.3)
+                                } else {
+                                    theme.border_subtle()
+                                },
+                            ))
+                            .corner_radius(4.0),
+                        )
+                    };
+                    if review_btn.clicked() {
                         if is_ready {
                             self.walkthrough_state = super::walkthrough::WalkthroughState::Idle;
                         } else {
@@ -1354,9 +1383,153 @@ impl PrReviewPane {
         );
     }
 
+    /// Render the AI review summary card when a walkthrough is ready.
+    fn show_review_card(&mut self, ui: &mut egui::Ui) {
+        let theme = self.theme;
+        let wt = match &self.walkthrough_state {
+            super::walkthrough::WalkthroughState::Ready(wt) => wt.clone(),
+            _ => return,
+        };
+
+        let agent_name = match self.ai_provider {
+            super::AiProvider::Claude => "Claude",
+            super::AiProvider::Codex => "Codex",
+        };
+
+        let card_bg = theme.bg_elevated();
+        let card_stroke = theme.border_subtle();
+
+        egui::Frame::default()
+            .fill(card_bg)
+            .stroke(egui::Stroke::new(1.0, card_stroke))
+            .corner_radius(6.0)
+            .inner_margin(egui::Margin::symmetric(12, 10))
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    // Header: Review by {Agent}
+                    ui.label(
+                        RichText::new(format!("Review by {agent_name}"))
+                            .color(theme.text_primary())
+                            .font(typography::proportional(typography::SM))
+                            .strong(),
+                    );
+
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        // Collapse/expand toggle
+                        let collapse_icon = if self.review_card_collapsed {
+                            egui_nerdfonts::regular::CHEVRON_DOWN
+                        } else {
+                            egui_nerdfonts::regular::CHEVRON_UP
+                        };
+                        let collapse_btn = ui.add(
+                            egui::Button::new(
+                                RichText::new(collapse_icon)
+                                    .size(typography::XS)
+                                    .color(theme.text_secondary()),
+                            )
+                            .fill(egui::Color32::TRANSPARENT)
+                            .stroke(egui::Stroke::NONE),
+                        );
+                        if collapse_btn.clicked() {
+                            self.review_card_collapsed = !self.review_card_collapsed;
+                        }
+
+                        // Dismiss button
+                        let dismiss_btn = ui.add(
+                            egui::Button::new(
+                                RichText::new("Dismiss")
+                                    .size(typography::XS)
+                                    .color(theme.text_secondary()),
+                            )
+                            .fill(egui::Color32::TRANSPARENT)
+                            .stroke(egui::Stroke::NONE),
+                        );
+                        if dismiss_btn.clicked() {
+                            self.walkthrough_state = super::walkthrough::WalkthroughState::Idle;
+                        }
+                    });
+                });
+
+                if !self.review_card_collapsed {
+                    ui.add_space(6.0);
+
+                    // Verdict and risk badges
+                    ui.horizontal(|ui| {
+                        let verdict_color = match wt.verdict {
+                            super::walkthrough::ReviewVerdict::Lgtm => theme.diff_added_text(),
+                            super::walkthrough::ReviewVerdict::NeedsWork => {
+                                theme.diff_removed_text()
+                            }
+                            super::walkthrough::ReviewVerdict::NeedsDiscussion => {
+                                theme.semantic_warning()
+                            }
+                        };
+
+                        ui.label(
+                            RichText::new(wt.verdict.label())
+                                .color(verdict_color)
+                                .font(typography::proportional(typography::XS))
+                                .strong(),
+                        );
+
+                        ui.label(
+                            RichText::new("•")
+                                .color(theme.text_secondary().gamma_multiply(0.5))
+                                .font(typography::proportional(typography::XS)),
+                        );
+
+                        let risk_color = match wt.risk_level {
+                            super::walkthrough::RiskLevel::Low => theme.text_secondary(),
+                            super::walkthrough::RiskLevel::Medium => theme.semantic_warning(),
+                            super::walkthrough::RiskLevel::High => theme.diff_removed_text(),
+                        };
+                        ui.label(
+                            RichText::new(format!("Risk: {}", wt.risk_level.label()))
+                                .color(risk_color)
+                                .font(typography::proportional(typography::XS)),
+                        );
+                    });
+
+                    ui.add_space(6.0);
+
+                    // Summary text
+                    ui.label(
+                        RichText::new(&wt.summary)
+                            .color(theme.text_primary().gamma_multiply(0.85))
+                            .font(typography::proportional(typography::SM)),
+                    );
+
+                    // Top concerns
+                    if !wt.top_concerns.is_empty() {
+                        ui.add_space(6.0);
+                        for concern in &wt.top_concerns {
+                            ui.horizontal(|ui| {
+                                ui.label(
+                                    RichText::new("•")
+                                        .color(theme.diff_removed_text())
+                                        .font(typography::proportional(typography::SM)),
+                                );
+                                ui.label(
+                                    RichText::new(concern)
+                                        .color(theme.text_primary().gamma_multiply(0.8))
+                                        .font(typography::proportional(typography::XS)),
+                                );
+                            });
+                        }
+                    }
+                }
+            });
+
+        ui.add_space(8.0);
+    }
+
     /// Render the Files tab — file list + diff view.
     fn show_files_tab(&mut self, ui: &mut egui::Ui) {
         let theme = self.theme;
+
+        // AI review card (rendered above the split layout)
+        self.show_review_card(ui);
+
         let available_height = (ui.available_height() - 50.0).max(100.0);
         let total_width = ui.available_width();
 

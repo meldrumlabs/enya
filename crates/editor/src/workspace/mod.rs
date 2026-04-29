@@ -669,6 +669,7 @@ impl Workspace {
                     .downcast_mut::<crate::components::PrReviewPane>()
                 {
                     pr_pane.set_token(pr_token.clone());
+                    pr_pane.set_ai_provider(app_state.settings.ai_provider);
                     pr_pane.set_ai_model(app_state.settings.ai_model.clone());
                     pr_pane.set_focused(focused_tile == Some(tile_id));
                     #[cfg(not(target_arch = "wasm32"))]

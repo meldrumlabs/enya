@@ -1282,6 +1282,54 @@ fn render_floating_insight(
             .color(theme.text_primary().gamma_multiply(0.85))
             .font(typography::proportional(typography::XS)),
     );
+
+    // Suggested change code block
+    if let Some(ref change) = insight.suggested_change {
+        ui.add_space(4.0);
+        let code_bg = theme.diff_added_bg().gamma_multiply(0.4);
+        egui::Frame::default()
+            .fill(code_bg)
+            .stroke(egui::Stroke::new(
+                1.0,
+                theme.diff_added_gutter().gamma_multiply(0.2),
+            ))
+            .corner_radius(4.0)
+            .inner_margin(egui::Margin::symmetric(8, 6))
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(
+                        RichText::new("Suggested change")
+                            .color(theme.text_secondary())
+                            .font(typography::proportional(typography::XS))
+                            .strong(),
+                    );
+
+                    // Copy button (pushed to the right)
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        let copy_label = format!("{} Copy", egui_nerdfonts::regular::CONTENT_COPY);
+                        let copy_btn = ui.add(
+                            egui::Button::new(
+                                RichText::new(copy_label)
+                                    .size(typography::XS)
+                                    .color(theme.text_secondary()),
+                            )
+                            .frame(false),
+                        );
+                        if copy_btn.clicked() {
+                            ui.ctx().copy_text(change.clone());
+                        }
+                        copy_btn.on_hover_text("Copy to clipboard");
+                    });
+                });
+                ui.add_space(2.0);
+                ui.label(
+                    RichText::new(change)
+                        .color(theme.diff_added_text())
+                        .font(typography::monospace(typography::XS)),
+                );
+            });
+    }
+
     ui.add_space(4.0);
 }
 

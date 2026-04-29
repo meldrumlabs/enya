@@ -14,6 +14,7 @@ use std::sync::Arc;
 use parking_lot::Mutex;
 
 use crate::AsyncRuntime;
+use crate::components::util::AiProvider;
 use crate::components::util::file_opener::FileOpenerPopup;
 use crate::components::util::next_id_usize;
 use crate::git::api::{
@@ -124,6 +125,8 @@ pub struct PrReviewPane {
     owner: String,
     repo: String,
 
+    /// AI provider from user settings (Claude or Codex).
+    ai_provider: AiProvider,
     /// AI model ID from user settings (e.g. "claude-opus-4-6").
     ai_model: Option<String>,
 
@@ -218,6 +221,12 @@ pub struct PrReviewPane {
     /// Accumulated text from the walkthrough AI response (streamed deltas).
     #[cfg(not(target_arch = "wasm32"))]
     walkthrough_response_text: String,
+
+    // ── Review card ──
+    /// Whether the AI review card is collapsed.
+    review_card_collapsed: bool,
+    /// Dismissed insight hashes for the current PR.
+    dismissed_insights: rustc_hash::FxHashSet<String>,
 
     // ── Description ──
     /// Whether the PR description card is collapsed in the main detail view.
@@ -330,6 +339,7 @@ impl PrReviewPane {
             theme: AppTheme::default(),
             owner: owner.to_string(),
             repo: repo.to_string(),
+            ai_provider: AiProvider::Claude,
             ai_model: None,
             view: PrReviewView::List,
             pull_requests: Vec::new(),
@@ -388,6 +398,8 @@ impl PrReviewPane {
             walkthrough_receiver: None,
             #[cfg(not(target_arch = "wasm32"))]
             walkthrough_response_text: String::new(),
+            review_card_collapsed: false,
+            dismissed_insights: rustc_hash::FxHashSet::default(),
             description_collapsed: true,
             conv_description_collapsed: false,
             collapsed_dirs: rustc_hash::FxHashSet::default(),
@@ -468,6 +480,11 @@ impl PrReviewPane {
             let result = api::get_authenticated_user(&client, &token).await;
             *pending.lock() = Some(result);
         });
+    }
+
+    /// Set the AI provider from user settings.
+    pub fn set_ai_provider(&mut self, provider: AiProvider) {
+        self.ai_provider = provider;
     }
 
     /// Set the AI model ID from user settings.
@@ -584,6 +601,8 @@ struct PrSession {
     description_collapsed: bool,
     markdown_preview: bool,
     selected_file_index: usize,
+    review_card_collapsed: bool,
+    dismissed_insights: Vec<String>,
 }
 
 impl PrReviewPane {
@@ -601,6 +620,8 @@ impl PrReviewPane {
             description_collapsed: self.description_collapsed,
             markdown_preview: self.markdown_preview,
             selected_file_index: self.selected_file_index,
+            review_card_collapsed: self.review_card_collapsed,
+            dismissed_insights: self.dismissed_insights.iter().cloned().collect(),
         }
     }
 
@@ -619,6 +640,8 @@ impl PrReviewPane {
         self.selected_file_index = session
             .selected_file_index
             .min(self.file_diffs.len().saturating_sub(1));
+        self.review_card_collapsed = session.review_card_collapsed;
+        self.dismissed_insights = session.dismissed_insights.into_iter().collect();
     }
 
     /// Compute the filesystem path for a PR session file.
@@ -1260,6 +1283,19 @@ impl PrReviewPane {
         });
     }
 
+    /// Return the AI model ID only if it is valid for the current provider.
+    /// Prevents passing a Claude model ID to Codex (or vice versa) when
+    /// settings have a stale model from a previous provider selection.
+    fn compatible_ai_model(&self) -> Option<&str> {
+        let model_id = self.ai_model.as_deref()?;
+        let valid_models = crate::components::util::ProviderManifest::models_for(self.ai_provider);
+        if valid_models.iter().any(|m| m.model_id() == model_id) {
+            Some(model_id)
+        } else {
+            None
+        }
+    }
+
     /// Request an AI-powered review walkthrough for the current PR.
     #[cfg(not(target_arch = "wasm32"))]
     pub(crate) fn request_walkthrough(&mut self) {
@@ -1273,8 +1309,12 @@ impl PrReviewPane {
             return; // Already in progress
         }
 
-        let prompt =
-            walkthrough::build_walkthrough_prompt(&pr.title, pr.body.as_deref(), &self.file_diffs);
+        let prompt = walkthrough::build_review_prompt(
+            &pr.title,
+            pr.body.as_deref(),
+            &self.file_diffs,
+            self.ai_provider,
+        );
 
         self.walkthrough_state = walkthrough::WalkthroughState::Loading;
         self.walkthrough_response_text.clear();
@@ -1282,7 +1322,8 @@ impl PrReviewPane {
         let receiver = walkthrough::spawn_walkthrough_request(
             &self.async_runtime,
             prompt,
-            self.ai_model.as_deref(),
+            self.compatible_ai_model(),
+            self.ai_provider,
         );
         self.walkthrough_receiver = Some(receiver);
     }
@@ -1907,6 +1948,11 @@ impl PrReviewPane {
                     // v — toggle current file as reviewed ("viewed")
                     if input.consume_key(egui::Modifiers::NONE, egui::Key::V) {
                         self.toggle_current_file_reviewed();
+                    }
+
+                    // r — trigger AI review walkthrough
+                    if input.consume_key(egui::Modifiers::NONE, egui::Key::R) {
+                        self.request_walkthrough();
                     }
 
                     // Shift+R — toggle resolution on the thread nearest the cursor
