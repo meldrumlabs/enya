@@ -1283,19 +1283,6 @@ impl PrReviewPane {
         });
     }
 
-    /// Return the AI model ID only if it is valid for the current provider.
-    /// Prevents passing a Claude model ID to Codex (or vice versa) when
-    /// settings have a stale model from a previous provider selection.
-    fn compatible_ai_model(&self) -> Option<&str> {
-        let model_id = self.ai_model.as_deref()?;
-        let valid_models = crate::components::util::ProviderManifest::models_for(self.ai_provider);
-        if valid_models.iter().any(|m| m.model_id() == model_id) {
-            Some(model_id)
-        } else {
-            None
-        }
-    }
-
     /// Request an AI-powered review walkthrough for the current PR.
     #[cfg(not(target_arch = "wasm32"))]
     pub(crate) fn request_walkthrough(&mut self) {
@@ -1319,10 +1306,13 @@ impl PrReviewPane {
         self.walkthrough_state = walkthrough::WalkthroughState::Loading;
         self.walkthrough_response_text.clear();
 
+        let model = self.ai_model.as_deref().and_then(|id| {
+            crate::components::util::ProviderManifest::model_for_provider(id, self.ai_provider)
+        });
         let receiver = walkthrough::spawn_walkthrough_request(
             &self.async_runtime,
             prompt,
-            self.compatible_ai_model(),
+            model,
             self.ai_provider,
         );
         self.walkthrough_receiver = Some(receiver);

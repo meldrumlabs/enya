@@ -1455,19 +1455,9 @@ impl PrReviewPane {
 
                     // Verdict and risk badges
                     ui.horizontal(|ui| {
-                        let verdict_color = match wt.verdict {
-                            super::walkthrough::ReviewVerdict::Lgtm => theme.diff_added_text(),
-                            super::walkthrough::ReviewVerdict::NeedsWork => {
-                                theme.diff_removed_text()
-                            }
-                            super::walkthrough::ReviewVerdict::NeedsDiscussion => {
-                                theme.semantic_warning()
-                            }
-                        };
-
                         ui.label(
                             RichText::new(wt.verdict.label())
-                                .color(verdict_color)
+                                .color(wt.verdict.theme_color(&theme))
                                 .font(typography::proportional(typography::XS))
                                 .strong(),
                         );
@@ -1478,14 +1468,9 @@ impl PrReviewPane {
                                 .font(typography::proportional(typography::XS)),
                         );
 
-                        let risk_color = match wt.risk_level {
-                            super::walkthrough::RiskLevel::Low => theme.text_secondary(),
-                            super::walkthrough::RiskLevel::Medium => theme.semantic_warning(),
-                            super::walkthrough::RiskLevel::High => theme.diff_removed_text(),
-                        };
                         ui.label(
                             RichText::new(format!("Risk: {}", wt.risk_level.label()))
-                                .color(risk_color)
+                                .color(wt.risk_level.theme_color(&theme))
                                 .font(typography::proportional(typography::XS)),
                         );
                     });

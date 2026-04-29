@@ -177,6 +177,20 @@ impl ProviderManifest {
         model_id.to_string()
     }
 
+    /// Return `model_id` only if it belongs to the given provider.
+    ///
+    /// Prevents passing a Claude model ID to Codex (or vice versa) when
+    /// settings have a stale model from a previous provider selection.
+    #[must_use]
+    pub fn model_for_provider(model_id: &str, provider: AiProvider) -> Option<&str> {
+        let valid_models = Self::models_for(provider);
+        if valid_models.iter().any(|m| m.model_id() == model_id) {
+            Some(model_id)
+        } else {
+            None
+        }
+    }
+
     /// Replace the global manifest with a freshly fetched one.
     #[cfg(not(target_arch = "wasm32"))]
     fn update(new_manifest: ProviderManifest) {

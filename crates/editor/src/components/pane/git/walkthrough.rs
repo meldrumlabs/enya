@@ -52,6 +52,26 @@ impl ReviewVerdict {
             Self::NeedsDiscussion => "Needs Discussion",
         }
     }
+
+    /// Theme color for rendering the verdict badge.
+    pub fn theme_color(self, theme: &crate::ui::theme::AppTheme) -> egui::Color32 {
+        match self {
+            Self::Lgtm => theme.diff_added_text(),
+            Self::NeedsWork => theme.diff_removed_text(),
+            Self::NeedsDiscussion => theme.semantic_warning(),
+        }
+    }
+}
+
+impl RiskLevel {
+    /// Theme color for rendering the risk badge.
+    pub fn theme_color(self, theme: &crate::ui::theme::AppTheme) -> egui::Color32 {
+        match self {
+            Self::Low => theme.text_secondary(),
+            Self::Medium => theme.semantic_warning(),
+            Self::High => theme.diff_removed_text(),
+        }
+    }
 }
 
 /// A logical group of files in the walkthrough (e.g. "Data model", "API layer").
@@ -124,6 +144,36 @@ pub(super) enum WalkthroughState {
     Error(String),
 }
 
+/// Format a single file diff into prompt text.
+fn format_diff_for_prompt(diff: &FileDiff) -> String {
+    let mut out = String::new();
+    out.push_str(&format!("### {}\n```diff\n", diff.path));
+
+    const MAX_LINES: usize = 200;
+    for (i, line) in diff.lines.iter().enumerate() {
+        if i >= MAX_LINES {
+            out.push_str(&format!("... ({} more lines)\n", diff.lines.len() - i));
+            break;
+        }
+        if line.kind == crate::git::diff::DiffLineKind::CollapsedBlock {
+            continue;
+        }
+        let prefix = match line.kind {
+            crate::git::diff::DiffLineKind::Addition => "+",
+            crate::git::diff::DiffLineKind::Deletion => "-",
+            crate::git::diff::DiffLineKind::Context => " ",
+            crate::git::diff::DiffLineKind::HunkHeader => "@@",
+            crate::git::diff::DiffLineKind::FileHeader => "##",
+            crate::git::diff::DiffLineKind::CollapsedBlock => unreachable!(),
+        };
+        out.push_str(prefix);
+        out.push_str(&line.content);
+        out.push('\n');
+    }
+    out.push_str("```\n\n");
+    out
+}
+
 /// Build the prompt for the AI review request.
 ///
 /// The prompt is optimized for Codex (OpenAI) with clear task-oriented
@@ -152,31 +202,8 @@ pub(super) fn build_review_prompt(
     }
 
     prompt.push_str("**Changed files and diffs:**\n\n");
-
     for diff in file_diffs {
-        prompt.push_str(&format!("### {}\n```diff\n", diff.path));
-        let max_lines = 200;
-        for (i, line) in diff.lines.iter().enumerate() {
-            if i >= max_lines {
-                prompt.push_str(&format!("... ({} more lines)\n", diff.lines.len() - i));
-                break;
-            }
-            if line.kind == crate::git::diff::DiffLineKind::CollapsedBlock {
-                continue;
-            }
-            let prefix = match line.kind {
-                crate::git::diff::DiffLineKind::Addition => "+",
-                crate::git::diff::DiffLineKind::Deletion => "-",
-                crate::git::diff::DiffLineKind::Context => " ",
-                crate::git::diff::DiffLineKind::HunkHeader => "@@",
-                crate::git::diff::DiffLineKind::FileHeader => "##",
-                crate::git::diff::DiffLineKind::CollapsedBlock => unreachable!(),
-            };
-            prompt.push_str(prefix);
-            prompt.push_str(&line.content);
-            prompt.push('\n');
-        }
-        prompt.push_str("```\n\n");
+        prompt.push_str(&format_diff_for_prompt(diff));
     }
 
     prompt.push_str(
@@ -233,6 +260,107 @@ Guidelines:
     prompt
 }
 
+/// Parse verdict from JSON string.
+fn parse_verdict(value: &serde_json::Value) -> ReviewVerdict {
+    match value.as_str().unwrap_or("Needs Discussion") {
+        "LGTM" | "lgtm" => ReviewVerdict::Lgtm,
+        "Needs Work" | "needs_work" | "needs work" => ReviewVerdict::NeedsWork,
+        _ => ReviewVerdict::NeedsDiscussion,
+    }
+}
+
+/// Parse risk level from JSON string.
+fn parse_risk_level(value: &serde_json::Value) -> RiskLevel {
+    match value.as_str().unwrap_or("Medium") {
+        "Low" | "low" => RiskLevel::Low,
+        "High" | "high" => RiskLevel::High,
+        _ => RiskLevel::Medium,
+    }
+}
+
+/// Parse string array from JSON value.
+fn parse_string_array(value: &serde_json::Value) -> Vec<String> {
+    value
+        .as_array()
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Parse file groups from JSON array.
+fn parse_groups(value: &serde_json::Value) -> Vec<WalkthroughGroup> {
+    value
+        .as_array()
+        .map(|arr| {
+            arr.iter()
+                .map(|g| WalkthroughGroup {
+                    label: g["label"].as_str().unwrap_or("Other").to_string(),
+                    files: g["files"]
+                        .as_array()
+                        .map(|arr| {
+                            arr.iter()
+                                .filter_map(|v| v.as_str().map(String::from))
+                                .collect()
+                        })
+                        .unwrap_or_default(),
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Parse annotations map from JSON object.
+fn parse_annotations(value: &serde_json::Value) -> FxHashMap<String, String> {
+    let mut map = FxHashMap::default();
+    if let Some(obj) = value.as_object() {
+        for (path, desc) in obj {
+            if let Some(s) = desc.as_str() {
+                map.insert(path.clone(), s.to_string());
+            }
+        }
+    }
+    map
+}
+
+/// Parse insight kind from JSON string.
+fn parse_insight_kind(value: &serde_json::Value) -> InsightKind {
+    match value.as_str().unwrap_or("context") {
+        "key_change" => InsightKind::KeyChange,
+        "concern" => InsightKind::Concern,
+        "suggestion" => InsightKind::Suggestion,
+        _ => InsightKind::Context,
+    }
+}
+
+/// Parse insights array from JSON.
+fn parse_insights(value: &serde_json::Value) -> Vec<LineInsight> {
+    value
+        .as_array()
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|item| {
+                    let file = item["file"].as_str().unwrap_or_default().to_string();
+                    let line = item["line"].as_u64().unwrap_or(0) as usize;
+                    let text = item["text"].as_str().unwrap_or_default().to_string();
+                    if file.is_empty() || line == 0 || text.is_empty() {
+                        return None;
+                    }
+                    Some(LineInsight {
+                        file,
+                        line,
+                        kind: parse_insight_kind(&item["kind"]),
+                        text,
+                        suggested_change: item["suggested_change"].as_str().map(String::from),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 /// Parse the AI response JSON into a `ReviewWalkthrough`.
 #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
 pub(super) fn parse_walkthrough_response(response: &str) -> Result<ReviewWalkthrough, String> {
@@ -241,94 +369,22 @@ pub(super) fn parse_walkthrough_response(response: &str) -> Result<ReviewWalkthr
     let value: serde_json::Value =
         serde_json::from_str(json_str).map_err(|e| format!("Failed to parse JSON: {e}"))?;
 
-    let summary = value["summary"]
-        .as_str()
-        .unwrap_or("No summary provided")
-        .to_string();
-
-    let verdict = match value["verdict"].as_str().unwrap_or("Needs Discussion") {
-        "LGTM" | "lgtm" => ReviewVerdict::Lgtm,
-        "Needs Work" | "needs_work" | "needs work" => ReviewVerdict::NeedsWork,
-        _ => ReviewVerdict::NeedsDiscussion,
-    };
-
-    let risk_level = match value["risk_level"].as_str().unwrap_or("Medium") {
-        "Low" | "low" => RiskLevel::Low,
-        "High" | "high" => RiskLevel::High,
-        _ => RiskLevel::Medium,
-    };
-
-    let mut top_concerns = Vec::new();
-    if let Some(arr) = value["top_concerns"].as_array() {
-        for item in arr {
-            if let Some(s) = item.as_str() {
-                top_concerns.push(s.to_string());
-            }
-        }
-    }
-
-    let mut groups = Vec::new();
-    if let Some(groups_arr) = value["groups"].as_array() {
-        for g in groups_arr {
-            let label = g["label"].as_str().unwrap_or("Other").to_string();
-            let files = g["files"]
-                .as_array()
-                .map(|arr| {
-                    arr.iter()
-                        .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                        .collect()
-                })
-                .unwrap_or_default();
-            groups.push(WalkthroughGroup { label, files });
-        }
-    }
-
-    let mut annotations = FxHashMap::default();
-    if let Some(ann_obj) = value["annotations"].as_object() {
-        for (path, desc) in ann_obj {
-            if let Some(s) = desc.as_str() {
-                annotations.insert(path.clone(), s.to_string());
-            }
-        }
-    }
-
-    let mut insights = Vec::new();
-    if let Some(insights_arr) = value["insights"].as_array() {
-        for item in insights_arr {
-            let file = item["file"].as_str().unwrap_or_default().to_string();
-            let line = item["line"].as_u64().unwrap_or(0) as usize;
-            let kind = match item["kind"].as_str().unwrap_or("context") {
-                "key_change" => InsightKind::KeyChange,
-                "concern" => InsightKind::Concern,
-                "suggestion" => InsightKind::Suggestion,
-                _ => InsightKind::Context,
-            };
-            let text = item["text"].as_str().unwrap_or_default().to_string();
-            let suggested_change = item["suggested_change"].as_str().map(|s| s.to_string());
-            if !file.is_empty() && line > 0 && !text.is_empty() {
-                insights.push(LineInsight {
-                    file,
-                    line,
-                    kind,
-                    text,
-                    suggested_change,
-                });
-            }
-        }
-    }
-
+    let groups = parse_groups(&value["groups"]);
     if groups.is_empty() {
         return Err("No file groups found in response".to_string());
     }
 
     Ok(ReviewWalkthrough {
-        summary,
-        verdict,
-        risk_level,
-        top_concerns,
+        summary: value["summary"]
+            .as_str()
+            .unwrap_or("No summary provided")
+            .to_string(),
+        verdict: parse_verdict(&value["verdict"]),
+        risk_level: parse_risk_level(&value["risk_level"]),
+        top_concerns: parse_string_array(&value["top_concerns"]),
         groups,
-        annotations,
-        insights,
+        annotations: parse_annotations(&value["annotations"]),
+        insights: parse_insights(&value["insights"]),
     })
 }
 
