@@ -306,7 +306,9 @@ impl Workspace {
             }
 
             // t - time range leader key (t5, t1, t3, th, t6, td, tw)
-            if input.consume_key(egui::Modifiers::NONE, egui::Key::T) {
+            // Skip when focused pane handles its own navigation (e.g. PR review
+            // pane uses t to toggle the file tree panel).
+            if !focused_pane_handles_nav && input.consume_key(egui::Modifiers::NONE, egui::Key::T) {
                 self.leader_keys.press_t();
                 consumed = true;
                 return;

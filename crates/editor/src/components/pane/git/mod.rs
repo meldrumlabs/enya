@@ -1869,9 +1869,40 @@ impl PrReviewPane {
                     }
                 }
                 PrReviewView::Detail => {
-                    // Consume x/u in detail view to prevent accidental pane close
+                    // Consume x in detail view to prevent accidental pane close
                     input.consume_key(egui::Modifiers::NONE, egui::Key::X);
-                    input.consume_key(egui::Modifiers::NONE, egui::Key::U);
+
+                    // u — toggle "show only unresolved" filter
+                    if input.consume_key(egui::Modifiers::NONE, egui::Key::U) {
+                        self.show_only_unresolved = !self.show_only_unresolved;
+                    }
+
+                    // t — toggle file tree panel collapse
+                    if input.consume_key(egui::Modifiers::NONE, egui::Key::T) {
+                        self.file_panel_collapsed = !self.file_panel_collapsed;
+                        self.file_panel_auto_collapsed = false;
+                    }
+
+                    // m — toggle markdown preview (only for markdown files)
+                    if input.consume_key(egui::Modifiers::NONE, egui::Key::M) {
+                        if let Some(file_diff) = self.file_diffs.get(self.selected_file_index) {
+                            let is_md = file_diff.path.ends_with(".md")
+                                || file_diff.path.ends_with(".mdx")
+                                || file_diff.path.ends_with(".markdown");
+                            if is_md {
+                                self.markdown_preview = !self.markdown_preview;
+                                self.markdown_scroll_y = 0.0;
+                                self.markdown_content_cache = None;
+                            }
+                        }
+                    }
+
+                    // Shift+V — mark all files as reviewed
+                    if input.consume_key(egui::Modifiers::SHIFT, egui::Key::V) {
+                        for file_diff in &self.file_diffs {
+                            self.reviewed_files.insert(file_diff.path.clone());
+                        }
+                    }
 
                     // v — toggle current file as reviewed ("viewed")
                     if input.consume_key(egui::Modifiers::NONE, egui::Key::V) {
@@ -1958,7 +1989,11 @@ impl PrReviewPane {
                             self.pending_open_file_opener = true;
                         }
                         DiffKeyAction::CopySelected => {
-                            // Copy selected text if any
+                            if let Some(file_diff) = self.file_diffs.get(self.selected_file_index) {
+                                if let Some(text) = self.diff_renderer.copy_selected(file_diff) {
+                                    ctx.copy_text(text);
+                                }
+                            }
                         }
                         DiffKeyAction::CommentOnSelected => {
                             // Open comment input on the selected line, or the line

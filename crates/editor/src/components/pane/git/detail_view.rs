@@ -1318,6 +1318,32 @@ impl PrReviewPane {
                     );
 
                     ui.label(
+                        RichText::new("tree")
+                            .color(key_color)
+                            .font(label_font.clone()),
+                    );
+                    ui.label(RichText::new("t").color(key_color).font(key_font.clone()));
+
+                    ui.label(
+                        RichText::new("\u{2022}")
+                            .color(sep_color)
+                            .font(label_font.clone()),
+                    );
+
+                    ui.label(
+                        RichText::new("unresolved")
+                            .color(key_color)
+                            .font(label_font.clone()),
+                    );
+                    ui.label(RichText::new("u").color(key_color).font(key_font.clone()));
+
+                    ui.label(
+                        RichText::new("\u{2022}")
+                            .color(sep_color)
+                            .font(label_font.clone()),
+                    );
+
+                    ui.label(
                         RichText::new("resolve")
                             .color(key_color)
                             .font(label_font.clone()),
