@@ -251,6 +251,8 @@ impl PrReviewPane {
     /// Render the PR detail view.
     pub(super) fn show_detail_view(&mut self, ui: &mut egui::Ui) {
         let theme = self.theme;
+        let total_width = ui.available_width();
+        let narrow = total_width < 600.0;
 
         // ── Row 1: PR identity + context ────────────────────────────────
         ui.add_space(4.0);
@@ -469,7 +471,16 @@ impl PrReviewPane {
 
                 // ── Submit Review button (consolidated) ──
                 let draft_count = self.draft_comments.len();
-                let submit_label = if draft_count > 0 {
+                let submit_label = if narrow {
+                    if draft_count > 0 {
+                        format!(
+                            "Review ({draft_count}) {}",
+                            egui_nerdfonts::regular::CHEVRON_DOWN
+                        )
+                    } else {
+                        format!("Review {}", egui_nerdfonts::regular::CHEVRON_DOWN)
+                    }
+                } else if draft_count > 0 {
                     format!(
                         "Submit Review ({draft_count}) {}",
                         egui_nerdfonts::regular::CHEVRON_DOWN
@@ -532,7 +543,7 @@ impl PrReviewPane {
                 ui.add_space(4.0);
 
                 // ── Organize button ──
-                {
+                if !narrow {
                     const BRAILLE_FRAMES: [char; 10] =
                         ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 
@@ -599,7 +610,7 @@ impl PrReviewPane {
                 if total_files > 0 {
                     ui.add_space(8.0);
                     let fraction = reviewed_count as f32 / total_files as f32;
-                    let bar_width = 60.0;
+                    let bar_width = if narrow { 40.0 } else { 60.0 };
                     let bar_height = 4.0;
                     let (bar_rect, _) = ui.allocate_exact_size(
                         egui::vec2(bar_width, bar_height),
@@ -619,16 +630,18 @@ impl PrReviewPane {
                     };
                     ui.painter().rect_filled(fill_rect, 2.0, fill_color);
 
-                    ui.add_space(4.0);
-                    ui.label(
-                        RichText::new(format!("{reviewed_count}/{total_files}"))
-                            .color(if reviewed_count == total_files {
-                                theme.diff_added_gutter()
-                            } else {
-                                theme.text_secondary()
-                            })
-                            .font(typography::proportional(typography::XS)),
-                    );
+                    if !narrow {
+                        ui.add_space(4.0);
+                        ui.label(
+                            RichText::new(format!("{reviewed_count}/{total_files}"))
+                                .color(if reviewed_count == total_files {
+                                    theme.diff_added_gutter()
+                                } else {
+                                    theme.text_secondary()
+                                })
+                                .font(typography::proportional(typography::XS)),
+                        );
+                    }
                 }
             });
         });
@@ -1183,29 +1196,19 @@ impl PrReviewPane {
             |ui| {
                 ui.add_space(16.0);
 
-                // Current file path (breadcrumb style)
+                // Current file name only — the full path is already shown in the
+                // diff header toolbar, so repeating it here risks overlapping the
+                // keyboard hints on narrow panes.
                 if let Some(file_diff) = self.file_diffs.get(self.selected_file_index) {
-                    if let Some(slash_pos) = file_diff.path.rfind('/') {
-                        let parent = &file_diff.path[..=slash_pos];
-                        let filename = &file_diff.path[slash_pos + 1..];
-                        ui.label(
-                            RichText::new(parent)
-                                .color(theme.text_secondary().gamma_multiply(0.5))
-                                .font(typography::monospace(typography::XS)),
-                        );
-                        ui.add_space(-4.0);
-                        ui.label(
-                            RichText::new(filename)
-                                .color(theme.text_secondary())
-                                .font(typography::monospace(typography::XS)),
-                        );
-                    } else {
-                        ui.label(
-                            RichText::new(&file_diff.path)
-                                .color(theme.text_secondary())
-                                .font(typography::monospace(typography::XS)),
-                        );
-                    }
+                    let name = file_diff
+                        .path
+                        .rfind('/')
+                        .map_or(file_diff.path.as_str(), |pos| &file_diff.path[pos + 1..]);
+                    ui.label(
+                        RichText::new(name)
+                            .color(theme.text_secondary())
+                            .font(typography::monospace(typography::XS)),
+                    );
                 }
 
                 // Right-side keybinding hints with grouped styling
@@ -1331,6 +1334,15 @@ impl PrReviewPane {
         let available_height = (ui.available_height() - 50.0).max(100.0);
         let total_width = ui.available_width();
 
+        // Auto-collapse/expand file panel based on pane width.
+        if total_width < 700.0 && !self.file_panel_collapsed && !self.file_panel_auto_collapsed {
+            self.file_panel_collapsed = true;
+            self.file_panel_auto_collapsed = true;
+        } else if total_width >= 750.0 && self.file_panel_auto_collapsed {
+            self.file_panel_collapsed = false;
+            self.file_panel_auto_collapsed = false;
+        }
+
         if self.file_panel_collapsed {
             // Collapsed: show a thin expand button + full-width diff
             let toggle_width = 24.0;
@@ -1354,6 +1366,7 @@ impl PrReviewPane {
                         );
                         if btn.clicked() {
                             self.file_panel_collapsed = false;
+                            self.file_panel_auto_collapsed = false;
                         }
                         btn.on_hover_text("Show file tree");
                     },
@@ -1377,7 +1390,8 @@ impl PrReviewPane {
                 );
             });
         } else {
-            let file_panel_width = (total_width * 0.28).clamp(180.0, 320.0);
+            let min_panel = if total_width < 900.0 { 140.0 } else { 180.0 };
+            let file_panel_width = (total_width * 0.28).clamp(min_panel, 320.0);
             let diff_width = (total_width - file_panel_width - 12.0).max(200.0);
 
             ui.horizontal(|ui| {
@@ -1486,6 +1500,7 @@ impl PrReviewPane {
                     );
                     if collapse_btn.clicked() {
                         self.file_panel_collapsed = true;
+                        self.file_panel_auto_collapsed = false;
                     }
                     collapse_btn.on_hover_text("Hide file tree");
 

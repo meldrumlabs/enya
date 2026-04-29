@@ -232,6 +232,8 @@ pub struct PrReviewPane {
     file_tree_scroll_to_selected: bool,
     /// Whether the file panel is collapsed (hidden) for full-width diff view.
     file_panel_collapsed: bool,
+    /// Whether the file panel was auto-collapsed due to narrow pane width.
+    file_panel_auto_collapsed: bool,
 
     // ── Seen comments ──
     /// Comment IDs that the user has "seen" (by viewing the file containing them).
@@ -391,6 +393,7 @@ impl PrReviewPane {
             collapsed_dirs: rustc_hash::FxHashSet::default(),
             file_tree_scroll_to_selected: false,
             file_panel_collapsed: false,
+            file_panel_auto_collapsed: false,
             seen_comment_ids: rustc_hash::FxHashSet::default(),
             expanded_comment_files: rustc_hash::FxHashSet::default(),
             resolved_thread_lines: rustc_hash::FxHashSet::default(),
