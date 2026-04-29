@@ -918,22 +918,39 @@ fn build_floating_items(
 
     // Insight-only items (lines with AI insights but no comments/drafts/compose)
     for insight in file_insights {
-        if !seen_lines.contains(&insight.line) {
-            // Only add if the line exists in the current diff view
-            if let Some(&(idx, _, _)) = line_y_positions
+        if seen_lines.contains(&insight.line) {
+            continue;
+        }
+        // Try exact line match first
+        let exact = line_y_positions
+            .iter()
+            .find(|(_, ln, _)| *ln == insight.line)
+            .copied();
+        // Fallback: snap to the nearest rendered line (closest line number)
+        let matched = exact.or_else(|| {
+            line_y_positions
                 .iter()
-                .find(|(_, ln, _)| *ln == insight.line)
-            {
-                seen_lines.insert(insight.line);
-                items.push(FloatingItem {
-                    line_num: insight.line,
-                    line_idx: idx,
-                    thread: None,
-                    drafts: Vec::new(),
-                    is_composing: false,
-                    insight: Some(insight.clone()),
-                });
+                .min_by_key(|(_, ln, _)| ln.abs_diff(insight.line))
+                .copied()
+        });
+        if let Some((idx, snap_ln, _)) = matched {
+            if exact.is_none() {
+                log::debug!(
+                    "Insight for {} line {} snapped to nearest rendered line {}",
+                    insight.file,
+                    insight.line,
+                    snap_ln
+                );
             }
+            seen_lines.insert(insight.line);
+            items.push(FloatingItem {
+                line_num: snap_ln,
+                line_idx: idx,
+                thread: None,
+                drafts: Vec::new(),
+                is_composing: false,
+                insight: Some(insight.clone()),
+            });
         }
     }
 
