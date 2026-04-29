@@ -158,17 +158,39 @@ fn format_diff_for_prompt(diff: &FileDiff) -> String {
         if line.kind == crate::git::diff::DiffLineKind::CollapsedBlock {
             continue;
         }
-        let prefix = match line.kind {
-            crate::git::diff::DiffLineKind::Addition => "+",
-            crate::git::diff::DiffLineKind::Deletion => "-",
-            crate::git::diff::DiffLineKind::Context => " ",
-            crate::git::diff::DiffLineKind::HunkHeader => "@@",
-            crate::git::diff::DiffLineKind::FileHeader => "##",
-            crate::git::diff::DiffLineKind::CollapsedBlock => unreachable!(),
-        };
-        out.push_str(prefix);
-        out.push_str(&line.content);
-        out.push('\n');
+
+        match line.kind {
+            crate::git::diff::DiffLineKind::HunkHeader => {
+                out.push_str("@@ ");
+                out.push_str(&line.content);
+                out.push('\n');
+            }
+            crate::git::diff::DiffLineKind::FileHeader => {
+                out.push_str("## ");
+                out.push_str(&line.content);
+                out.push('\n');
+            }
+            _ => {
+                // Prefix with new-file line number when available so the AI
+                // can reference exact line numbers for insights.
+                let prefix = match line.kind {
+                    crate::git::diff::DiffLineKind::Addition => "+",
+                    crate::git::diff::DiffLineKind::Deletion => "-",
+                    crate::git::diff::DiffLineKind::Context => " ",
+                    _ => unreachable!(),
+                };
+                if let Some(ln) = line.new_line_num {
+                    out.push_str(&format!(
+                        "{prefix} {ln:>4} |{content}\n",
+                        content = &line.content
+                    ));
+                } else {
+                    out.push_str(prefix);
+                    out.push_str(&line.content);
+                    out.push('\n');
+                }
+            }
+        }
     }
     out.push_str("```\n\n");
     out
@@ -246,7 +268,7 @@ Guidelines:
 - Every changed file must appear in exactly one group.
 - Keep annotations concise (under 100 chars).
 - For insights: target 2-5 per file (more for complex files, fewer for trivial ones).
-- Insight line numbers MUST be new-file line numbers from the @@ +N,count @@ hunk headers.
+- Insight line numbers MUST match the line numbers shown in the left margin of the diff (e.g. "  42 |").
 - Use "key_change" for the most important modifications worth understanding.
 - Use "concern" for potential bugs, edge cases, or issues worth flagging.
 - Use "suggestion" for possible improvements.
