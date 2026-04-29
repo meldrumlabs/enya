@@ -29,7 +29,7 @@ struct FloatingCardAction {
 }
 
 /// Minimum pane width to enable floating comment gutter.
-const FLOATING_MIN_WIDTH: f32 = 700.0;
+const FLOATING_MIN_WIDTH: f32 = 520.0;
 
 /// Width of the floating comment gutter.
 const GUTTER_WIDTH: f32 = 300.0;
@@ -60,6 +60,12 @@ impl PrReviewPane {
         let Some(file_diff) = self.file_diffs.get(self.selected_file_index) else {
             return;
         };
+
+        // Auto-switch to stacked view when the diff area is too narrow.
+        let diff_width = ui.available_width();
+        if diff_width < 450.0 && self.diff_renderer.split_view() {
+            self.diff_renderer.set_split_view(false);
+        }
 
         // ── File path header toolbar ──────────────────────────────────────
         ui.add_space(6.0);
