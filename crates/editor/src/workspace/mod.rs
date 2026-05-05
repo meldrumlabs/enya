@@ -1096,7 +1096,9 @@ impl Workspace {
 
         {
             // Main area with toolbar and viewport
-            egui::CentralPanel::default().show_inside(ui, |ui| {
+            egui::CentralPanel::default()
+                .frame(egui::Frame::central_panel(ui.style()).inner_margin(0.0))
+                .show_inside(ui, |ui| {
             // Top toolbar with filter (left) and time range controls (right)
             // Hidden in zen mode or when workspace is empty (landing page shows its own hints)
             let total_panes = self.get_pane_tile_ids().len();

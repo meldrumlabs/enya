@@ -1118,59 +1118,62 @@ impl EnyaApp {
             ctx.data_mut(|d| d.insert_temp(egui::Id::new("sidebar_width"), 0.0_f32));
         }
 
-        egui::CentralPanel::default().show(ctx, |ui| {
-            // Project sidebar (left panel) — rendered inside CentralPanel so it
-            // matches the agent panel's height (doesn't touch titlebar/statusbar)
-            if show_sidebar {
-                self.project_sidebar.set_theme(self.effective_theme());
-                self.project_sidebar.set_active_workspace_with_project(
-                    self.workspace.loaded_name(),
-                    self.workspace.loaded_project(),
-                );
-                self.project_sidebar
-                    .refresh_workspaces(&self.state.settings);
-                sidebar_result = self.project_sidebar.show(ui, ctx);
-            }
-            // Update active theme colors (only for custom plugin themes)
-            if self.resolved_custom_theme.is_some() {
-                self.workspace
-                    .set_active_colors(self.effective_theme().active_colors());
-            } else {
-                self.workspace.clear_active_colors();
-            }
-
-            workspace_action = self.workspace.show(ui, ctx, &self.state);
-
-            // Poll for pane interactions (e.g., chart drilldown clicks)
-            self.workspace.poll_pane_interactions();
-
-            // Poll for community plugin actions (native only)
-            #[cfg(not(target_arch = "wasm32"))]
-            {
-                if self.workspace.take_pending_refresh_plugins() {
-                    self.refresh_community_plugins();
+        egui::CentralPanel::default()
+            .frame(egui::Frame::central_panel(&ctx.style()).inner_margin(0.0))
+            .show(ctx, |ui| {
+                // Project sidebar (left panel) — rendered inside CentralPanel so it
+                // matches the agent panel's height (doesn't touch titlebar/statusbar)
+                if show_sidebar {
+                    self.project_sidebar.set_theme(self.effective_theme());
+                    self.project_sidebar.set_active_workspace_with_project(
+                        self.workspace.loaded_name(),
+                        self.workspace.loaded_project(),
+                    );
+                    self.project_sidebar
+                        .refresh_workspaces(&self.state.settings);
+                    sidebar_result = self.project_sidebar.show(ui, ctx);
                 }
-                // Delay plugin installation by one frame to allow spinner to render
-                if self.workspace.has_pending_install_plugin() {
-                    if self.install_plugin_ready {
-                        // Second frame: actually install
-                        if let Some((name, file)) = self.workspace.take_pending_install_plugin() {
-                            self.install_community_plugin(&name, &file);
+                // Update active theme colors (only for custom plugin themes)
+                if self.resolved_custom_theme.is_some() {
+                    self.workspace
+                        .set_active_colors(self.effective_theme().active_colors());
+                } else {
+                    self.workspace.clear_active_colors();
+                }
+
+                workspace_action = self.workspace.show(ui, ctx, &self.state);
+
+                // Poll for pane interactions (e.g., chart drilldown clicks)
+                self.workspace.poll_pane_interactions();
+
+                // Poll for community plugin actions (native only)
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    if self.workspace.take_pending_refresh_plugins() {
+                        self.refresh_community_plugins();
+                    }
+                    // Delay plugin installation by one frame to allow spinner to render
+                    if self.workspace.has_pending_install_plugin() {
+                        if self.install_plugin_ready {
+                            // Second frame: actually install
+                            if let Some((name, file)) = self.workspace.take_pending_install_plugin()
+                            {
+                                self.install_community_plugin(&name, &file);
+                            }
+                            self.install_plugin_ready = false;
+                        } else {
+                            // First frame: just set ready flag, let UI render spinner
+                            self.install_plugin_ready = true;
                         }
-                        self.install_plugin_ready = false;
-                    } else {
-                        // First frame: just set ready flag, let UI render spinner
-                        self.install_plugin_ready = true;
+                    }
+                    // Handle plugin removal
+                    if self.workspace.has_pending_remove_plugin() {
+                        if let Some(name) = self.workspace.take_pending_remove_plugin() {
+                            self.remove_plugin(&name);
+                        }
                     }
                 }
-                // Handle plugin removal
-                if self.workspace.has_pending_remove_plugin() {
-                    if let Some(name) = self.workspace.take_pending_remove_plugin() {
-                        self.remove_plugin(&name);
-                    }
-                }
-            }
-        });
+            });
 
         // Handle sidebar results (after CentralPanel so we can mutate app state)
         match sidebar_result {

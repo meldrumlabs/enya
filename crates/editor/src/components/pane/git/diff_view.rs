@@ -39,6 +39,8 @@ const GUTTER_GAP: f32 = 8.0;
 
 /// Minimum vertical gap between stacked floating cards.
 const CARD_GAP: f32 = 6.0;
+/// Floating card corner radius.
+const CARD_CORNER_RADIUS: u8 = 6;
 
 impl PrReviewPane {
     /// Render the diff view for the currently selected file.
@@ -431,8 +433,6 @@ impl PrReviewPane {
             // Capture line positions after the diff renders
             let line_y_positions: Vec<(usize, usize, f32)> =
                 self.diff_renderer.line_y_positions().to_vec();
-            let content_origin = self.diff_renderer.last_content_origin();
-            let scroll_y = self.diff_renderer.scroll_offset_y();
             let line_height = self.diff_renderer.line_height();
 
             // Vertical separator
@@ -444,8 +444,6 @@ impl PrReviewPane {
             );
 
             // ── Right column: floating comment gutter ────────────────────
-            // Compute the Y offset between the gutter column top and the diff's
-            // scroll-area viewport so cards line up with visible diff lines.
             ui.allocate_ui_with_layout(
                 egui::vec2(gutter_width, available_height),
                 egui::Layout::top_down(egui::Align::LEFT),
@@ -461,15 +459,11 @@ impl PrReviewPane {
 
                     // The gutter column top in screen coords.
                     let gutter_top = ui.max_rect().top();
-                    // Offset: how far below gutter_top the diff's visible content begins.
-                    let y_offset = content_origin.y - gutter_top;
 
                     let cards = layout_floating_cards(
                         &items,
                         &line_y_positions,
-                        scroll_y,
-                        content_origin,
-                        content_origin.y,
+                        gutter_top,
                         &self.floating_card_heights,
                     );
 
@@ -491,10 +485,19 @@ impl PrReviewPane {
 
                     for (i, item) in items.iter().enumerate() {
                         let card = &cards[i];
-                        let card_y = gutter_top + y_offset + card.actual_y;
+                        let estimated_h =
+                            estimate_floating_item_height(item, &self.floating_card_heights)
+                                .max(24.0);
+                        let raw_card_y = gutter_top + card.actual_y;
+
+                        let min_card_y = gutter_top + 2.0;
+                        let max_card_y = (gutter_bottom - estimated_h - 4.0).max(min_card_y);
+                        let card_y = raw_card_y.min(max_card_y).max(min_card_y);
 
                         // Skip cards fully outside the visible gutter area
-                        if card_y > gutter_bottom || card_y + 200.0 < gutter_top {
+                        if raw_card_y > gutter_bottom + estimated_h
+                            || raw_card_y + estimated_h < gutter_top
+                        {
                             continue;
                         }
 
@@ -515,7 +518,7 @@ impl PrReviewPane {
 
                         // ── Anchor connector ──
                         let connector_color = card_accent.gamma_multiply(0.15);
-                        let ideal_screen_y = gutter_top + y_offset + card.ideal_y;
+                        let ideal_screen_y = gutter_top + card.ideal_y;
                         if (card.actual_y - card.ideal_y).abs() > 4.0 {
                             let anchor_y = ideal_screen_y + line_height / 2.0;
                             let card_center_y = card_y + 12.0;
@@ -550,26 +553,10 @@ impl PrReviewPane {
 
                         // ── Card content (height-clamped to gutter bottom) ──
 
-                        // Soft drop shadow — proper blurred falloff so the
-                        // card reads as floating instead of sitting flat on
-                        // the gutter bg. The card rect itself is the source;
-                        // Shadow::as_shape returns a pre-blurred rectshape.
                         let card_rect = egui::Rect::from_min_size(
                             egui::pos2(card_left + 6.0, card_y + 2.0),
                             egui::vec2(card_content_width - 14.0, max_card_h),
                         );
-                        let shadow = egui::epaint::Shadow {
-                            offset: [0, 4],
-                            blur: 14,
-                            spread: 0,
-                            color: egui::Color32::from_black_alpha(55),
-                        };
-                        clipped_painter.add(egui::Shape::from(
-                            shadow.as_shape(card_rect, egui::CornerRadius::same(6)),
-                        ));
-                        // Light elevated surface under the card so the shadow
-                        // has something visible to "lift" from.
-                        clipped_painter.rect_filled(card_rect, 6.0, theme.bg_elevated());
 
                         let accent_shape_idx = clipped_painter.add(egui::Shape::Noop);
 
@@ -585,19 +572,8 @@ impl PrReviewPane {
                         // Render AI insight section (above any comments)
                         if let Some(ref insight) = item.insight {
                             render_floating_insight(&mut card_ui, theme, insight);
-                            // Add separator if there are also comments below
                             if item.thread.is_some() || !item.drafts.is_empty() || item.is_composing
                             {
-                                card_ui.add_space(4.0);
-                                let sep_rect = card_ui.available_rect_before_wrap();
-                                card_ui.painter().hline(
-                                    sep_rect.x_range(),
-                                    card_ui.cursor().top(),
-                                    egui::Stroke::new(
-                                        0.5,
-                                        theme.border_subtle().gamma_multiply(0.5),
-                                    ),
-                                );
                                 card_ui.add_space(4.0);
                             }
                         }
@@ -639,9 +615,8 @@ impl PrReviewPane {
                             }
                         }
 
-                        let card_end_y = card_ui.cursor().top();
-                        let actual_card_height =
-                            (card_end_y - card_start_y).max(20.0).min(max_card_h);
+                        let actual_card_height = (card_ui.cursor().top() - card_start_y).max(20.0);
+                        let actual_card_height = actual_card_height.min(max_card_h);
 
                         // Record measured height so next frame's layout avoids overlap
                         self.floating_card_heights
@@ -677,6 +652,25 @@ impl PrReviewPane {
                     }
                     if let Some((path, line)) = pending_resolve {
                         self.toggle_thread_resolved(path, line);
+                    }
+
+                    // Allow wheel scrolling while hovering the floating gutter:
+                    // forward wheel deltas to the diff scroll state.
+                    if ui.rect_contains_pointer(clip_rect) {
+                        let wheel_y = ui.ctx().input(|i| {
+                            if i.smooth_scroll_delta.y.abs() > f32::EPSILON {
+                                i.smooth_scroll_delta.y
+                            } else {
+                                i.raw_scroll_delta.y
+                            }
+                        });
+                        if wheel_y > 0.0 {
+                            self.diff_renderer.scroll_up(wheel_y);
+                            ui.ctx().request_repaint();
+                        } else if wheel_y < 0.0 {
+                            self.diff_renderer.scroll_down(-wheel_y);
+                            ui.ctx().request_repaint();
+                        }
                     }
                 },
             );
@@ -965,8 +959,6 @@ fn build_floating_items(
 fn layout_floating_cards(
     items: &[FloatingItem],
     line_y_positions: &[(usize, usize, f32)],
-    scroll_y: f32,
-    content_origin: egui::Pos2,
     gutter_top: f32,
     last_actual_heights: &rustc_hash::FxHashMap<usize, f32>,
 ) -> Vec<LayoutCard> {
@@ -977,33 +969,10 @@ fn layout_floating_cards(
         let ideal_y = line_y_positions
             .iter()
             .find(|(_, ln, _)| *ln == item.line_num)
-            .map(|(_, _, y)| *y - scroll_y + content_origin.y - gutter_top)
+            .map(|(_, _, y)| *y - gutter_top)
             .unwrap_or(0.0);
 
-        // Use the measured height from the previous frame if available,
-        // otherwise use a generous estimate to avoid overlap.
-        let estimated_height = if let Some(&h) = last_actual_heights.get(&item.line_num) {
-            h + 8.0 // small padding
-        } else {
-            let is_insight_only = item.insight.is_some()
-                && item.thread.is_none()
-                && item.drafts.is_empty()
-                && !item.is_composing;
-            if is_insight_only {
-                60.0 // compact insight card
-            } else {
-                let comment_count = item.thread.as_ref().map(|t| t.comments.len()).unwrap_or(0);
-                let draft_count = item.drafts.len();
-                let compose_height = if item.is_composing { 100.0 } else { 0.0 };
-                let insight_height = if item.insight.is_some() { 40.0 } else { 0.0 };
-                // Generous: ~90px per comment (author line + wrapped body), 60px per draft
-                (comment_count as f32 * 90.0)
-                    + (draft_count as f32 * 60.0)
-                    + compose_height
-                    + insight_height
-                    + 30.0 // line badge + reply button + padding
-            }
-        };
+        let estimated_height = estimate_floating_item_height(item, last_actual_heights);
 
         let actual_y = ideal_y.max(prev_bottom + CARD_GAP);
         prev_bottom = actual_y + estimated_height;
@@ -1017,6 +986,36 @@ fn layout_floating_cards(
     }
 
     cards
+}
+
+/// Estimate a floating item's rendered height.
+fn estimate_floating_item_height(
+    item: &FloatingItem,
+    last_actual_heights: &rustc_hash::FxHashMap<usize, f32>,
+) -> f32 {
+    // Use the measured height from the previous frame if available.
+    if let Some(&h) = last_actual_heights.get(&item.line_num) {
+        return h + 8.0;
+    }
+
+    let is_insight_only = item.insight.is_some()
+        && item.thread.is_none()
+        && item.drafts.is_empty()
+        && !item.is_composing;
+    if is_insight_only {
+        return 70.0;
+    }
+
+    let comment_count = item.thread.as_ref().map(|t| t.comments.len()).unwrap_or(0);
+    let draft_count = item.drafts.len();
+    let compose_height = if item.is_composing { 110.0 } else { 0.0 };
+    let insight_height = if item.insight.is_some() { 50.0 } else { 0.0 };
+    // Generous estimate for first frame to reduce bottom clipping.
+    (comment_count as f32 * 98.0)
+        + (draft_count as f32 * 68.0)
+        + compose_height
+        + insight_height
+        + 36.0
 }
 
 // =============================================================================
@@ -1043,7 +1042,6 @@ fn render_floating_card(
 ) -> FloatingCardAction {
     let accent = theme.accent_primary();
     let thread_key = (file_path.to_string(), line_num);
-    let card_width = ui.available_width();
 
     let mut action = FloatingCardAction {
         submit: None,
@@ -1052,28 +1050,33 @@ fn render_floating_card(
         toggle_resolve: None,
     };
 
-    ui.set_max_width(card_width);
-
     // ── Line number badge + resolve state ──
     ui.horizontal(|ui| {
-        ui.label(
-            RichText::new(format!("L{line_num}"))
-                .color(theme.text_secondary().gamma_multiply(0.6))
-                .font(typography::monospace(typography::XS)),
-        );
+        egui::Frame::new()
+            .fill(theme.bg_inset().gamma_multiply(0.75))
+            .corner_radius(3.0)
+            .inner_margin(egui::Margin::symmetric(6, 2))
+            .show(ui, |ui| {
+                ui.label(
+                    RichText::new(format!("L{line_num}"))
+                        .color(theme.text_secondary())
+                        .font(typography::monospace(typography::XS)),
+                );
+            });
         if thread.is_some() && is_resolved {
-            ui.add_space(4.0);
-            ui.label(
-                RichText::new(format!(
-                    "{} Resolved",
-                    egui_nerdfonts::regular::CHECK_CIRCLE
-                ))
-                .color(theme.diff_added_text().gamma_multiply(0.85))
-                .font(typography::proportional(typography::XS)),
-            );
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.label(
+                    RichText::new(format!(
+                        "{} Resolved",
+                        egui_nerdfonts::regular::CHECK_CIRCLE
+                    ))
+                    .color(theme.diff_added_text().gamma_multiply(0.85))
+                    .font(typography::proportional(typography::XS)),
+                );
+            });
         }
     });
-    ui.add_space(2.0);
+    ui.add_space(4.0);
 
     // ── Thread comments ──
     if let Some(thread) = thread {
@@ -1090,14 +1093,7 @@ fn render_floating_card(
 
         for (i, comment) in visible_comments.iter().enumerate() {
             if i > 0 {
-                ui.add_space(2.0);
-                let rect = ui.available_rect_before_wrap();
-                ui.painter().hline(
-                    rect.left()..=(rect.right()),
-                    rect.top(),
-                    egui::Stroke::new(0.5, theme.border_subtle()),
-                );
-                ui.add_space(2.0);
+                ui.add_space(4.0);
             }
             render_floating_comment_body(ui, theme, comment, avatar_textures);
         }
@@ -1164,17 +1160,28 @@ fn render_floating_card(
             ui.add_space(4.0);
         }
 
-        let response = ui.add(
-            egui::TextEdit::multiline(comment_input)
-                .hint_text(if thread.is_some() {
-                    "Reply..."
-                } else {
-                    "Add a comment..."
-                })
-                .desired_rows(2)
-                .desired_width(ui.available_width())
-                .font(typography::proportional(typography::XS)),
-        );
+        let response = egui::Frame::new()
+            .fill(theme.bg_elevated())
+            .stroke(egui::Stroke::new(
+                1.0,
+                theme.border_subtle().gamma_multiply(0.8),
+            ))
+            .corner_radius(CARD_CORNER_RADIUS)
+            .inner_margin(egui::Margin::symmetric(6, 4))
+            .show(ui, |ui| {
+                ui.add(
+                    egui::TextEdit::multiline(comment_input)
+                        .hint_text(if thread.is_some() {
+                            "Reply..."
+                        } else {
+                            "Add a comment..."
+                        })
+                        .desired_rows(2)
+                        .desired_width(ui.available_width())
+                        .font(typography::proportional(typography::XS)),
+                )
+            })
+            .inner;
 
         if response.gained_focus() || comment_input.is_empty() {
             response.request_focus();
@@ -1271,7 +1278,7 @@ fn render_floating_card(
 
 /// Render an AI insight inside a floating card.
 ///
-/// Uses a distinct visual style (sparkle icon, colored kind label) to
+/// Uses a distinct visual style ("AI" badge + colored kind label) to
 /// differentiate from human comments.
 fn render_floating_insight(
     ui: &mut egui::Ui,
@@ -1287,67 +1294,93 @@ fn render_floating_insight(
         InsightKind::Context => ("Context", theme.text_secondary()),
     };
 
-    ui.label(
-        RichText::new(kind_label)
-            .color(kind_color)
-            .font(typography::proportional(typography::XS))
-            .strong(),
-    );
-    ui.add_space(2.0);
-    ui.label(
-        RichText::new(&insight.text)
-            .color(theme.text_primary().gamma_multiply(0.85))
-            .font(typography::proportional(typography::XS)),
-    );
-
-    // Suggested change code block
-    if let Some(ref change) = insight.suggested_change {
-        ui.add_space(4.0);
-        let code_bg = theme.diff_added_bg().gamma_multiply(0.4);
-        egui::Frame::default()
-            .fill(code_bg)
-            .stroke(egui::Stroke::new(
-                1.0,
-                theme.diff_added_gutter().gamma_multiply(0.2),
-            ))
-            .corner_radius(4.0)
-            .inner_margin(egui::Margin::symmetric(8, 6))
-            .show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    ui.label(
-                        RichText::new("Suggested change")
-                            .color(theme.text_secondary())
-                            .font(typography::proportional(typography::XS))
-                            .strong(),
-                    );
-
-                    // Copy button (pushed to the right)
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        let copy_label = format!("{} Copy", egui_nerdfonts::regular::CONTENT_COPY);
-                        let copy_btn = ui.add(
-                            egui::Button::new(
-                                RichText::new(copy_label)
-                                    .size(typography::XS)
-                                    .color(theme.text_secondary()),
-                            )
-                            .frame(false),
+    egui::Frame::new()
+        .fill(theme.bg_elevated())
+        .stroke(egui::Stroke::new(
+            1.0,
+            theme.border_subtle().gamma_multiply(0.8),
+        ))
+        .corner_radius(CARD_CORNER_RADIUS)
+        .inner_margin(egui::Margin::symmetric(8, 6))
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                egui::Frame::new()
+                    .fill(kind_color.gamma_multiply(0.12))
+                    .corner_radius(3.0)
+                    .inner_margin(egui::Margin::symmetric(4, 1))
+                    .show(ui, |ui| {
+                        ui.label(
+                            RichText::new("AI")
+                                .color(kind_color.gamma_multiply(0.95))
+                                .font(typography::proportional(typography::XS))
+                                .strong(),
                         );
-                        if copy_btn.clicked() {
-                            ui.ctx().copy_text(change.clone());
-                        }
-                        copy_btn.on_hover_text("Copy to clipboard");
                     });
-                });
-                ui.add_space(2.0);
                 ui.label(
-                    RichText::new(change)
-                        .color(theme.diff_added_text())
-                        .font(typography::monospace(typography::XS)),
+                    RichText::new(kind_label)
+                        .color(kind_color)
+                        .font(typography::proportional(typography::XS))
+                        .strong(),
                 );
             });
-    }
+            ui.add_space(2.0);
+            ui.label(
+                RichText::new(&insight.text)
+                    .color(theme.text_primary().gamma_multiply(0.85))
+                    .font(typography::proportional(typography::XS)),
+            );
 
-    ui.add_space(4.0);
+            // Suggested change code block
+            if let Some(ref change) = insight.suggested_change {
+                ui.add_space(4.0);
+                let code_bg = theme.diff_added_bg().gamma_multiply(0.4);
+                egui::Frame::default()
+                    .fill(code_bg)
+                    .stroke(egui::Stroke::new(
+                        1.0,
+                        theme.diff_added_gutter().gamma_multiply(0.2),
+                    ))
+                    .corner_radius(4.0)
+                    .inner_margin(egui::Margin::symmetric(8, 6))
+                    .show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            ui.label(
+                                RichText::new("Suggested change")
+                                    .color(theme.text_secondary())
+                                    .font(typography::proportional(typography::XS))
+                                    .strong(),
+                            );
+
+                            // Copy button (pushed to the right)
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    let copy_label =
+                                        format!("{} Copy", egui_nerdfonts::regular::CONTENT_COPY);
+                                    let copy_btn = ui.add(
+                                        egui::Button::new(
+                                            RichText::new(copy_label)
+                                                .size(typography::XS)
+                                                .color(theme.text_secondary()),
+                                        )
+                                        .frame(false),
+                                    );
+                                    if copy_btn.clicked() {
+                                        ui.ctx().copy_text(change.clone());
+                                    }
+                                    copy_btn.on_hover_text("Copy to clipboard");
+                                },
+                            );
+                        });
+                        ui.add_space(2.0);
+                        ui.label(
+                            RichText::new(change)
+                                .color(theme.diff_added_text())
+                                .font(typography::monospace(typography::XS)),
+                        );
+                    });
+            }
+        });
 }
 
 /// Render a single comment body inside a floating card (compact layout).
@@ -1357,74 +1390,96 @@ fn render_floating_comment_body(
     comment: &PrComment,
     avatar_textures: &rustc_hash::FxHashMap<String, egui::TextureHandle>,
 ) {
-    // Author line: avatar + name + time
-    ui.horizontal(|ui| {
-        let avatar_size = 14.0;
-        let (avatar_rect, _) =
-            ui.allocate_exact_size(egui::vec2(avatar_size, avatar_size), egui::Sense::hover());
-        let center = avatar_rect.center();
-        let radius = avatar_size / 2.0;
+    egui::Frame::new()
+        .fill(theme.bg_elevated())
+        .stroke(egui::Stroke::new(
+            1.0,
+            theme.border_subtle().gamma_multiply(0.8),
+        ))
+        .corner_radius(CARD_CORNER_RADIUS)
+        .inner_margin(egui::Margin::symmetric(8, 6))
+        .show(ui, |ui| {
+            // Author line: avatar + name + time
+            ui.horizontal(|ui| {
+                let avatar_size = 14.0;
+                let (avatar_rect, _) = ui.allocate_exact_size(
+                    egui::vec2(avatar_size, avatar_size),
+                    egui::Sense::hover(),
+                );
+                let center = avatar_rect.center();
+                let radius = avatar_size / 2.0;
 
-        if let Some(texture) = avatar_textures.get(&comment.user.login) {
-            let mut mesh = egui::Mesh::with_texture(texture.id());
-            let segments = 20;
-            mesh.vertices.push(egui::epaint::Vertex {
-                pos: center,
-                uv: egui::pos2(0.5, 0.5),
-                color: egui::Color32::WHITE,
-            });
-            for i in 0..=segments {
-                let angle = std::f32::consts::TAU * i as f32 / segments as f32;
-                let (sin, cos) = angle.sin_cos();
-                mesh.vertices.push(egui::epaint::Vertex {
-                    pos: center + egui::vec2(cos * radius, sin * radius),
-                    uv: egui::pos2(0.5 + cos * 0.5, 0.5 + sin * 0.5),
-                    color: egui::Color32::WHITE,
-                });
-                if i > 0 {
-                    mesh.indices.push(0);
-                    mesh.indices.push(i);
-                    mesh.indices.push(i + 1);
+                if let Some(texture) = avatar_textures.get(&comment.user.login) {
+                    let mut mesh = egui::Mesh::with_texture(texture.id());
+                    let segments = 20;
+                    mesh.vertices.push(egui::epaint::Vertex {
+                        pos: center,
+                        uv: egui::pos2(0.5, 0.5),
+                        color: egui::Color32::WHITE,
+                    });
+                    for i in 0..=segments {
+                        let angle = std::f32::consts::TAU * i as f32 / segments as f32;
+                        let (sin, cos) = angle.sin_cos();
+                        mesh.vertices.push(egui::epaint::Vertex {
+                            pos: center + egui::vec2(cos * radius, sin * radius),
+                            uv: egui::pos2(0.5 + cos * 0.5, 0.5 + sin * 0.5),
+                            color: egui::Color32::WHITE,
+                        });
+                        if i > 0 {
+                            mesh.indices.push(0);
+                            mesh.indices.push(i);
+                            mesh.indices.push(i + 1);
+                        }
+                    }
+                    ui.painter().add(egui::Shape::mesh(mesh));
+                } else {
+                    let letter = comment
+                        .user
+                        .login
+                        .chars()
+                        .next()
+                        .unwrap_or('?')
+                        .to_uppercase()
+                        .to_string();
+                    ui.painter().circle_filled(
+                        center,
+                        radius,
+                        theme.accent_primary().gamma_multiply(0.2),
+                    );
+                    ui.painter().text(
+                        center,
+                        egui::Align2::CENTER_CENTER,
+                        &letter,
+                        typography::proportional(7.0),
+                        theme.accent_primary(),
+                    );
                 }
-            }
-            ui.painter().add(egui::Shape::mesh(mesh));
-        } else {
-            let letter = comment
-                .user
-                .login
-                .chars()
-                .next()
-                .unwrap_or('?')
-                .to_uppercase()
-                .to_string();
-            ui.painter()
-                .circle_filled(center, radius, theme.accent_primary().gamma_multiply(0.2));
-            ui.painter().text(
-                center,
-                egui::Align2::CENTER_CENTER,
-                &letter,
-                typography::proportional(7.0),
-                theme.accent_primary(),
+
+                ui.add_space(4.0);
+                ui.label(
+                    RichText::new(&comment.user.login)
+                        .color(theme.text_primary())
+                        .font(typography::proportional(typography::XS))
+                        .strong(),
+                );
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.label(
+                        RichText::new(api::relative_time(&comment.created_at))
+                            .color(theme.text_secondary())
+                            .font(typography::proportional(typography::XS)),
+                    );
+                });
+            });
+
+            ui.add_space(3.0);
+
+            // Comment body — compact, wrapping text
+            crate::components::overlay::markdown_renderer::render_markdown(
+                ui,
+                &comment.body,
+                theme,
             );
-        }
-
-        ui.label(
-            RichText::new(&comment.user.login)
-                .color(theme.text_primary())
-                .font(typography::proportional(typography::XS))
-                .strong(),
-        );
-        ui.label(
-            RichText::new(api::relative_time(&comment.created_at))
-                .color(theme.text_secondary())
-                .font(typography::proportional(typography::XS)),
-        );
-    });
-
-    ui.add_space(1.0);
-
-    // Comment body — compact, wrapping text
-    crate::components::overlay::markdown_renderer::render_markdown(ui, &comment.body, theme);
+        });
 }
 
 // =============================================================================

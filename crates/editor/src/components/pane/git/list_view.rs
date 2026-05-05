@@ -442,13 +442,10 @@ impl PrReviewPane {
             },
         );
 
-        // PR list — reserve space for the footer keybinding hints
-        let footer_height = 32.0;
-        let scroll_max = (ui.available_height() - footer_height).max(40.0);
         let mut clicked_pr_number: Option<u32> = None;
         egui::ScrollArea::vertical()
             .id_salt("pr_list_scroll")
-            .max_height(scroll_max)
+            .max_height(ui.available_height())
             .auto_shrink([false, false])
             .show(ui, |ui| {
                 for (display_idx, &pr_idx) in filtered_indices.iter().enumerate() {
@@ -883,94 +880,6 @@ impl PrReviewPane {
         if let Some(number) = clicked_pr_number {
             self.open_pr(number);
         }
-
-        // ── Footer: keybinding hints (elevated) ──
-        let footer_rect = egui::Rect::from_min_size(
-            ui.cursor().left_top(),
-            egui::vec2(ui.available_width(), 30.0),
-        );
-        ui.painter()
-            .rect_filled(footer_rect, 0.0, theme.bg_elevated().gamma_multiply(0.5));
-        ui.painter().hline(
-            footer_rect.x_range(),
-            footer_rect.top(),
-            egui::Stroke::new(1.0, theme.border_subtle()),
-        );
-        ui.allocate_ui_with_layout(
-            egui::vec2(ui.available_width(), 30.0),
-            egui::Layout::left_to_right(egui::Align::Center),
-            |ui| {
-                ui.add_space(16.0);
-
-                let key_color = theme.text_secondary().gamma_multiply(0.5);
-                let sep_color = theme.text_secondary().gamma_multiply(0.25);
-                let accent_key = theme.accent_primary().gamma_multiply(0.6);
-                let key_font = typography::monospace(typography::XS);
-                let label_font = typography::proportional(typography::XS);
-
-                ui.label(RichText::new("/").color(accent_key).font(key_font.clone()));
-                ui.label(
-                    RichText::new("filter")
-                        .color(key_color)
-                        .font(label_font.clone()),
-                );
-                ui.label(
-                    RichText::new("\u{2022}")
-                        .color(sep_color)
-                        .font(label_font.clone()),
-                );
-                ui.label(RichText::new("j/k").color(key_color).font(key_font.clone()));
-                ui.label(
-                    RichText::new("navigate")
-                        .color(key_color)
-                        .font(label_font.clone()),
-                );
-                ui.label(
-                    RichText::new("\u{2022}")
-                        .color(sep_color)
-                        .font(label_font.clone()),
-                );
-                ui.label(
-                    RichText::new("Enter")
-                        .color(key_color)
-                        .font(key_font.clone()),
-                );
-                ui.label(
-                    RichText::new("open")
-                        .color(key_color)
-                        .font(label_font.clone()),
-                );
-                ui.label(
-                    RichText::new("\u{2022}")
-                        .color(sep_color)
-                        .font(label_font.clone()),
-                );
-                ui.label(RichText::new("g/G").color(key_color).font(key_font.clone()));
-                ui.label(
-                    RichText::new("top/bottom")
-                        .color(key_color)
-                        .font(label_font.clone()),
-                );
-                ui.label(
-                    RichText::new("\u{2022}")
-                        .color(sep_color)
-                        .font(label_font.clone()),
-                );
-                ui.label(RichText::new("r").color(key_color).font(key_font.clone()));
-                ui.label(
-                    RichText::new("refresh")
-                        .color(key_color)
-                        .font(label_font.clone()),
-                );
-                ui.label(
-                    RichText::new("\u{2022}")
-                        .color(sep_color)
-                        .font(label_font.clone()),
-                );
-                ui.label(RichText::new("1/2/3").color(key_color).font(key_font));
-                ui.label(RichText::new("segments").color(key_color).font(label_font));
-            },
-        );
     }
 }
 
