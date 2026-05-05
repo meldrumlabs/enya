@@ -542,7 +542,7 @@ impl PrReviewPane {
 
                 ui.add_space(4.0);
 
-                // ── Organize button ──
+                // ── Review button ──
                 if !narrow {
                     const BRAILLE_FRAMES: [char; 10] =
                         ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
@@ -556,40 +556,69 @@ impl PrReviewPane {
                         super::walkthrough::WalkthroughState::Ready(_)
                     );
 
+                    let text_color = if is_loading || is_ready {
+                        theme.accent_primary()
+                    } else {
+                        theme.text_primary()
+                    };
+
+                    let logo_size = typography::XS + 2.0;
+                    let logo = match self.ai_provider {
+                        super::AiProvider::Claude => {
+                            egui::Image::new(egui::include_image!("../../../../assets/claude.png"))
+                        }
+                        super::AiProvider::Codex => {
+                            egui::Image::new(egui::include_image!("../../../../assets/openai.png"))
+                        }
+                    }
+                    .tint(text_color)
+                    .max_size(egui::vec2(logo_size, logo_size));
+
                     let label = if is_loading {
                         let time = ui.ctx().input(|i| i.time);
                         let frame = ((time * 10.0) as usize) % BRAILLE_FRAMES.len();
                         ui.ctx().request_repaint();
-                        format!("{} Organizing...", BRAILLE_FRAMES[frame])
+                        format!("{} Reviewing...", BRAILLE_FRAMES[frame])
+                    } else if is_ready {
+                        "Reviewed".to_string()
                     } else {
-                        "Organize".to_string()
+                        "Review".to_string()
                     };
 
-                    let organize_btn = ui.add_enabled(
-                        !is_loading && !self.file_diffs.is_empty(),
-                        egui::Button::new(RichText::new(label).size(typography::XS).color(
-                            if is_loading || is_ready {
-                                theme.accent_primary()
+                    let review_btn = if is_loading {
+                        // Loading: no logo, just braille text (still disabled)
+                        ui.add(
+                            egui::Button::new(
+                                RichText::new(label).size(typography::XS).color(text_color),
+                            )
+                            .fill(theme.bg_elevated())
+                            .stroke(egui::Stroke::new(1.0, theme.border_subtle()))
+                            .corner_radius(4.0),
+                        )
+                    } else {
+                        ui.add_enabled(
+                            !self.file_diffs.is_empty(),
+                            egui::Button::image_and_text(
+                                logo,
+                                RichText::new(label).size(typography::XS).color(text_color),
+                            )
+                            .fill(if is_ready {
+                                theme.accent_primary().gamma_multiply(0.12)
                             } else {
-                                theme.text_primary()
-                            },
-                        ))
-                        .fill(if is_ready {
-                            theme.accent_primary().gamma_multiply(0.12)
-                        } else {
-                            theme.bg_elevated()
-                        })
-                        .stroke(egui::Stroke::new(
-                            1.0,
-                            if is_ready {
-                                theme.accent_primary().gamma_multiply(0.3)
-                            } else {
-                                theme.border_subtle()
-                            },
-                        ))
-                        .corner_radius(4.0),
-                    );
-                    if organize_btn.clicked() {
+                                theme.bg_elevated()
+                            })
+                            .stroke(egui::Stroke::new(
+                                1.0,
+                                if is_ready {
+                                    theme.accent_primary().gamma_multiply(0.3)
+                                } else {
+                                    theme.border_subtle()
+                                },
+                            ))
+                            .corner_radius(4.0),
+                        )
+                    };
+                    if review_btn.clicked() {
                         if is_ready {
                             self.walkthrough_state = super::walkthrough::WalkthroughState::Idle;
                         } else {
@@ -1170,194 +1199,141 @@ impl PrReviewPane {
                     });
                 });
         }
-
-        // Keybinding hints footer
-        self.render_keybinding_footer(ui, theme);
     }
 
-    /// Render keybinding hints at the bottom of the detail view.
-    fn render_keybinding_footer(&self, ui: &mut egui::Ui, theme: AppTheme) {
-        // Elevated footer bar
-        let footer_rect = egui::Rect::from_min_size(
-            ui.cursor().left_top(),
-            egui::vec2(ui.available_width(), 30.0),
-        );
-        ui.painter()
-            .rect_filled(footer_rect, 0.0, theme.bg_elevated().gamma_multiply(0.5));
-        ui.painter().hline(
-            footer_rect.x_range(),
-            footer_rect.top(),
-            egui::Stroke::new(1.0, theme.border_subtle()),
-        );
+    /// Render the AI review summary card when a walkthrough is ready.
+    fn show_review_card(&mut self, ui: &mut egui::Ui) {
+        let theme = self.theme;
+        let wt = match &self.walkthrough_state {
+            super::walkthrough::WalkthroughState::Ready(wt) => wt.clone(),
+            _ => return,
+        };
 
-        ui.allocate_ui_with_layout(
-            egui::vec2(ui.available_width(), 30.0),
-            egui::Layout::left_to_right(egui::Align::Center),
-            |ui| {
-                ui.add_space(16.0);
+        let agent_name = match self.ai_provider {
+            super::AiProvider::Claude => "Claude",
+            super::AiProvider::Codex => "Codex",
+        };
 
-                // Current file name only — the full path is already shown in the
-                // diff header toolbar, so repeating it here risks overlapping the
-                // keyboard hints on narrow panes.
-                if let Some(file_diff) = self.file_diffs.get(self.selected_file_index) {
-                    let name = file_diff
-                        .path
-                        .rfind('/')
-                        .map_or(file_diff.path.as_str(), |pos| &file_diff.path[pos + 1..]);
+        let card_bg = theme.bg_elevated();
+        let card_stroke = theme.border_subtle();
+
+        egui::Frame::default()
+            .fill(card_bg)
+            .stroke(egui::Stroke::new(1.0, card_stroke))
+            .corner_radius(6.0)
+            .inner_margin(egui::Margin::symmetric(12, 10))
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    // Header: Review by {Agent}
                     ui.label(
-                        RichText::new(name)
-                            .color(theme.text_secondary())
-                            .font(typography::monospace(typography::XS)),
-                    );
-                }
-
-                // Right-side keybinding hints with grouped styling
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.add_space(16.0);
-
-                    let key_color = theme.text_secondary().gamma_multiply(0.5);
-                    let sep_color = theme.text_secondary().gamma_multiply(0.25);
-                    let accent_key = theme.accent_primary().gamma_multiply(0.6);
-                    let key_font = typography::monospace(typography::XS);
-                    let label_font = typography::proportional(typography::XS);
-
-                    // Esc back (accent — primary escape action)
-                    ui.label(
-                        RichText::new("back")
-                            .color(key_color)
-                            .font(label_font.clone()),
-                    );
-                    ui.label(
-                        RichText::new("Esc")
-                            .color(accent_key)
-                            .font(key_font.clone()),
+                        RichText::new(format!("Review by {agent_name}"))
+                            .color(theme.text_primary())
+                            .font(typography::proportional(typography::SM))
+                            .strong(),
                     );
 
-                    ui.label(
-                        RichText::new("\u{2022}")
-                            .color(sep_color)
-                            .font(label_font.clone()),
-                    );
-
-                    // View mode
-                    let view_mode = if self.diff_renderer.split_view() {
-                        "split"
-                    } else {
-                        "stacked"
-                    };
-                    ui.label(
-                        RichText::new(view_mode)
-                            .color(key_color)
-                            .font(label_font.clone()),
-                    );
-                    ui.label(RichText::new("s").color(key_color).font(key_font.clone()));
-
-                    ui.label(
-                        RichText::new("\u{2022}")
-                            .color(sep_color)
-                            .font(label_font.clone()),
-                    );
-
-                    // Scroll
-                    ui.label(
-                        RichText::new("top/bottom")
-                            .color(key_color)
-                            .font(label_font.clone()),
-                    );
-                    ui.label(
-                        RichText::new("gg/G")
-                            .color(key_color)
-                            .font(key_font.clone()),
-                    );
-
-                    ui.label(
-                        RichText::new("\u{2022}")
-                            .color(sep_color)
-                            .font(label_font.clone()),
-                    );
-
-                    ui.label(
-                        RichText::new("scroll")
-                            .color(key_color)
-                            .font(label_font.clone()),
-                    );
-                    ui.label(RichText::new("j/k").color(key_color).font(key_font.clone()));
-
-                    // File navigation (only if multiple files)
-                    if self.file_diffs.len() > 1 {
-                        ui.label(
-                            RichText::new("\u{2022}")
-                                .color(sep_color)
-                                .font(label_font.clone()),
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        // Collapse/expand toggle
+                        let collapse_icon = if self.review_card_collapsed {
+                            egui_nerdfonts::regular::CHEVRON_DOWN
+                        } else {
+                            egui_nerdfonts::regular::CHEVRON_UP
+                        };
+                        let collapse_btn = ui.add(
+                            egui::Button::new(
+                                RichText::new(collapse_icon)
+                                    .size(typography::XS)
+                                    .color(theme.text_secondary()),
+                            )
+                            .fill(egui::Color32::TRANSPARENT)
+                            .stroke(egui::Stroke::NONE),
                         );
-                        ui.label(
-                            RichText::new("files")
-                                .color(key_color)
-                                .font(label_font.clone()),
+                        if collapse_btn.clicked() {
+                            self.review_card_collapsed = !self.review_card_collapsed;
+                        }
+
+                        // Dismiss button
+                        let dismiss_btn = ui.add(
+                            egui::Button::new(
+                                RichText::new("Dismiss")
+                                    .size(typography::XS)
+                                    .color(theme.text_secondary()),
+                            )
+                            .fill(egui::Color32::TRANSPARENT)
+                            .stroke(egui::Stroke::NONE),
                         );
-                        ui.label(RichText::new("n/p").color(key_color).font(key_font.clone()));
-                    }
-
-                    ui.label(
-                        RichText::new("\u{2022}")
-                            .color(sep_color)
-                            .font(label_font.clone()),
-                    );
-
-                    ui.label(
-                        RichText::new("viewed")
-                            .color(key_color)
-                            .font(label_font.clone()),
-                    );
-                    ui.label(RichText::new("v").color(key_color).font(key_font.clone()));
-
-                    ui.label(
-                        RichText::new("\u{2022}")
-                            .color(sep_color)
-                            .font(label_font.clone()),
-                    );
-
-                    ui.label(
-                        RichText::new("tree")
-                            .color(key_color)
-                            .font(label_font.clone()),
-                    );
-                    ui.label(RichText::new("t").color(key_color).font(key_font.clone()));
-
-                    ui.label(
-                        RichText::new("\u{2022}")
-                            .color(sep_color)
-                            .font(label_font.clone()),
-                    );
-
-                    ui.label(
-                        RichText::new("unresolved")
-                            .color(key_color)
-                            .font(label_font.clone()),
-                    );
-                    ui.label(RichText::new("u").color(key_color).font(key_font.clone()));
-
-                    ui.label(
-                        RichText::new("\u{2022}")
-                            .color(sep_color)
-                            .font(label_font.clone()),
-                    );
-
-                    ui.label(
-                        RichText::new("resolve")
-                            .color(key_color)
-                            .font(label_font.clone()),
-                    );
-                    ui.label(RichText::new("R").color(key_color).font(key_font));
+                        if dismiss_btn.clicked() {
+                            self.walkthrough_state = super::walkthrough::WalkthroughState::Idle;
+                        }
+                    });
                 });
-            },
-        );
+
+                if !self.review_card_collapsed {
+                    ui.add_space(6.0);
+
+                    // Verdict and risk badges
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            RichText::new(wt.verdict.label())
+                                .color(wt.verdict.theme_color(&theme))
+                                .font(typography::proportional(typography::XS))
+                                .strong(),
+                        );
+
+                        ui.label(
+                            RichText::new("•")
+                                .color(theme.text_secondary().gamma_multiply(0.5))
+                                .font(typography::proportional(typography::XS)),
+                        );
+
+                        ui.label(
+                            RichText::new(format!("Risk: {}", wt.risk_level.label()))
+                                .color(wt.risk_level.theme_color(&theme))
+                                .font(typography::proportional(typography::XS)),
+                        );
+                    });
+
+                    ui.add_space(6.0);
+
+                    // Summary text
+                    ui.label(
+                        RichText::new(&wt.summary)
+                            .color(theme.text_primary().gamma_multiply(0.85))
+                            .font(typography::proportional(typography::SM)),
+                    );
+
+                    // Top concerns
+                    if !wt.top_concerns.is_empty() {
+                        ui.add_space(6.0);
+                        for concern in &wt.top_concerns {
+                            ui.horizontal(|ui| {
+                                ui.label(
+                                    RichText::new("•")
+                                        .color(theme.diff_removed_text())
+                                        .font(typography::proportional(typography::SM)),
+                                );
+                                ui.label(
+                                    RichText::new(concern)
+                                        .color(theme.text_primary().gamma_multiply(0.8))
+                                        .font(typography::proportional(typography::XS)),
+                                );
+                            });
+                        }
+                    }
+                }
+            });
+
+        ui.add_space(8.0);
     }
 
     /// Render the Files tab — file list + diff view.
     fn show_files_tab(&mut self, ui: &mut egui::Ui) {
         let theme = self.theme;
-        let available_height = (ui.available_height() - 50.0).max(100.0);
+
+        // AI review card (rendered above the split layout)
+        self.show_review_card(ui);
+
+        let available_height = ui.available_height().max(100.0);
         let total_width = ui.available_width();
 
         // Auto-collapse/expand file panel based on pane width.
