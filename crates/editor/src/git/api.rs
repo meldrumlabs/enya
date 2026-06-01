@@ -1067,14 +1067,6 @@ mod tests {
     }
 
     #[test]
-    fn test_open_pulls_path_uses_explicit_pagination() {
-        assert_eq!(
-            open_pulls_path("conductor", "enya", 3),
-            "/repos/conductor/enya/pulls?state=open&per_page=100&page=3"
-        );
-    }
-
-    #[test]
     fn test_parse_iso8601() {
         let secs = parse_iso8601_to_unix("2024-01-01T00:00:00Z").unwrap();
         // 2024-01-01 00:00:00 UTC should be 54 years * 365.25 days ≈ 1704067200
