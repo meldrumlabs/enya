@@ -5,6 +5,9 @@
 
 use serde::{Deserialize, Serialize};
 
+const GITHUB_PAGE_SIZE: usize = 100;
+const MAX_PULL_FILES_PAGES: u32 = 30; // GitHub caps PR file listings at 3000 files.
+
 // ── WASM-aware base URL ─────────────────────────────────────────────────
 
 fn github_api_base() -> &'static str {
@@ -300,12 +303,27 @@ pub async fn list_open_pulls(
     owner: &str,
     repo: &str,
 ) -> Result<Vec<PullRequest>, String> {
-    api_get(
-        client,
-        token,
-        &format!("/repos/{owner}/{repo}/pulls?state=open&per_page=30"),
-    )
-    .await
+    let mut all_pulls = Vec::new();
+    let mut page = 1u32;
+
+    loop {
+        let batch: Vec<PullRequest> =
+            api_get(client, token, &open_pulls_path(owner, repo, page)).await?;
+
+        let done = batch.len() < GITHUB_PAGE_SIZE;
+        all_pulls.extend(batch);
+
+        if done {
+            break;
+        }
+        page += 1;
+    }
+
+    Ok(all_pulls)
+}
+
+fn open_pulls_path(owner: &str, repo: &str, page: u32) -> String {
+    format!("/repos/{owner}/{repo}/pulls?state=open&per_page={GITHUB_PAGE_SIZE}&page={page}")
 }
 
 /// Get a single pull request (includes additions/deletions/changed_files).
@@ -440,14 +458,16 @@ pub async fn get_pull_files(
         let batch: Vec<PrFile> = api_get(
             client,
             token,
-            &format!("/repos/{owner}/{repo}/pulls/{number}/files?per_page=100&page={page}"),
+            &format!(
+                "/repos/{owner}/{repo}/pulls/{number}/files?per_page={GITHUB_PAGE_SIZE}&page={page}"
+            ),
         )
         .await?;
 
-        let done = batch.len() < 100;
+        let done = batch.len() < GITHUB_PAGE_SIZE;
         all_files.extend(batch);
 
-        if done || page >= 30 {
+        if done || page >= MAX_PULL_FILES_PAGES {
             break;
         }
         page += 1;
